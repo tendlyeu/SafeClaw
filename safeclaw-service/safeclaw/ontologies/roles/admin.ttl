@@ -1,0 +1,11 @@
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
+@prefix sp: <http://safeclaw.uku.ai/ontology/policy#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+sp:AdminRole a sp:Role ;
+    rdfs:label "Admin" ;
+    rdfs:comment "Full access. All actions allowed with warn-only enforcement." ;
+    sp:allowsAction sc:AllActions ;
+    sp:autonomyLevel "full" ;
+    sp:enforcementMode "warn-only" .

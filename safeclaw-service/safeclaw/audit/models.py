@@ -39,6 +39,7 @@ class DecisionRecord(BaseModel):
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     session_id: str
     user_id: str
+    agent_id: str = ""
     action: ActionDetail
     decision: str  # "allowed" | "blocked" | "allowed_with_warning"
     justification: Justification

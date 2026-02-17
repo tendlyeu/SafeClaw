@@ -5,11 +5,15 @@ import logging
 from fastapi import APIRouter, Query
 
 from safeclaw.api.models import (
+    AgentRegisterRequest,
+    AgentRegisterResponse,
     AgentStartRequest,
     ContextResponse,
     DecisionResponse,
     LlmIORequest,
     MessageRequest,
+    TempGrantRequest,
+    TempGrantResponse,
     ToolCallRequest,
     ToolResultRequest,
 )
@@ -34,6 +38,8 @@ async def evaluate_tool_call(request: ToolCallRequest) -> DecisionResponse:
         tool_name=request.toolName,
         params=request.params,
         session_history=request.sessionHistory,
+        agent_id=request.agentId,
+        agent_token=request.agentToken,
     )
     decision = await engine.evaluate_tool_call(event)
     return DecisionResponse(
@@ -51,6 +57,8 @@ async def evaluate_message(request: MessageRequest) -> DecisionResponse:
         user_id=request.userId,
         to=request.to,
         content=request.content,
+        agent_id=request.agentId,
+        agent_token=request.agentToken,
     )
     decision = await engine.evaluate_message(event)
     return DecisionResponse(
@@ -66,6 +74,8 @@ async def build_context(request: AgentStartRequest) -> ContextResponse:
     event = AgentStartEvent(
         session_id=request.sessionId,
         user_id=request.userId,
+        agent_id=request.agentId,
+        agent_token=request.agentToken,
     )
     result = await engine.build_context(event)
     return ContextResponse(prependContext=result.prepend_context)
@@ -80,6 +90,8 @@ async def record_tool_result(request: ToolResultRequest):
         params=request.params,
         result=request.result,
         success=request.success,
+        agent_id=request.agentId,
+        agent_token=request.agentToken,
     )
     await engine.record_action_result(event)
     return {"ok": True}
@@ -92,6 +104,8 @@ async def log_llm_input(request: LlmIORequest):
         session_id=request.sessionId,
         direction="input",
         content=request.content,
+        agent_id=request.agentId,
+        agent_token=request.agentToken,
     )
     await engine.log_llm_io(event)
     return {"ok": True}
@@ -104,6 +118,8 @@ async def log_llm_output(request: LlmIORequest):
         session_id=request.sessionId,
         direction="output",
         content=request.content,
+        agent_id=request.agentId,
+        agent_token=request.agentToken,
     )
     await engine.log_llm_io(event)
     return {"ok": True}
@@ -186,3 +202,74 @@ async def ontology_search(q: str = Query(...)):
     engine = _get_engine()
     builder = GraphBuilder(engine.kg)
     return {"results": builder.search_nodes(q)}
+
+
+@router.post("/agents/register", response_model=AgentRegisterResponse)
+async def register_agent(request: AgentRegisterRequest) -> AgentRegisterResponse:
+    engine = _get_engine()
+    token = engine.agent_registry.register_agent(
+        agent_id=request.agentId,
+        role=request.role,
+        session_id=request.sessionId,
+        parent_id=request.parentId,
+    )
+    return AgentRegisterResponse(agentId=request.agentId, token=token, role=request.role)
+
+
+@router.post("/agents/{agent_id}/kill")
+async def kill_agent(agent_id: str):
+    engine = _get_engine()
+    engine.agent_registry.kill_agent(agent_id)
+    return {"ok": True, "agentId": agent_id, "killed": True}
+
+
+@router.post("/agents/{agent_id}/revive")
+async def revive_agent(agent_id: str):
+    engine = _get_engine()
+    engine.agent_registry.revive_agent(agent_id)
+    return {"ok": True, "agentId": agent_id, "killed": False}
+
+
+@router.get("/agents")
+async def list_agents():
+    engine = _get_engine()
+    agents = engine.agent_registry.list_agents()
+    return {"agents": [
+        {"agentId": a.agent_id, "role": a.role, "parentId": a.parent_id, "killed": a.killed}
+        for a in agents
+    ]}
+
+
+@router.post("/agents/{agent_id}/temp-grant", response_model=TempGrantResponse)
+async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> TempGrantResponse:
+    engine = _get_engine()
+    grant_id = engine.temp_permissions.grant(
+        agent_id=agent_id,
+        permission=request.permission,
+        duration_seconds=request.durationSeconds,
+        task_id=request.taskId,
+    )
+    expires_at = None
+    grants = engine.temp_permissions.list_grants(agent_id)
+    for g in grants:
+        if g.id == grant_id and g.expires_at is not None:
+            from datetime import datetime, timezone
+            import time
+            # Convert monotonic to approximate wall clock
+            wall_time = time.time() + (g.expires_at - time.monotonic())
+            expires_at = datetime.fromtimestamp(wall_time, tz=timezone.utc).isoformat()
+    return TempGrantResponse(grantId=grant_id, expiresAt=expires_at)
+
+
+@router.delete("/agents/{agent_id}/temp-grant/{grant_id}")
+async def revoke_temp_permission(agent_id: str, grant_id: str):
+    engine = _get_engine()
+    engine.temp_permissions.revoke(grant_id)
+    return {"ok": True}
+
+
+@router.post("/tasks/{task_id}/complete")
+async def complete_task(task_id: str):
+    engine = _get_engine()
+    count = engine.temp_permissions.complete_task(task_id)
+    return {"ok": True, "taskId": task_id, "grantsRevoked": count}

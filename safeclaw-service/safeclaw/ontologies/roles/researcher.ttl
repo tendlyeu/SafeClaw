@@ -1,0 +1,12 @@
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
+@prefix sp: <http://safeclaw.uku.ai/ontology/policy#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+sp:ResearcherRole a sp:Role ;
+    rdfs:label "Researcher" ;
+    rdfs:comment "Read-only access. Can search and read files but cannot modify, delete, or execute." ;
+    sp:allowsAction sc:ReadFile, sc:ListFiles, sc:SearchFiles ;
+    sp:deniesAction sc:WriteFile, sc:EditFile, sc:DeleteFile, sc:GitPush, sc:GitForcePush, sc:ShellAction, sc:SendMessage ;
+    sp:autonomyLevel "supervised" ;
+    sp:enforcementMode "enforce" .

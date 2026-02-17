@@ -19,6 +19,8 @@ interface SafeClawPluginConfig {
   timeoutMs: number;
   enabled: boolean;
   enforcement: 'enforce' | 'warn-only' | 'audit-only' | 'disabled';
+  agentId: string;
+  agentToken: string;
 }
 
 function loadConfig(): SafeClawPluginConfig {
@@ -28,6 +30,8 @@ function loadConfig(): SafeClawPluginConfig {
     timeoutMs: parseInt(process.env.SAFECLAW_TIMEOUT_MS ?? '500', 10),
     enabled: process.env.SAFECLAW_ENABLED !== 'false',
     enforcement: (process.env.SAFECLAW_ENFORCEMENT as SafeClawPluginConfig['enforcement']) ?? 'enforce',
+    agentId: process.env.SAFECLAW_AGENT_ID ?? '',
+    agentToken: process.env.SAFECLAW_AGENT_TOKEN ?? '',
   };
 
   // Try loading from config file
@@ -40,6 +44,8 @@ function loadConfig(): SafeClawPluginConfig {
       if (raw.remote?.apiKey) defaults.apiKey = raw.remote.apiKey;
       if (raw.remote?.timeoutMs) defaults.timeoutMs = raw.remote.timeoutMs;
       if (raw.enforcement?.mode) defaults.enforcement = raw.enforcement.mode;
+      if (raw.agentId) defaults.agentId = raw.agentId;
+      if (raw.agentToken) defaults.agentToken = raw.agentToken;
     } catch {
       // Config file unreadable — use defaults
     }
@@ -52,7 +58,7 @@ const config = loadConfig();
 
 // --- HTTP Client ---
 
-async function post(path: string, body: unknown): Promise<Record<string, unknown> | null> {
+async function post(path: string, body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   if (!config.enabled) return null;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -64,7 +70,7 @@ async function post(path: string, body: unknown): Promise<Record<string, unknown
     const res = await fetch(`${config.serviceUrl}${path}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, agentId: config.agentId, agentToken: config.agentToken }),
       signal: AbortSignal.timeout(config.timeoutMs),
     });
     if (!res.ok) return null;

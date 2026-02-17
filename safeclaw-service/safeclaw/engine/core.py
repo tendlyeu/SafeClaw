@@ -11,6 +11,8 @@ class ToolCallEvent:
     tool_name: str
     params: dict
     session_history: list[str] = field(default_factory=list)
+    agent_id: str = ""
+    agent_token: str = ""
 
 
 @dataclass
@@ -19,12 +21,16 @@ class MessageEvent:
     user_id: str
     to: str
     content: str
+    agent_id: str = ""
+    agent_token: str = ""
 
 
 @dataclass
 class AgentStartEvent:
     session_id: str
     user_id: str
+    agent_id: str = ""
+    agent_token: str = ""
 
 
 @dataclass
@@ -34,6 +40,8 @@ class ToolResultEvent:
     params: dict
     result: str
     success: bool
+    agent_id: str = ""
+    agent_token: str = ""
 
 
 @dataclass
@@ -41,6 +49,8 @@ class LlmIOEvent:
     session_id: str
     direction: str  # "input" or "output"
     content: str
+    agent_id: str = ""
+    agent_token: str = ""
 
 
 @dataclass
