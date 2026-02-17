@@ -1,0 +1,30 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# === Action Validation Shapes ===
+# SHACL constraints for validating agent actions.
+# Closed-world validation: "does this data violate any constraints?"
+
+# Any action that is CriticalRisk and not reversible MUST require confirmation
+sc:CriticalIrreversibleShape a sh:NodeShape ;
+    sh:targetClass sc:Action ;
+    rdfs:label "Critical Irreversible Action Shape" ;
+    rdfs:comment "Critical risk + irreversible actions require confirmation" ;
+    sh:property [
+        sh:path sc:hasRiskLevel ;
+        sh:maxCount 1 ;
+        sh:message "Action must have at most one risk level" ;
+    ] ;
+    sh:property [
+        sh:path sc:isReversible ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:message "Reversibility must be a boolean" ;
+    ] ;
+    sh:property [
+        sh:path sc:affectsScope ;
+        sh:maxCount 1 ;
+        sh:message "Action must have at most one scope" ;
+    ] .

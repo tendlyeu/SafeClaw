@@ -1,0 +1,32 @@
+{
+  "name": "safeclaw",
+  "version": "0.1.0",
+  "description": "SafeClaw Neurosymbolic Governance plugin for OpenClaw",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist/",
+    "index.ts",
+    "SKILL.md"
+  ],
+  "keywords": [
+    "openclaw",
+    "safeclaw",
+    "governance",
+    "neurosymbolic",
+    "ai-safety"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

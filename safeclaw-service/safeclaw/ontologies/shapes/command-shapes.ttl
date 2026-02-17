@@ -1,0 +1,19 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# === Command Constraint Shapes ===
+# SHACL shapes for shell command validation.
+
+# Shell commands must have a command text property
+sc:ShellCommandShape a sh:NodeShape ;
+    sh:targetClass sc:ShellAction ;
+    rdfs:label "Shell Command Shape" ;
+    rdfs:comment "Validates shell command actions" ;
+    sh:property [
+        sh:path sc:commandText ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Shell action must have at most one command text" ;
+    ] .

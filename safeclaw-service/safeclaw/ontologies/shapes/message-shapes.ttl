@@ -1,0 +1,17 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# === Message Policy Shapes ===
+# SHACL shapes for message validation.
+
+sc:MessageActionShape a sh:NodeShape ;
+    sh:targetClass sc:MessageAction ;
+    rdfs:label "Message Action Shape" ;
+    rdfs:comment "Validates message sending actions" ;
+    sh:property [
+        sh:path sc:affectsScope ;
+        sh:hasValue sc:ExternalWorld ;
+        sh:message "Message actions always affect the external world" ;
+    ] .

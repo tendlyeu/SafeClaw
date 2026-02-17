@@ -1,0 +1,111 @@
+@prefix su: <http://safeclaw.ai/ontology/user#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# === User Preference Ontology ===
+# Per-user preferences stored as OWL triples.
+# These act as hard constraints on agent behavior.
+
+<http://safeclaw.ai/ontology/user> a owl:Ontology ;
+    rdfs:label "SafeClaw User Preference Ontology" ;
+    rdfs:comment "Defines user preferences that act as hard behavioral constraints" .
+
+# --- User Class ---
+su:User a owl:Class ;
+    rdfs:label "User" .
+
+su:hasPreference a owl:ObjectProperty ;
+    rdfs:domain su:User ;
+    rdfs:range su:Preference ;
+    rdfs:label "has preference" .
+
+# --- Preference Categories ---
+su:Preference a owl:Class ;
+    rdfs:label "Preference" .
+
+su:CodingPreference a owl:Class ;
+    rdfs:subClassOf su:Preference ;
+    rdfs:label "Coding Preference" .
+
+su:CommunicationPreference a owl:Class ;
+    rdfs:subClassOf su:Preference ;
+    rdfs:label "Communication Preference" .
+
+su:SafetyPreference a owl:Class ;
+    rdfs:subClassOf su:Preference ;
+    rdfs:label "Safety Preference" .
+
+su:SchedulingPreference a owl:Class ;
+    rdfs:subClassOf su:Preference ;
+    rdfs:label "Scheduling Preference" .
+
+# --- Preference Properties ---
+su:autonomyLevel a owl:DatatypeProperty ;
+    rdfs:domain su:SafetyPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "autonomy level" ;
+    rdfs:comment "Values: full | high | moderate | cautious | supervised" .
+
+su:confirmBeforeDelete a owl:DatatypeProperty ;
+    rdfs:domain su:SafetyPreference ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "confirm before delete" .
+
+su:confirmBeforePush a owl:DatatypeProperty ;
+    rdfs:domain su:SafetyPreference ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "confirm before push" .
+
+su:confirmBeforeSend a owl:DatatypeProperty ;
+    rdfs:domain su:SafetyPreference ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "confirm before send" .
+
+su:preferredLanguage a owl:DatatypeProperty ;
+    rdfs:domain su:CodingPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "preferred language" .
+
+su:preferredTestFramework a owl:DatatypeProperty ;
+    rdfs:domain su:CodingPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "preferred test framework" .
+
+su:neverModifyPaths a owl:DatatypeProperty ;
+    rdfs:domain su:SafetyPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "never modify paths" .
+
+su:maxFilesPerCommit a owl:DatatypeProperty ;
+    rdfs:domain su:CodingPreference ;
+    rdfs:range xsd:integer ;
+    rdfs:label "max files per commit" .
+
+su:toneOfVoice a owl:DatatypeProperty ;
+    rdfs:domain su:CommunicationPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "tone of voice" .
+
+su:maxMessageLength a owl:DatatypeProperty ;
+    rdfs:domain su:CommunicationPreference ;
+    rdfs:range xsd:integer ;
+    rdfs:label "max message length" .
+
+su:neverContactList a owl:DatatypeProperty ;
+    rdfs:domain su:CommunicationPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "never contact list" .
+
+# === Default User ===
+su:DefaultUser a su:User ;
+    rdfs:label "Default User" ;
+    su:hasPreference su:DefaultSafetyPrefs .
+
+su:DefaultSafetyPrefs a su:SafetyPreference ;
+    su:autonomyLevel "moderate" ;
+    su:confirmBeforeDelete true ;
+    su:confirmBeforePush true ;
+    su:confirmBeforeSend true ;
+    rdfs:label "Default Safety Preferences" .

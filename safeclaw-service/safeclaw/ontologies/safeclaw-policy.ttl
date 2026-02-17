@@ -1,0 +1,128 @@
+@prefix sp: <http://safeclaw.ai/ontology/policy#> .
+@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# === Domain Policy Ontology ===
+# Defines organizational/project-specific rules.
+# Prohibitions, Obligations, and Permissions (deontic logic).
+
+<http://safeclaw.ai/ontology/policy> a owl:Ontology ;
+    rdfs:label "SafeClaw Domain Policy Ontology" ;
+    rdfs:comment "Defines governance rules: what MUST, MUST NOT, and MAY happen" .
+
+# --- Policy Classes ---
+sp:Policy a owl:Class ;
+    rdfs:label "Policy" .
+
+sp:Constraint a owl:Class ;
+    rdfs:label "Constraint" .
+
+sp:Prohibition a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Prohibition" ;
+    rdfs:comment "MUST NOT - actions that are forbidden" .
+
+sp:Obligation a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Obligation" ;
+    rdfs:comment "MUST - actions that are required" .
+
+sp:Permission a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Permission" ;
+    rdfs:comment "MAY - actions that are explicitly allowed" .
+
+# --- Constraint Subtypes ---
+sp:PathConstraint a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Path Constraint" .
+
+sp:CommandConstraint a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Command Constraint" .
+
+sp:TemporalConstraint a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Temporal Constraint" .
+
+sp:DependencyConstraint a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "Dependency Constraint" .
+
+# --- Properties ---
+sp:reason a owl:DatatypeProperty ;
+    rdfs:domain sp:Constraint ;
+    rdfs:range xsd:string ;
+    rdfs:label "reason" ;
+    rdfs:comment "Human-readable explanation of why this constraint exists" .
+
+sp:appliesTo a owl:ObjectProperty ;
+    rdfs:domain sp:Constraint ;
+    rdfs:range sc:Action ;
+    rdfs:label "applies to" .
+
+sp:forbiddenPathPattern a owl:DatatypeProperty ;
+    rdfs:domain sp:PathConstraint ;
+    rdfs:range xsd:string ;
+    rdfs:label "forbidden path pattern" .
+
+sp:forbiddenCommandPattern a owl:DatatypeProperty ;
+    rdfs:domain sp:CommandConstraint ;
+    rdfs:range xsd:string ;
+    rdfs:label "forbidden command pattern" .
+
+sp:notBefore a owl:DatatypeProperty ;
+    rdfs:domain sp:TemporalConstraint ;
+    rdfs:range xsd:time ;
+    rdfs:label "not before" .
+
+sp:notAfter a owl:DatatypeProperty ;
+    rdfs:domain sp:TemporalConstraint ;
+    rdfs:range xsd:time ;
+    rdfs:label "not after" .
+
+sp:requiresBefore a owl:ObjectProperty ;
+    rdfs:domain sp:DependencyConstraint ;
+    rdfs:range sc:Action ;
+    rdfs:label "requires before" .
+
+# === Default Policies ===
+
+# --- Path Constraints ---
+sp:NoEnvFiles a sp:Prohibition, sp:PathConstraint ;
+    sp:forbiddenPathPattern ".*\\.env.*" ;
+    sp:reason "Environment files may contain secrets" ;
+    rdfs:label "No .env file access" .
+
+sp:NoCredentialFiles a sp:Prohibition, sp:PathConstraint ;
+    sp:forbiddenPathPattern ".*(credentials|secrets|tokens).*" ;
+    sp:reason "Credential files contain sensitive data" ;
+    rdfs:label "No credential file access" .
+
+# --- Command Constraints ---
+sp:NoForcePush a sp:Prohibition, sp:CommandConstraint ;
+    sp:forbiddenCommandPattern "git push.*--force" ;
+    sp:reason "Force push can destroy shared history" ;
+    sp:appliesTo sc:ForcePush ;
+    rdfs:label "No force push" .
+
+sp:NoRootDelete a sp:Prohibition, sp:CommandConstraint ;
+    sp:forbiddenCommandPattern "rm\\s+-rf\\s+/" ;
+    sp:reason "Recursive deletion of root paths is prohibited" ;
+    rdfs:label "No recursive root deletion" .
+
+sp:NoResetHard a sp:Prohibition, sp:CommandConstraint ;
+    sp:forbiddenCommandPattern "git reset --hard" ;
+    sp:reason "Hard reset can destroy uncommitted work" ;
+    sp:appliesTo sc:GitResetHard ;
+    rdfs:label "No git reset --hard" .
+
+# --- Dependency Constraints ---
+sp:TestBeforePush a sp:Obligation, sp:DependencyConstraint ;
+    sp:appliesTo sc:GitPush ;
+    sp:requiresBefore sc:RunTests ;
+    sp:reason "All pushes must pass tests first" ;
+    rdfs:label "Test before push" .

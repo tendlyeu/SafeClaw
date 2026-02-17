@@ -1,0 +1,234 @@
+@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# === Agent Behavior Ontology ===
+# Defines what an agent CAN and CANNOT do.
+# Formal specification of the agent's behavioral envelope.
+
+<http://safeclaw.ai/ontology/agent> a owl:Ontology ;
+    rdfs:label "SafeClaw Agent Behavior Ontology" ;
+    rdfs:comment "Defines action taxonomy, risk classification, and behavioral constraints for AI agents" .
+
+# --- Action Taxonomy ---
+sc:Action a owl:Class ;
+    rdfs:label "Action" ;
+    rdfs:comment "Base class for all agent actions" .
+
+sc:FileAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "File Action" .
+
+sc:ShellAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Shell Action" .
+
+sc:NetworkAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Network Action" .
+
+sc:MessageAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Message Action" .
+
+sc:BrowserAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Browser Action" .
+
+# --- File Action Subclasses ---
+sc:ReadFile a owl:Class ;
+    rdfs:subClassOf sc:FileAction ;
+    rdfs:label "Read File" .
+
+sc:WriteFile a owl:Class ;
+    rdfs:subClassOf sc:FileAction ;
+    rdfs:label "Write File" .
+
+sc:EditFile a owl:Class ;
+    rdfs:subClassOf sc:FileAction ;
+    rdfs:label "Edit File" .
+
+sc:DeleteFile a owl:Class ;
+    rdfs:subClassOf sc:FileAction ;
+    rdfs:label "Delete File" .
+
+# --- Shell Action Subclasses ---
+sc:ExecuteCommand a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Execute Command" .
+
+sc:GitPush a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Git Push" .
+
+sc:ForcePush a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Force Push" .
+
+sc:GitCommit a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Git Commit" .
+
+sc:GitResetHard a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Git Reset Hard" .
+
+sc:RunTests a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Run Tests" .
+
+sc:DockerCleanup a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Docker Cleanup" .
+
+sc:PackagePublish a owl:Class ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Package Publish" .
+
+# --- Network Action Subclasses ---
+sc:WebFetch a owl:Class ;
+    rdfs:subClassOf sc:NetworkAction ;
+    rdfs:label "Web Fetch" .
+
+sc:WebSearch a owl:Class ;
+    rdfs:subClassOf sc:NetworkAction ;
+    rdfs:label "Web Search" .
+
+sc:NetworkRequest a owl:Class ;
+    rdfs:subClassOf sc:NetworkAction ;
+    rdfs:label "Network Request" .
+
+# --- Message Action Subclasses ---
+sc:SendMessage a owl:Class ;
+    rdfs:subClassOf sc:MessageAction ;
+    rdfs:label "Send Message" .
+
+# --- Risk Classification ---
+sc:RiskLevel a owl:Class ;
+    rdfs:label "Risk Level" .
+
+sc:LowRisk a owl:NamedIndividual, sc:RiskLevel ;
+    rdfs:label "Low Risk" .
+
+sc:MediumRisk a owl:NamedIndividual, sc:RiskLevel ;
+    rdfs:label "Medium Risk" .
+
+sc:HighRisk a owl:NamedIndividual, sc:RiskLevel ;
+    rdfs:label "High Risk" .
+
+sc:CriticalRisk a owl:NamedIndividual, sc:RiskLevel ;
+    rdfs:label "Critical Risk" .
+
+# --- Properties ---
+sc:hasRiskLevel a owl:ObjectProperty ;
+    rdfs:domain sc:Action ;
+    rdfs:range sc:RiskLevel ;
+    rdfs:label "has risk level" .
+
+sc:isReversible a owl:DatatypeProperty ;
+    rdfs:domain sc:Action ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "is reversible" .
+
+sc:requiresConfirmation a owl:DatatypeProperty ;
+    rdfs:domain sc:Action ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "requires confirmation" .
+
+sc:commandText a owl:DatatypeProperty ;
+    rdfs:domain sc:ShellAction ;
+    rdfs:range xsd:string ;
+    rdfs:label "command text" .
+
+sc:filePath a owl:DatatypeProperty ;
+    rdfs:domain sc:FileAction ;
+    rdfs:range xsd:string ;
+    rdfs:label "file path" .
+
+# --- Scope / Blast Radius ---
+sc:AffectsScope a owl:Class ;
+    rdfs:label "Affects Scope" .
+
+sc:LocalOnly a owl:NamedIndividual, sc:AffectsScope ;
+    rdfs:label "Local Only" ;
+    rdfs:comment "Only affects local filesystem" .
+
+sc:SharedState a owl:NamedIndividual, sc:AffectsScope ;
+    rdfs:label "Shared State" ;
+    rdfs:comment "Affects shared state: git push, shared DB" .
+
+sc:ExternalWorld a owl:NamedIndividual, sc:AffectsScope ;
+    rdfs:label "External World" ;
+    rdfs:comment "Affects external systems: emails, messages, APIs" .
+
+sc:affectsScope a owl:ObjectProperty ;
+    rdfs:domain sc:Action ;
+    rdfs:range sc:AffectsScope ;
+    rdfs:label "affects scope" .
+
+# --- Default Risk Assignments ---
+sc:ReadFile sc:hasRiskLevel sc:LowRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:WriteFile sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:EditFile sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:DeleteFile sc:hasRiskLevel sc:CriticalRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:ExecuteCommand sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:GitPush sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:SharedState .
+
+sc:ForcePush sc:hasRiskLevel sc:CriticalRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:SharedState .
+
+sc:GitCommit sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:GitResetHard sc:hasRiskLevel sc:CriticalRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:RunTests sc:hasRiskLevel sc:LowRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:DockerCleanup sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:PackagePublish sc:hasRiskLevel sc:CriticalRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:WebFetch sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:WebSearch sc:hasRiskLevel sc:LowRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:SendMessage sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:BrowserAction sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:ExternalWorld .

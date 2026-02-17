@@ -1,0 +1,12 @@
+services:
+  safeclaw:
+    build: .
+    ports:
+      - "8420:8420"
+    volumes:
+      - safeclaw-data:/root/.safeclaw
+    environment:
+      - SAFECLAW_LOG_LEVEL=INFO
+
+volumes:
+  safeclaw-data:
