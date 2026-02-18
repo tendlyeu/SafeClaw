@@ -46,6 +46,10 @@ class LlmIORequest(BaseModel):
     agentToken: str = ""
 
 
+class SessionEndRequest(BaseModel):
+    sessionId: str
+
+
 class DecisionResponse(BaseModel):
     block: bool
     reason: str = ""

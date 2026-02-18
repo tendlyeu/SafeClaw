@@ -14,6 +14,7 @@ from safeclaw.api.models import (
     DecisionResponse,
     LlmIORequest,
     MessageRequest,
+    SessionEndRequest,
     TempGrantRequest,
     TempGrantResponse,
     ToolCallRequest,
@@ -88,6 +89,14 @@ async def build_context(request: AgentStartRequest) -> ContextResponse:
     )
     result = await engine.build_context(event)
     return ContextResponse(prependContext=result.prepend_context)
+
+
+@router.post("/session/end")
+async def end_session(request: SessionEndRequest):
+    """Clean up all per-session state when a session ends."""
+    engine = _get_engine()
+    engine.clear_session(request.sessionId)
+    return {"ok": True, "sessionId": request.sessionId}
 
 
 @router.post("/record/tool-result")

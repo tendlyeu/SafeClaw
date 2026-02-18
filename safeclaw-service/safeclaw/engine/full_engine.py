@@ -191,6 +191,9 @@ class FullEngine(SafeClawEngine):
                         self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
                         return decision
 
+        # Record ALL attempts for rate limiting (not just allowed ones)
+        self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
+
         # 2. SHACL validation
         shacl_result = self.shacl.validate(action.as_rdf_graph())
         if not shacl_result.conforms:
@@ -333,10 +336,6 @@ class FullEngine(SafeClawEngine):
         # 10. All checks passed
         decision = Decision(block=False)
         self._log_decision(event, action, decision, checks, prefs_applied, start)
-
-        # Record action for rate limiting
-        self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
-
         return decision
 
     async def evaluate_message(self, event: MessageEvent) -> Decision:
@@ -442,6 +441,16 @@ class FullEngine(SafeClawEngine):
         # Record successful actions in dependency tracker
         if event.success:
             self.dependency_checker.record_action(event.session_id, action.ontology_class)
+
+    def clear_session(self, session_id: str) -> None:
+        """Clean up all per-session state when a session ends."""
+        self.session_tracker.clear_session(session_id)
+        self.rate_limiter.clear_session(session_id)
+        self.context_builder.clear_session(session_id)
+        self.dependency_checker.clear_session(session_id)
+        self.message_gate.clear_session(session_id)
+        self._session_locks.pop(session_id, None)
+        logger.info(f"Session {session_id} cleared")
 
     async def log_llm_io(self, event: LlmIOEvent) -> None:
         logger.debug(f"LLM {event.direction}: {event.content[:100]}...")

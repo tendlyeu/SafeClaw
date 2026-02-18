@@ -110,6 +110,10 @@ class MessageGate:
                 self._session_message_counts.popitem(last=False)
         self._session_message_counts[session_id].append(time.monotonic())
 
+    def clear_session(self, session_id: str) -> None:
+        """Remove session message counts when session ends."""
+        self._session_message_counts.pop(session_id, None)
+
     def _check_sensitive_data(self, content: str) -> str:
         """Check if message content contains sensitive data patterns."""
         for pattern, description in SENSITIVE_PATTERNS:
