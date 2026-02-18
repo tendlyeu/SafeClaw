@@ -157,13 +157,13 @@ class TestRoleManager:
     def test_developer_denies_force_push(self):
         rm = RoleManager()
         role = rm.get_role("developer")
-        assert rm.is_action_allowed(role, "GitForcePush") is False
+        assert rm.is_action_allowed(role, "ForcePush") is False
 
     def test_admin_allows_everything(self):
         rm = RoleManager()
         role = rm.get_role("admin")
         # Admin has no denied actions and no allowed list (empty = allow all)
-        assert rm.is_action_allowed(role, "GitForcePush") is True
+        assert rm.is_action_allowed(role, "ForcePush") is True
         assert rm.is_action_allowed(role, "WriteFile") is True
         assert rm.is_action_allowed(role, "DeleteFile") is True
 
@@ -185,7 +185,7 @@ class TestRoleManager:
         result = rm.get_effective_constraints(role, org_policy, parent_constraints)
         assert "DeployProduction" in result["denied_actions"]
         # Developer's own denials should also be present
-        assert "GitForcePush" in result["denied_actions"]
+        assert "ForcePush" in result["denied_actions"]
 
     def test_effective_constraints_parent_adds_denials(self):
         rm = RoleManager()
@@ -485,9 +485,9 @@ class TestEngineMultiAgentIntegration:
         )
         decision = await engine.evaluate_tool_call(event)
         # Should NOT be blocked by role since temp grant is active
-        # (may still be blocked by other checks like SHACL, but not by role)
+        # May still be blocked by other checks (e.g., preferences), but not role
         if decision.block:
-            assert "role" not in decision.reason.lower() or "researcher" not in decision.reason.lower()
+            assert "role" not in decision.reason.lower() and "researcher" not in decision.reason.lower()
 
     @pytest.mark.asyncio
     async def test_delegation_recorded_on_block(self, engine):

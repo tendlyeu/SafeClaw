@@ -19,6 +19,7 @@ interface SafeClawPluginConfig {
   timeoutMs: number;
   enabled: boolean;
   enforcement: 'enforce' | 'warn-only' | 'audit-only' | 'disabled';
+  failMode: 'open' | 'closed';
   agentId: string;
   agentToken: string;
 }
@@ -30,6 +31,7 @@ function loadConfig(): SafeClawPluginConfig {
     timeoutMs: parseInt(process.env.SAFECLAW_TIMEOUT_MS ?? '500', 10),
     enabled: process.env.SAFECLAW_ENABLED !== 'false',
     enforcement: (process.env.SAFECLAW_ENFORCEMENT as SafeClawPluginConfig['enforcement']) ?? 'enforce',
+    failMode: (process.env.SAFECLAW_FAIL_MODE as SafeClawPluginConfig['failMode']) ?? 'closed',
     agentId: process.env.SAFECLAW_AGENT_ID ?? '',
     agentToken: process.env.SAFECLAW_AGENT_TOKEN ?? '',
   };
@@ -44,6 +46,7 @@ function loadConfig(): SafeClawPluginConfig {
       if (raw.remote?.apiKey) defaults.apiKey = raw.remote.apiKey;
       if (raw.remote?.timeoutMs) defaults.timeoutMs = raw.remote.timeoutMs;
       if (raw.enforcement?.mode) defaults.enforcement = raw.enforcement.mode;
+      if (raw.enforcement?.failMode) defaults.failMode = raw.enforcement.failMode;
       if (raw.agentId) defaults.agentId = raw.agentId;
       if (raw.agentToken) defaults.agentToken = raw.agentToken;
     } catch {
@@ -85,7 +88,7 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
     });
     if (!res.ok) {
       console.warn(`[SafeClaw] HTTP ${res.status} from ${path}`);
-      return null;
+      return null;  // Caller checks failMode
     }
     return await res.json() as Record<string, unknown>;
   } catch (e) {
@@ -94,7 +97,7 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
     } else {
       console.debug(`[SafeClaw] Service unavailable: ${path}`);
     }
-    return null;
+    return null;  // Caller checks failMode
   }
 }
 
@@ -138,6 +141,9 @@ export default {
         sessionHistory: event.sessionHistory ?? [],
       });
 
+      if (r === null && config.failMode === 'closed' && config.enforcement === 'enforce') {
+        return { block: true, blockReason: 'SafeClaw service unavailable (fail-closed)' };
+      }
       if (r?.block) {
         if (config.enforcement === 'enforce') {
           return { block: true, blockReason: r.reason as string };

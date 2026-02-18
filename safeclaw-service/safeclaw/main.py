@@ -39,7 +39,7 @@ app = FastAPI(
 # CORS - allow the TS plugin to connect from any origin (localhost or remote)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:*"],
+    allow_origin_regex=r"http://localhost:\d+",
     allow_methods=["*"],
     allow_headers=["*"],
 )

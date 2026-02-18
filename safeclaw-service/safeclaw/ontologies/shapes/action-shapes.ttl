@@ -7,11 +7,10 @@
 # SHACL constraints for validating agent actions.
 # Closed-world validation: "does this data violate any constraints?"
 
-# Any action that is CriticalRisk and not reversible MUST require confirmation
-sc:CriticalIrreversibleShape a sh:NodeShape ;
+sc:ActionStructureShape a sh:NodeShape ;
     sh:targetClass sc:Action ;
-    rdfs:label "Critical Irreversible Action Shape" ;
-    rdfs:comment "Critical risk + irreversible actions require confirmation" ;
+    rdfs:label "Action Structure Shape" ;
+    rdfs:comment "Validates basic structure of Action instances (cardinality and datatypes)." ;
     sh:property [
         sh:path sc:hasRiskLevel ;
         sh:maxCount 1 ;

@@ -75,11 +75,13 @@ class HybridEngine(SafeClawEngine):
         api_key: str,
         local_engine: SafeClawEngine | None = None,
         timeout: float = 0.5,
+        fail_closed: bool = True,
     ):
         self.remote_url = remote_url.rstrip("/")
         self.api_key = api_key
         self.local_engine = local_engine
         self.timeout = timeout
+        self.fail_closed = fail_closed
         self.circuit_breaker = CircuitBreakerState()
         self._client = httpx.AsyncClient(
             timeout=timeout,
@@ -120,6 +122,8 @@ class HybridEngine(SafeClawEngine):
         # Fallback to local engine
         if self.local_engine:
             return await self.local_engine.evaluate_tool_call(event)
+        if self.fail_closed:
+            return Decision(block=True, reason="SafeClaw service unavailable — failing closed")
         return Decision(block=False)
 
     async def evaluate_message(self, event: MessageEvent) -> Decision:
@@ -150,6 +154,8 @@ class HybridEngine(SafeClawEngine):
 
         if self.local_engine:
             return await self.local_engine.evaluate_message(event)
+        if self.fail_closed:
+            return Decision(block=True, reason="SafeClaw service unavailable — failing closed")
         return Decision(block=False)
 
     async def build_context(self, event: AgentStartEvent) -> ContextResult:
@@ -174,7 +180,7 @@ class HybridEngine(SafeClawEngine):
 
         if self.local_engine:
             return await self.local_engine.build_context(event)
-        return ContextResult()
+        return ContextResult(prepend_context="[SafeClaw] Warning: constraint service unavailable")
 
     async def record_action_result(self, event: ToolResultEvent) -> None:
         # Fire-and-forget to remote, also record locally

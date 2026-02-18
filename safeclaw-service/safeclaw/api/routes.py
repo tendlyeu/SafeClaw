@@ -28,7 +28,11 @@ router = APIRouter()
 
 
 async def require_admin(request: Request):
-    """Require admin auth for sensitive endpoints."""
+    """Require admin auth for sensitive endpoints.
+
+    When auth is disabled (local mode), scope is None and check passes
+    intentionally — all users are treated as admin in local dev.
+    """
     scope = getattr(request.state, 'api_key_scope', None)
     if scope is not None and 'admin' not in scope:
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -147,7 +151,7 @@ async def log_llm_output(request: LlmIORequest):
 async def query_audit(
     session_id: str | None = Query(None, alias="sessionId"),
     blocked: bool = False,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=1000),
 ):
     engine = _get_engine()
     if session_id:
@@ -168,7 +172,7 @@ async def reload_ontologies():
 
 
 @router.get("/audit/statistics")
-async def audit_statistics(limit: int = 100):
+async def audit_statistics(limit: int = Query(100, ge=1, le=1000)):
     """Get aggregate statistics from recent audit records."""
     from safeclaw.audit.reporter import AuditReporter
     engine = _get_engine()
@@ -193,7 +197,7 @@ async def audit_report(
 
 
 @router.get("/audit/compliance")
-async def compliance_report(limit: int = 100):
+async def compliance_report(limit: int = Query(100, ge=1, le=1000)):
     """Generate a compliance report from recent audit records."""
     from fastapi.responses import PlainTextResponse
     from safeclaw.audit.reporter import AuditReporter

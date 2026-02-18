@@ -13,7 +13,8 @@ sc:ShellCommandShape a sh:NodeShape ;
     rdfs:comment "Validates shell command actions" ;
     sh:property [
         sh:path sc:commandText ;
+        sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:datatype xsd:string ;
-        sh:message "Shell action must have at most one command text" ;
+        sh:message "Shell action must have exactly one command text" ;
     ] .

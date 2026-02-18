@@ -60,8 +60,10 @@ def test_evaluate_message_normal(client):
     })
     assert resp.status_code == 200
     data = resp.json()
-    # Normal message should not be blocked (unless confirm_before_send preference)
-    assert "block" in data
+    assert isinstance(data["block"], bool)
+    # Default user prefs have confirm_before_send=True, so it should be blocked
+    assert data["block"] is True
+    assert "confirm" in data["reason"].lower() or "send" in data["reason"].lower()
 
 
 def test_build_context(client):
@@ -131,3 +133,79 @@ def test_reload(client):
     data = resp.json()
     assert data["ok"] is True
     assert "triples" in data
+
+
+def test_list_agents(client):
+    """GET /agents returns agent list."""
+    # Register an agent first
+    client.post("/api/v1/agents/register", json={
+        "agentId": "list-agent-1",
+        "role": "developer",
+        "sessionId": "list-sess",
+    })
+    resp = client.get("/api/v1/agents")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "agents" in data
+    agent_ids = [a["agentId"] for a in data["agents"]]
+    assert "list-agent-1" in agent_ids
+
+
+def test_kill_agent_api(client):
+    """POST /agents/{id}/kill sets killed flag."""
+    client.post("/api/v1/agents/register", json={
+        "agentId": "kill-agent-1",
+        "role": "developer",
+        "sessionId": "kill-sess",
+    })
+    resp = client.post("/api/v1/agents/kill-agent-1/kill")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["killed"] is True
+
+
+def test_revive_agent_api(client):
+    """POST /agents/{id}/revive clears killed flag."""
+    client.post("/api/v1/agents/register", json={
+        "agentId": "revive-agent-1",
+        "role": "developer",
+        "sessionId": "revive-sess",
+    })
+    client.post("/api/v1/agents/revive-agent-1/kill")
+    resp = client.post("/api/v1/agents/revive-agent-1/revive")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["killed"] is False
+
+
+def test_audit_statistics(client):
+    """GET /audit/statistics returns statistics dict."""
+    # Create an audit record first
+    client.post("/api/v1/evaluate/tool-call", json={
+        "toolName": "read",
+        "params": {"file_path": "/src/main.py"},
+    })
+    resp = client.get("/api/v1/audit/statistics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, dict)
+
+
+def test_temp_grant_api(client):
+    """POST /agents/{id}/temp-grant creates a temporary permission."""
+    client.post("/api/v1/agents/register", json={
+        "agentId": "grant-agent-1",
+        "role": "researcher",
+        "sessionId": "grant-sess",
+    })
+    resp = client.post("/api/v1/agents/grant-agent-1/temp-grant", json={
+        "agentId": "grant-agent-1",
+        "permission": "WriteFile",
+        "durationSeconds": 60,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "grantId" in data
+    assert data["grantId"]

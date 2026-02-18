@@ -73,6 +73,46 @@ def test_shacl_catches_invalid_action():
     assert len(result.violations) > 0
 
 
+@requires_shapes
+def test_shell_action_duplicate_command_fails():
+    """ShellAction with two commandText values violates sh:maxCount from command-shapes.ttl."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+
+    g = Graph()
+    g.bind("sc", SC)
+    action_node = SC["shell_action_invalid"]
+    g.add((action_node, RDF.type, SC["ShellAction"]))
+    g.add((action_node, SC.commandText, Literal("ls -la", datatype=XSD.string)))
+    g.add((action_node, SC.commandText, Literal("rm -rf /", datatype=XSD.string)))
+    g.add((action_node, SC.hasRiskLevel, SC["HighRisk"]))
+    g.add((action_node, SC.isReversible, Literal(True, datatype=XSD.boolean)))
+    g.add((action_node, SC.affectsScope, SC["LocalOnly"]))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    assert len(result.violations) > 0
+
+
+@requires_shapes
+def test_message_action_wrong_scope_fails():
+    """MessageAction with LocalOnly scope violates message-shapes.ttl (expects ExternalWorld)."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+
+    g = Graph()
+    g.bind("sc", SC)
+    action_node = SC["message_action_invalid"]
+    g.add((action_node, RDF.type, SC["MessageAction"]))
+    g.add((action_node, SC.affectsScope, SC["LocalOnly"]))
+    g.add((action_node, SC.hasRiskLevel, SC["HighRisk"]))
+    g.add((action_node, SC.isReversible, Literal(False, datatype=XSD.boolean)))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    assert len(result.violations) > 0
+
+
 def test_shacl_validation_error_returns_non_conforming():
     """When pyshacl raises an exception, validator should return conforms=False."""
     validator = SHACLValidator()

@@ -8,7 +8,7 @@ console = Console()
 
 
 def _escape_turtle(s: str) -> str:
-    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
 
 
 @policy_app.command("list")
@@ -117,8 +117,8 @@ def remove_policy(
     # Comment out the policy block (find from sp:Name to the next period+newline)
     import re
     pattern = re.compile(
-        rf"(^sp:{re.escape(name)}\s.*?\.)\s*$",
-        re.MULTILINE | re.DOTALL,
+        rf"(^sp:{re.escape(name)}\s[^\n]*(?:\n[ \t]+[^\n]*)*\.)\s*$",
+        re.MULTILINE,
     )
     new_content = pattern.sub(
         lambda m: "\n".join("# REMOVED: " + line for line in m.group(0).splitlines()),

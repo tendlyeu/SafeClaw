@@ -41,6 +41,6 @@ class DecisionRecord(BaseModel):
     user_id: str
     agent_id: str = ""
     action: ActionDetail
-    decision: str  # "allowed" | "blocked" | "allowed_with_warning"
+    decision: str  # "allowed" | "blocked"
     justification: Justification
     session_action_history: list[str] = []

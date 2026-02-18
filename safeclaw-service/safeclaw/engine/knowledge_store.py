@@ -32,16 +32,15 @@ class KnowledgeStore:
         store_file = self._store_file()
         if not store_file.exists():
             return
-        try:
-            with open(store_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
+        with open(store_file) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
                         fact = json.loads(line)
                         self._facts[fact["id"]] = fact
-        except (json.JSONDecodeError, KeyError):
-            logger.warning("Corrupted knowledge store, starting fresh")
-            self._facts.clear()
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"Skipping corrupted knowledge store line: {e}")
 
     def _save(self) -> None:
         """Persist all facts to disk."""

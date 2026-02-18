@@ -104,7 +104,7 @@ class AuditReporter:
 
         total = len(records)
         allowed = sum(1 for r in records if r.decision == "allowed")
-        blocked = total - allowed
+        blocked = sum(1 for r in records if r.decision == "blocked")
 
         risk_dist: dict[str, int] = {}
         tool_dist: dict[str, int] = {}

@@ -110,6 +110,9 @@ sp:NoForcePush a sp:Prohibition, sp:CommandConstraint ;
     rdfs:label "No force push" .
 
 sp:NoRootDelete a sp:Prohibition, sp:CommandConstraint ;
+    # NOTE: Intentionally simple regex. Catches "rm -rf /" but not all variants
+    # like "rm -r -f /" or "rm --recursive --force /". Broader patterns risk
+    # false positives; defense-in-depth via path constraints covers edge cases.
     sp:forbiddenCommandPattern "rm\\s+-rf\\s+/" ;
     sp:reason "Recursive deletion of root paths is prohibited" ;
     rdfs:label "No recursive root deletion" .
@@ -126,3 +129,38 @@ sp:TestBeforePush a sp:Obligation, sp:DependencyConstraint ;
     sp:requiresBefore sc:RunTests ;
     sp:reason "All pushes must pass tests first" ;
     rdfs:label "Test before push" .
+
+# --- Role Classes and Properties ---
+sp:Role a owl:Class ;
+    rdfs:label "Role" ;
+    rdfs:comment "A role that defines a set of permissions and restrictions for an agent" .
+
+sp:allowsAction a owl:ObjectProperty ;
+    rdfs:domain sp:Role ;
+    rdfs:range sc:Action ;
+    rdfs:label "allows action" ;
+    rdfs:comment "Specifies an action that this role permits" .
+
+sp:deniesAction a owl:ObjectProperty ;
+    rdfs:domain sp:Role ;
+    rdfs:range sc:Action ;
+    rdfs:label "denies action" ;
+    rdfs:comment "Specifies an action that this role forbids" .
+
+sp:deniesWritePath a owl:DatatypeProperty ;
+    rdfs:domain sp:Role ;
+    rdfs:range xsd:string ;
+    rdfs:label "denies write path" ;
+    rdfs:comment "A glob pattern for paths where this role cannot write" .
+
+sp:autonomyLevel a owl:DatatypeProperty ;
+    rdfs:domain sp:Role ;
+    rdfs:range xsd:string ;
+    rdfs:label "autonomy level" ;
+    rdfs:comment "The level of autonomy granted to this role (e.g. full, moderate, supervised)" .
+
+sp:enforcementMode a owl:DatatypeProperty ;
+    rdfs:domain sp:Role ;
+    rdfs:range xsd:string ;
+    rdfs:label "enforcement mode" ;
+    rdfs:comment "How constraints are enforced for this role (e.g. enforce, warn-only)" .

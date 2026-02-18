@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 
 from safeclaw.audit.logger import AuditLogger
 from safeclaw.audit.models import (
@@ -100,8 +101,9 @@ class FullEngine(SafeClawEngine):
         self.temp_permissions = TempPermissionManager()
         self._require_token_auth = raw.get("agents", {}).get("requireTokenAuth", False) if raw else False
 
-        # Per-session locks for TOCTOU prevention
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        # Per-session locks for TOCTOU prevention (bounded)
+        self._session_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._max_session_locks = 10000
 
         # Audit
         self.audit = AuditLogger(audit_dir)
@@ -123,6 +125,10 @@ class FullEngine(SafeClawEngine):
     def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._session_locks:
             self._session_locks[session_id] = asyncio.Lock()
+            while len(self._session_locks) > self._max_session_locks:
+                self._session_locks.popitem(last=False)
+        else:
+            self._session_locks.move_to_end(session_id)
         return self._session_locks[session_id]
 
     async def evaluate_tool_call(self, event: ToolCallEvent) -> Decision:
@@ -453,7 +459,7 @@ class FullEngine(SafeClawEngine):
         logger.info(f"Session {session_id} cleared")
 
     async def log_llm_io(self, event: LlmIOEvent) -> None:
-        logger.debug(f"LLM {event.direction}: {event.content[:100]}...")
+        logger.debug(f"LLM {event.direction}: {event.content[:100]}{'...' if len(event.content) > 100 else ''}")
 
     def _record_violation_and_log(
         self,

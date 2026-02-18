@@ -74,7 +74,6 @@ class AgentRegisterResponse(BaseModel):
 
 
 class TempGrantRequest(BaseModel):
-    agentId: str
     permission: str
     durationSeconds: int | None = None
     taskId: str | None = None

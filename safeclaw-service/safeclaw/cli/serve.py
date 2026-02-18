@@ -4,7 +4,7 @@ import typer
 
 
 def serve_cmd(
-    host: str = typer.Option("0.0.0.0", help="Host to bind to"),
+    host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8420, help="Port to listen on"),
     reload: bool = typer.Option(False, help="Enable auto-reload for development"),
 ):

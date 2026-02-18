@@ -3,7 +3,7 @@
 import logging
 import os
 from dataclasses import dataclass, field
-from fnmatch import fnmatch
+from pathlib import PurePosixPath
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +31,15 @@ BUILTIN_ROLES = {
             "ReadFile",
             "ListFiles",
             "SearchFiles",
+            "WebSearch",
         },
         denied_action_classes={
             "WriteFile",
             "EditFile",
             "DeleteFile",
             "GitPush",
-            "GitForcePush",
-            "ShellAction",
+            "ForcePush",
+            "ExecuteCommand",
             "SendMessage",
         },
         resource_patterns={"allow": ["**"], "deny": []},
@@ -49,9 +50,9 @@ BUILTIN_ROLES = {
         autonomy_level="moderate",
         allowed_action_classes=set(),
         denied_action_classes={
-            "GitForcePush",
-            "DeleteRootFiles",
-            "SystemConfigChange",
+            "ForcePush",
+            "DeleteFile",
+            "GitResetHard",
         },
         resource_patterns={"allow": ["**"], "deny": ["/secrets/**", "/etc/**"]},
     ),
@@ -110,14 +111,15 @@ class RoleManager:
 
     def is_resource_allowed(self, role: Role, resource_path: str) -> bool:
         resource_path = os.path.normpath(resource_path)
+        p = PurePosixPath(resource_path)
         patterns = role.resource_patterns
         for deny_pat in patterns.get("deny", []):
-            if fnmatch(resource_path, deny_pat):
+            if p.match(deny_pat):
                 return False
         allow_pats = patterns.get("allow", [])
         if not allow_pats:
             return False
-        return any(fnmatch(resource_path, pat) for pat in allow_pats)
+        return any(p.match(pat) for pat in allow_pats)
 
     def get_effective_constraints(
         self,

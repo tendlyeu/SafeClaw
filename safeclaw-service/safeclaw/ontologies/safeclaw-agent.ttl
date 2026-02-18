@@ -33,66 +33,81 @@ sc:MessageAction a owl:Class ;
     rdfs:subClassOf sc:Action ;
     rdfs:label "Message Action" .
 
-sc:BrowserAction a owl:Class ;
+sc:BrowserAction a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:Action ;
     rdfs:label "Browser Action" .
 
 # --- File Action Subclasses ---
-sc:ReadFile a owl:Class ;
+sc:ReadFile a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:label "Read File" .
 
-sc:WriteFile a owl:Class ;
+sc:WriteFile a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:label "Write File" .
 
-sc:EditFile a owl:Class ;
+sc:EditFile a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:label "Edit File" .
 
-sc:DeleteFile a owl:Class ;
+sc:DeleteFile a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:label "Delete File" .
 
+sc:ListFiles a owl:Class ;
+    rdfs:subClassOf sc:FileAction ;
+    rdfs:comment "Action to list files in a directory" ;
+    rdfs:label "List Files" .
+
+sc:SearchFiles a owl:Class ;
+    rdfs:subClassOf sc:FileAction ;
+    rdfs:comment "Action to search file contents" ;
+    rdfs:label "Search Files" .
+
+sc:SystemConfigChange a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:comment "Action to modify system configuration files" ;
+    rdfs:label "System Config Change" .
+
 # --- Shell Action Subclasses ---
-sc:ExecuteCommand a owl:Class ;
+sc:ExecuteCommand a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Execute Command" .
 
-sc:GitPush a owl:Class ;
+sc:GitPush a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Git Push" .
 
-sc:ForcePush a owl:Class ;
+sc:ForcePush a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Force Push" .
 
-sc:GitCommit a owl:Class ;
+sc:GitCommit a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Git Commit" .
 
-sc:GitResetHard a owl:Class ;
+sc:GitResetHard a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Git Reset Hard" .
 
-sc:RunTests a owl:Class ;
+sc:RunTests a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Run Tests" .
 
-sc:DockerCleanup a owl:Class ;
+sc:DockerCleanup a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Docker Cleanup" .
 
-sc:PackagePublish a owl:Class ;
+sc:PackagePublish a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Package Publish" .
 
 # --- Network Action Subclasses ---
-sc:WebFetch a owl:Class ;
+sc:WebFetch a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:NetworkAction ;
     rdfs:label "Web Fetch" .
 
-sc:WebSearch a owl:Class ;
+sc:WebSearch a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:NetworkAction ;
     rdfs:label "Web Search" .
 
@@ -101,7 +116,7 @@ sc:NetworkRequest a owl:Class ;
     rdfs:label "Network Request" .
 
 # --- Message Action Subclasses ---
-sc:SendMessage a owl:Class ;
+sc:SendMessage a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:MessageAction ;
     rdfs:label "Send Message" .
 

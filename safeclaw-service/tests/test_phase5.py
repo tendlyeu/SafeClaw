@@ -103,7 +103,7 @@ class TestAPIKeyAuthMiddleware:
         app = MagicMock()
         middleware = APIKeyAuthMiddleware(app, api_key_manager=MagicMock(), require_auth=True)
         assert "/api/v1/health" in middleware.SKIP_PATHS
-        assert "/docs" in middleware.SKIP_PATHS
+        assert "/docs" in middleware.SKIP_PREFIXES
 
     def test_auth_disabled_passes_through(self):
         from safeclaw.auth.middleware import APIKeyAuthMiddleware
@@ -211,9 +211,29 @@ class TestHybridEngine:
         local.evaluate_tool_call.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_evaluate_tool_call_no_local_no_remote(self):
-        """When both remote and local are unavailable, returns allow."""
+    async def test_evaluate_tool_call_no_local_no_remote_fail_closed(self):
+        """When both remote and local are unavailable, fails closed by default."""
         engine = _make_hybrid(local_engine=None)
+
+        event = ToolCallEvent(
+            session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is True
+        assert "unavailable" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_evaluate_tool_call_no_local_no_remote_fail_open(self):
+        """When fail_closed=False, allows actions when service is unavailable."""
+        engine = HybridEngine(
+            remote_url="http://localhost:99999",
+            api_key="sc_test",
+            local_engine=None,
+            timeout=0.1,
+            fail_closed=False,
+        )
+        engine.circuit_breaker.is_open = True
+        engine.circuit_breaker.last_failure = time.monotonic()
 
         event = ToolCallEvent(
             session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}

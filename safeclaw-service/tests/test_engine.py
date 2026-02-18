@@ -4,8 +4,10 @@ import pytest
 from pathlib import Path
 
 from safeclaw.config import SafeClawConfig
+from safeclaw.constraints.policy_checker import PolicyChecker
 from safeclaw.engine.core import ToolCallEvent, MessageEvent, AgentStartEvent
 from safeclaw.engine.full_engine import FullEngine
+from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP
 
 
 @pytest.fixture
@@ -69,7 +71,7 @@ async def test_delete_blocked_by_policy_or_preference(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert "SafeClaw" in decision.reason
+    assert "root" in decision.reason.lower() or "delete" in decision.reason.lower()
 
 
 @pytest.mark.asyncio
@@ -122,3 +124,34 @@ async def test_audit_records_written(engine, tmp_path):
     records = engine.audit.get_session_records("audit-test")
     assert len(records) == 1
     assert records[0].action.tool_name == "read"
+
+
+def test_policy_checker_safe_match_malformed_regex():
+    """PolicyChecker._safe_match handles invalid regex without crashing."""
+    from rdflib import Literal, Namespace
+    from safeclaw.constraints.action_classifier import ClassifiedAction
+
+    kg = KnowledgeGraph()
+    # Add a policy with an invalid regex pattern (unclosed bracket)
+    sp = Namespace("http://safeclaw.uku.ai/ontology/policy#")
+    policy_node = sp["BadRegexPolicy"]
+    kg.graph.add((policy_node, SP["forbiddenCommandPattern"], Literal("[unclosed")))
+    kg.graph.add((policy_node, SP["reason"], Literal("Bad regex test")))
+    from rdflib import RDF
+    kg.graph.add((policy_node, RDF.type, sp["Prohibition"]))
+
+    checker = PolicyChecker(kg)
+    # The malformed pattern should be loaded
+    assert len(checker._forbidden_commands) >= 1
+
+    # Classify a normal command and check -- should not crash and should not block
+    action = ClassifiedAction(
+        ontology_class="ExecuteCommand",
+        risk_level="HighRisk",
+        is_reversible=True,
+        affects_scope="LocalOnly",
+        tool_name="exec",
+        params={"command": "echo hello"},
+    )
+    result = checker.check(action)
+    assert result.violated is False

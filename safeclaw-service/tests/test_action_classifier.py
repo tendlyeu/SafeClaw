@@ -1,6 +1,10 @@
 """Tests for the action classifier."""
 
+from rdflib import Namespace, RDF
+
 from safeclaw.constraints.action_classifier import ActionClassifier
+
+SC = Namespace("http://safeclaw.uku.ai/ontology/agent#")
 
 
 def test_read_file_classification():
@@ -74,8 +78,34 @@ def test_unknown_tool_defaults():
     assert action.risk_level == "MediumRisk"
 
 
+def test_chained_command_highest_risk():
+    """Chained shell commands should classify by highest-risk sub-command."""
+    classifier = ActionClassifier()
+    action = classifier.classify("exec", {"command": "ls -la && git push --force origin main"})
+    assert action.ontology_class == "ForcePush"
+    assert action.risk_level == "CriticalRisk"
+
+
 def test_action_rdf_graph():
     classifier = ActionClassifier()
     action = classifier.classify("exec", {"command": "git push origin main"})
     graph = action.as_rdf_graph()
     assert len(graph) > 0
+
+    # Verify correct rdf:type triple
+    type_triples = list(graph.triples((None, RDF.type, SC["GitPush"])))
+    assert len(type_triples) == 1
+
+    action_node = type_triples[0][0]
+
+    # Verify risk level
+    risk_triples = list(graph.triples((action_node, SC.hasRiskLevel, SC["HighRisk"])))
+    assert len(risk_triples) == 1
+
+    # Verify isReversible
+    reversible_triples = list(graph.triples((action_node, SC.isReversible, None)))
+    assert len(reversible_triples) == 1
+
+    # Verify affectsScope
+    scope_triples = list(graph.triples((action_node, SC.affectsScope, SC["SharedState"])))
+    assert len(scope_triples) == 1
