@@ -76,12 +76,12 @@ sp:forbiddenCommandPattern a owl:DatatypeProperty ;
 
 sp:notBefore a owl:DatatypeProperty ;
     rdfs:domain sp:TemporalConstraint ;
-    rdfs:range xsd:time ;
+    rdfs:range xsd:dateTime ;
     rdfs:label "not before" .
 
 sp:notAfter a owl:DatatypeProperty ;
     rdfs:domain sp:TemporalConstraint ;
-    rdfs:range xsd:time ;
+    rdfs:range xsd:dateTime ;
     rdfs:label "not after" .
 
 sp:requiresBefore a owl:ObjectProperty ;

@@ -72,15 +72,19 @@ class AgentRegistry:
             record.token_hash, self._hash_token(token)
         )
 
-    def kill_agent(self, agent_id: str) -> None:
+    def kill_agent(self, agent_id: str) -> bool:
         record = self._agents.get(agent_id)
         if record:
             record.killed = True
+            return True
+        return False
 
-    def revive_agent(self, agent_id: str) -> None:
+    def revive_agent(self, agent_id: str) -> bool:
         record = self._agents.get(agent_id)
         if record:
             record.killed = False
+            return True
+        return False
 
     def is_killed(self, agent_id: str) -> bool:
         record = self._agents.get(agent_id)

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import deque
 from dataclasses import dataclass
 from time import monotonic
 
@@ -39,7 +40,7 @@ class DelegationDetector:
             mode: "strict", "permissive", or "disabled".
         """
         self.mode = mode
-        self._blocks: list[BlockRecord] = []
+        self._blocks: deque[BlockRecord] = deque(maxlen=MAX_BLOCKS)
 
     def record_block(
         self,
@@ -59,8 +60,6 @@ class DelegationDetector:
                 timestamp=monotonic(),
             )
         )
-        if len(self._blocks) > MAX_BLOCKS:
-            self._blocks = self._blocks[-MAX_BLOCKS:]
 
     def check_delegation(
         self,
@@ -98,7 +97,8 @@ class DelegationDetector:
     def _prune_expired(self) -> None:
         """Remove block records older than DETECTION_WINDOW."""
         cutoff = monotonic() - DETECTION_WINDOW
-        self._blocks = [b for b in self._blocks if b.timestamp >= cutoff]
+        while self._blocks and self._blocks[0].timestamp < cutoff:
+            self._blocks.popleft()
 
     @staticmethod
     def make_signature(params: dict) -> str:

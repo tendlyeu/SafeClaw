@@ -73,12 +73,23 @@ def set_pref(
 
     content = user_file.read_text()
 
-    # Update the preference value in-place
+    # Update the preference value in-place, skipping comment lines (R4-36)
     import re
     pattern = re.compile(
         rf'(su:{key}\s+)"([^"]*)"',
     )
-    new_content, count = pattern.subn(rf'\1"{value}"', content)
+    lines = content.splitlines(keepends=True)
+    count = 0
+    new_lines = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            new_lines.append(line)
+            continue
+        new_line, n = pattern.subn(rf'\1"{value}"', line)
+        count += n
+        new_lines.append(new_line)
+    new_content = "".join(new_lines)
     if count > 0:
         if count > 1:
             console.print(f"[yellow]Warning: found {count} matches for {key}, all were updated[/yellow]")

@@ -113,7 +113,7 @@ async def test_record_action_result_updates_trackers(engine):
     dep_result = engine.dependency_checker.check(dep_action, session_id)
     # ReadFile is now in history; GitPush requires RunTests, so it should still be unmet
     # But the important thing is the check doesn't crash and ReadFile was recorded
-    assert dep_result is not None
+    assert dep_result.unmet is True
 
 
 # --- reload ---

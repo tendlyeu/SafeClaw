@@ -149,6 +149,8 @@ export default {
 
       if (r === null && config.failMode === 'closed' && config.enforcement === 'enforce') {
         return { block: true, blockReason: 'SafeClaw service unavailable (fail-closed)' };
+      } else if (r === null && config.failMode === 'closed' && config.enforcement === 'warn-only') {
+        console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
       }
       if (r?.block) {
         if (config.enforcement === 'enforce') {
@@ -184,6 +186,8 @@ export default {
 
       if (r === null && config.failMode === 'closed' && config.enforcement === 'enforce') {
         return { cancel: true };
+      } else if (r === null && config.failMode === 'closed' && config.enforcement === 'warn-only') {
+        console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
       }
       if (r?.block && config.enforcement === 'enforce') {
         return { cancel: true };

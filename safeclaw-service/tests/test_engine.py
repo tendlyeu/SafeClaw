@@ -154,8 +154,6 @@ def test_policy_checker_safe_match_malformed_regex():
     kg.graph.add((policy_node, RDF.type, sp["Prohibition"]))
 
     checker = PolicyChecker(kg)
-    # The malformed pattern should be loaded
-    assert len(checker._forbidden_commands) >= 1
 
     # Classify a normal command and check -- should not crash and should not block
     action = ClassifiedAction(

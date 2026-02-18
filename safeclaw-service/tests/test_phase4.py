@@ -138,6 +138,8 @@ class TestAuditReporter:
         lines = report.strip().split("\n")
         assert lines[0].startswith("timestamp")  # header
         assert len(lines) == 4  # header + 3 records
+        assert "ForcePush" in report
+        assert "blocked" in report.lower()
 
     def test_no_records(self, tmp_path):
         from safeclaw.audit.logger import AuditLogger

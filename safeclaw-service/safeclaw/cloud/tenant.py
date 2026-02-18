@@ -84,6 +84,8 @@ class TenantProvisioner:
         autonomy_level: str = "moderate",
     ) -> TenantConfig:
         """Provision a new tenant with ontologies and policies."""
+        if autonomy_level not in AUTONOMY_LEVELS:
+            raise ValueError(f"Invalid autonomy level: {autonomy_level}")
         org_id = str(uuid4())
         org_dir = self.base_dir / "tenants" / org_id
         ontology_dir = org_dir / "ontologies"

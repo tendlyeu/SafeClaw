@@ -53,7 +53,7 @@ def test_evaluate_tool_call_blocked(client):
     assert data["reason"]
 
 
-def test_evaluate_message_normal(client):
+def test_evaluate_message_blocked_by_confirm_preference(client):
     resp = client.post("/api/v1/evaluate/message", json={
         "to": "colleague@example.com",
         "content": "Hello, how are you?",

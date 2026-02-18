@@ -291,7 +291,7 @@ class TestKnowledgeStore:
 
         # Total should be capped at 20
         all_facts = store.get_facts(limit=100)
-        assert len(all_facts) <= 20
+        assert len(all_facts) == 20
 
         # The oldest entries should have been evicted
         assert store.get_fact("test:item_0") is None

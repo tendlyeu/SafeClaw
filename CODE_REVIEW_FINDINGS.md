@@ -629,3 +629,168 @@ Fixes are organized into 6 parallel phases. Each phase touches completely differ
 **Phase:** 5
 **Problem:** Multiple tests create `AuditLogger(Path("/tmp/nonexistent"))`. If path exists on CI, log writes could leak. Should use `tmp_path` fixture for isolation.
 **Fix plan:** Replace `Path("/tmp/nonexistent")` with `tmp_path` fixture in 4 affected tests.
+
+---
+---
+
+# SafeClaw Code Review Round 4 — Findings & Fix Plans
+
+**Date:** 2026-02-18
+**Scope:** All files in safeclaw-service/ and openclaw-safeclaw-plugin/
+**Reviewers:** 3 parallel agents (engine/constraints, API/auth/audit/CLI, tests/ontology)
+**Tests at start:** 233 passing
+**Status:** ALL FIXES APPLIED
+**Tests at end:** 233 passing
+
+### Validation Summary
+- **16 CONFIRMED** — real issues verified against source code
+- **3 PARTIALLY CORRECT** — R4-04 (pipe missing but default fallback is conservative), R4-38 (by design for enforce mode, but no warn), R4-63 (weak but test purpose is broader)
+- **3 FALSE POSITIVE** — R4-07 (fail-closed kill switch catches unregistered agents), R4-34 (session-scoped access limits impact), R4-68 (duplicate of R4-02)
+
+### Totals: 22 findings (19 actionable after removing false positives and duplicate)
+| Severity | Count |
+|----------|-------|
+| HIGH | 2 (R4-02, R4-03) |
+| MEDIUM | 13 |
+| LOW | 4 |
+| FALSE POSITIVE | 3 |
+
+---
+
+## Fix Phases (non-conflicting)
+
+| Phase | Focus | Files | Findings |
+|-------|-------|-------|----------|
+| **1** | Engine/Constraints | full_engine.py, config.py, context_builder.py, delegation_detector.py, action_classifier.py | R4-01, R4-02, R4-03, R4-04, R4-05, R4-06 |
+| **2** | API/Auth/CLI/Cloud | main.py, routes.py, pref_cmd.py, tenant.py, agent_registry.py, temp_permissions.py | R4-30, R4-32, R4-33, R4-35, R4-36, R4-37 |
+| **3** | Tests/Ontology/TS | test files, safeclaw-policy.ttl, index.ts | R4-38, R4-60, R4-63, R4-64, R4-66, R4-67, R4-69 |
+
+---
+
+## HIGH (2 findings)
+
+### R4-02 | HIGH | `full_engine.py:379` — Message rate off-by-one
+**Phase:** 1
+**Problem:** `record_message()` called before `check()`. Current message counts against itself, making effective limit N-1.
+**Fix:** Moved `record_message()` after gate check passes.
+
+### R4-03 | HIGH | `config.py:41-48` + `full_engine.py:97-101` — Uncaught OSError from raw property
+**Phase:** 1
+**Problem:** `raw` property can raise `PermissionError`/`OSError` from file operations. Only `JSONDecodeError` and `AttributeError` were caught.
+**Fix:** Added `OSError` to except clause.
+
+---
+
+## MEDIUM (13 findings)
+
+### R4-01 | MEDIUM | `full_engine.py:218` — Rate limiter off-by-one
+**Phase:** 1
+**Problem:** `rate_limiter.record()` called before `rate_limiter.check()`. Current action counted against itself. With limit=3, only 2 actions succeed.
+**Fix:** Moved `record()` after all checks pass, just before `Decision(block=False)`.
+
+### R4-04 | MEDIUM | `action_classifier.py:104` — Pipe `|` missing from split regex
+**Phase:** 1
+**Problem:** Split regex handles `&&`, `||`, `;` but not single pipe `|`. Commands piped to `bash`/`sh` could evade classification.
+**Validation:** PARTIALLY CORRECT — default fallback is `ExecuteCommand`/`HighRisk`, limiting severity.
+**Fix:** Added `|` to split regex.
+
+### R4-05 | MEDIUM | `context_builder.py:17-23` — Per-session violation list unbounded
+**Phase:** 1
+**Problem:** Violations per session accumulate without limit. Long-lived sessions could grow the list indefinitely.
+**Fix:** Added cap: trim to last 50 when exceeding 100 entries.
+
+### R4-06 | MEDIUM | `delegation_detector.py:98-101` — O(n) prune on every call
+**Phase:** 1
+**Problem:** `_prune_expired()` rebuilds entire list on every `record_block` and `check_delegation` call. O(10000) per evaluation.
+**Fix:** Changed to `collections.deque` with `popleft()` for O(1) per expired entry.
+
+### R4-30 | MEDIUM | `main.py:53-57` — `require_auth=True` silently bypasses auth
+**Phase:** 2
+**Problem:** Setting `require_auth=True` gives false sense of security — no `api_key_manager` injected, auth is always a no-op.
+**Fix:** Changed warning to `raise RuntimeError()` when require_auth=True but no key manager configured.
+
+### R4-32 | MEDIUM | `routes.py:289-293` — `revoke_temp_permission` ignores agent_id
+**Phase:** 2
+**Problem:** `agent_id` in URL path not verified against grant. Any admin can revoke any grant via wrong `agent_id`.
+**Fix:** Added `get_grant()` to TempPermissionManager. Route verifies `grant.agent_id == agent_id`, returns 404 on mismatch.
+
+### R4-33 | MEDIUM | `routes.py:241-252` — kill/revive succeed for nonexistent agents
+**Phase:** 2
+**Problem:** Returns `{"ok": true, "killed": true}` even when agent doesn't exist.
+**Fix:** `kill_agent`/`revive_agent` now return bool. Routes return 404 when agent not found.
+
+### R4-36 | MEDIUM | `cli/pref_cmd.py:78-81` — Regex matches in Turtle comments
+**Phase:** 2
+**Problem:** No anchor or comment-awareness. Regex can match inside `# su:key "value"` comment lines.
+**Fix:** Rewrote to process line-by-line, skipping comment lines.
+
+### R4-37 | MEDIUM | `routes.py:150-163` — `/audit?sessionId=X` ignores limit
+**Phase:** 2
+**Problem:** `limit` parameter accepted but not passed to `get_session_records()`. Unbounded results.
+**Fix:** Applied `[:limit]` slice to result.
+
+### R4-60 | MEDIUM | `safeclaw-policy.ttl:77-85` — `sp:notBefore`/`sp:notAfter` range is `xsd:time` but code uses `xsd:dateTime`
+**Phase:** 3
+**Problem:** Ontology declares range as `xsd:time` (time-only) but code uses full `xsd:dateTime` values.
+**Fix:** Changed `rdfs:range xsd:time` to `rdfs:range xsd:dateTime` on both properties.
+
+### R4-66 | MEDIUM | `test_engine.py:158` — Test accesses private `_forbidden_commands`
+**Phase:** 3
+**Problem:** Private attribute access couples test to implementation. Behavioral assertion already covers this.
+**Fix:** Removed private attribute assertion.
+
+### R4-67 | MEDIUM | `test_api.py:56` — Misleading test name
+**Phase:** 3
+**Problem:** Named `test_evaluate_message_normal` but actually tests confirm-before-send blocking.
+**Fix:** Renamed to `test_evaluate_message_blocked_by_confirm_preference`.
+
+### R4-69 | MEDIUM | `test_phase4.py:139-140` — CSV test has no content assertion
+**Phase:** 3
+**Problem:** Only checks header and line count, not actual data content.
+**Fix:** Added assertions for "ForcePush" and "blocked" in CSV output.
+
+---
+
+## LOW (4 findings)
+
+### R4-35 | LOW | `cloud/tenant.py:130-134` — `_set_autonomy_level` no validation
+**Phase:** 2
+**Problem:** `level` parameter not validated against `AUTONOMY_LEVELS` dict.
+**Fix:** Added validation in `provision()`: raises `ValueError` if level invalid.
+
+### R4-38 | LOW | `index.ts:150-151` — No warning in warn-only mode when service unavailable
+**Phase:** 3
+**Validation:** PARTIALLY CORRECT — fail-closed designed for enforce mode, but operators get no signal in warn-only.
+**Fix:** Added `console.warn` for service unavailable in warn-only+closed mode.
+
+### R4-63 | LOW | `test_coverage.py:116` — Weak "is not None" assertion
+**Phase:** 3
+**Validation:** PARTIALLY CORRECT — test purpose is broader but assertion could be tighter.
+**Fix:** Changed to `assert dep_result.unmet is True`.
+
+### R4-64 | LOW | `test_phase6.py:293` — Eviction test uses `<= 20` instead of `== 20`
+**Phase:** 3
+**Problem:** Weaker than necessary. Eviction guarantees exactly 20 remaining.
+**Fix:** Changed to `assert len(all_facts) == 20`.
+
+---
+
+## FALSE POSITIVE (3 findings — no fix needed)
+
+### R4-07 — Unregistered agents bypass role checks
+**Validation:** `agent_registry.is_killed()` returns `True` for unknown agents (fail-closed). Unregistered agents are blocked at the kill switch before reaching role checks.
+
+### R4-34 — get_session_records unbounded scan
+**Validation:** Session-scoped file access limits practical impact. Each directory only opens one file matching the session ID.
+
+### R4-68 — Message rate off-by-one (duplicate of R4-02)
+**Validation:** Same finding as R4-02, independently discovered by test reviewer.
+
+---
+
+## Previous Reviews Summary
+
+**Round 1:** 59 findings → 58 fixed, 1 false positive. Tests: 207 → 216.
+**Round 2:** 42 findings → 40 fixed, 1 false positive, 1 design decision. Tests: 216 → 227.
+**Round 3:** 49 findings → 47 fixed, 1 false positive, 1 design decision. Tests: 227 → 233.
+**Round 4:** 22 findings → 19 fixed, 3 false positive. Tests: 233 → 233.

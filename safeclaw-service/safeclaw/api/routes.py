@@ -155,7 +155,7 @@ async def query_audit(
 ):
     engine = _get_engine()
     if session_id:
-        records = engine.audit.get_session_records(session_id)
+        records = engine.audit.get_session_records(session_id)[:limit]
     elif blocked:
         records = engine.audit.get_blocked_records(limit)
     else:
@@ -241,14 +241,18 @@ async def register_agent(request: AgentRegisterRequest) -> AgentRegisterResponse
 @router.post("/agents/{agent_id}/kill", dependencies=[Depends(require_admin)])
 async def kill_agent(agent_id: str):
     engine = _get_engine()
-    engine.agent_registry.kill_agent(agent_id)
+    found = engine.agent_registry.kill_agent(agent_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Agent not found")
     return {"ok": True, "agentId": agent_id, "killed": True}
 
 
 @router.post("/agents/{agent_id}/revive", dependencies=[Depends(require_admin)])
 async def revive_agent(agent_id: str):
     engine = _get_engine()
-    engine.agent_registry.revive_agent(agent_id)
+    found = engine.agent_registry.revive_agent(agent_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Agent not found")
     return {"ok": True, "agentId": agent_id, "killed": False}
 
 
@@ -289,6 +293,9 @@ async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> Tem
 @router.delete("/agents/{agent_id}/temp-grant/{grant_id}", dependencies=[Depends(require_admin)])
 async def revoke_temp_permission(agent_id: str, grant_id: str):
     engine = _get_engine()
+    grant = engine.temp_permissions.get_grant(grant_id)
+    if grant is None or grant.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="Grant not found for this agent")
     engine.temp_permissions.revoke(grant_id)
     return {"ok": True}
 

@@ -96,7 +96,7 @@ class FullEngine(SafeClawEngine):
         self.agent_registry = AgentRegistry()
         try:
             raw = config.raw
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, AttributeError, OSError):
             logger.warning("Malformed or missing config.raw, falling back to defaults")
             raw = {}
         self.role_manager = RoleManager(raw)
@@ -213,9 +213,6 @@ class FullEngine(SafeClawEngine):
                         )
                         self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
                         return decision
-
-        # Record ALL attempts for rate limiting (not just allowed ones)
-        self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
 
         # 2. SHACL validation
         shacl_result = self.shacl.validate(action.as_rdf_graph())
@@ -356,7 +353,8 @@ class FullEngine(SafeClawEngine):
                 self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
                 return decision
 
-        # 10. All checks passed
+        # 10. All checks passed - record for rate limiting (only allowed actions)
+        self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
         decision = Decision(block=False)
         self._log_decision(event, action, decision, checks, prefs_applied, start)
         return decision
@@ -375,9 +373,6 @@ class FullEngine(SafeClawEngine):
             if self.agent_registry.is_killed(event.agent_id):
                 return Decision(block=True, reason=f"[SafeClaw] Agent {event.agent_id} has been killed")
 
-        # Record ALL message attempts for rate limiting (before gate check)
-        self.message_gate.record_message(event.session_id)
-
         # Phase 3: Message gate checks (content policies, never-contact, rate limiting)
         gate_result = self.message_gate.check(
             to=event.to,
@@ -391,6 +386,9 @@ class FullEngine(SafeClawEngine):
             )
             self._log_message_decision(event, decision, start)
             return decision
+
+        # Record message only after gate check passes (not blocked messages)
+        self.message_gate.record_message(event.session_id)
 
         # User preference: confirm before send
         user_prefs = self.preference_checker.get_preferences(event.user_id)

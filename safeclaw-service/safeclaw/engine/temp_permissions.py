@@ -58,6 +58,10 @@ class TempPermissionManager:
         self._enforce_limit()
         return grant_id
 
+    def get_grant(self, grant_id: str) -> TempGrant | None:
+        """Look up a grant by ID."""
+        return self._grants.get(grant_id)
+
     def revoke(self, grant_id: str) -> None:
         """Revoke a specific grant."""
         self._grants.pop(grant_id, None)

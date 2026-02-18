@@ -21,6 +21,8 @@ class ContextBuilder:
             while len(self._violation_history) > MAX_SESSIONS:
                 self._violation_history.popitem(last=False)
         self._violation_history[session_id].append(reason)
+        if len(self._violation_history[session_id]) > 100:
+            self._violation_history[session_id] = self._violation_history[session_id][-50:]
 
     def clear_session(self, session_id: str) -> None:
         """Remove session data when session ends."""
