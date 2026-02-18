@@ -6,6 +6,6 @@ sp:ResearcherRole a sp:Role ;
     rdfs:label "Researcher" ;
     rdfs:comment "Read-only access. Can search and read files but cannot modify, delete, or execute." ;
     sp:allowsAction sc:ReadFile, sc:ListFiles, sc:SearchFiles ;
-    sp:deniesAction sc:WriteFile, sc:EditFile, sc:DeleteFile, sc:GitPush, sc:GitForcePush, sc:ShellAction, sc:SendMessage ;
+    sp:deniesAction sc:WriteFile, sc:EditFile, sc:DeleteFile, sc:GitPush, sc:ForcePush, sc:ShellAction, sc:SendMessage ;
     sp:autonomyLevel "supervised" ;
     sp:enforcementMode "enforce" .

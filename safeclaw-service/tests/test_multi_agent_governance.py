@@ -484,10 +484,8 @@ class TestEngineMultiAgentIntegration:
             agent_token=token,
         )
         decision = await engine.evaluate_tool_call(event)
-        # Should NOT be blocked by role since temp grant is active
-        # May still be blocked by other checks (e.g., preferences), but not role
-        if decision.block:
-            assert "role" not in decision.reason.lower() and "researcher" not in decision.reason.lower()
+        # Temp grant bypasses role block; WriteFile has no other blocking preference (R3-66)
+        assert decision.block is False, f"Expected allowed but got blocked: {decision.reason}"
 
     @pytest.mark.asyncio
     async def test_delegation_recorded_on_block(self, engine):

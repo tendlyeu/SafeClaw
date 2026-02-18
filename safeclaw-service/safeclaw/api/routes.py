@@ -147,7 +147,7 @@ async def log_llm_output(request: LlmIORequest):
     return {"ok": True}
 
 
-@router.get("/audit")
+@router.get("/audit", dependencies=[Depends(require_admin)])
 async def query_audit(
     session_id: str | None = Query(None, alias="sessionId"),
     blocked: bool = False,
@@ -171,7 +171,7 @@ async def reload_ontologies():
     return {"ok": True, "triples": len(engine.kg)}
 
 
-@router.get("/audit/statistics")
+@router.get("/audit/statistics", dependencies=[Depends(require_admin)])
 async def audit_statistics(limit: int = Query(100, ge=1, le=1000)):
     """Get aggregate statistics from recent audit records."""
     from safeclaw.audit.reporter import AuditReporter
@@ -181,7 +181,7 @@ async def audit_statistics(limit: int = Query(100, ge=1, le=1000)):
     return reporter.get_statistics(records)
 
 
-@router.get("/audit/report/{session_id}")
+@router.get("/audit/report/{session_id}", dependencies=[Depends(require_admin)])
 async def audit_report(
     session_id: str,
     fmt: Literal["markdown", "json", "csv"] = Query("markdown", alias="format"),
@@ -196,7 +196,7 @@ async def audit_report(
     return PlainTextResponse(content, media_type=content_type)
 
 
-@router.get("/audit/compliance")
+@router.get("/audit/compliance", dependencies=[Depends(require_admin)])
 async def compliance_report(limit: int = Query(100, ge=1, le=1000)):
     """Generate a compliance report from recent audit records."""
     from fastapi.responses import PlainTextResponse
@@ -218,7 +218,7 @@ async def ontology_graph():
 
 
 @router.get("/ontology/search")
-async def ontology_search(q: str = Query(...)):
+async def ontology_search(q: str = Query(..., max_length=200)):
     """Fuzzy search for ontology nodes by name or label."""
     from safeclaw.engine.graph_builder import GraphBuilder
     engine = _get_engine()
@@ -252,7 +252,7 @@ async def revive_agent(agent_id: str):
     return {"ok": True, "agentId": agent_id, "killed": False}
 
 
-@router.get("/agents")
+@router.get("/agents", dependencies=[Depends(require_admin)])
 async def list_agents():
     engine = _get_engine()
     agents = engine.agent_registry.list_agents()
@@ -264,7 +264,16 @@ async def list_agents():
 
 @router.post("/agents/{agent_id}/temp-grant", response_model=TempGrantResponse, dependencies=[Depends(require_admin)])
 async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> TempGrantResponse:
+    from datetime import datetime, timezone, timedelta
+
     engine = _get_engine()
+    # Capture wall clock at grant time so the expiry is computed from the same
+    # moment as the monotonic grant_time inside TempPermissionManager. This is
+    # an approximation (millisecond-level drift) but avoids the racy
+    # monotonic-to-wall-clock subtraction that could shift under NTP corrections
+    # or system sleep. Ideally TempGrant would store wall_expires_at directly,
+    # but that field lives in engine code shared with another fixer. (R3-34)
+    wall_now = datetime.now(timezone.utc)
     grant_id = engine.temp_permissions.grant(
         agent_id=agent_id,
         permission=request.permission,
@@ -272,14 +281,8 @@ async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> Tem
         task_id=request.taskId,
     )
     expires_at = None
-    grants = engine.temp_permissions.list_grants(agent_id)
-    for g in grants:
-        if g.id == grant_id and g.expires_at is not None:
-            from datetime import datetime, timezone
-            import time
-            # Convert monotonic to approximate wall clock
-            wall_time = time.time() + (g.expires_at - time.monotonic())
-            expires_at = datetime.fromtimestamp(wall_time, tz=timezone.utc).isoformat()
+    if request.durationSeconds is not None:
+        expires_at = (wall_now + timedelta(seconds=request.durationSeconds)).isoformat()
     return TempGrantResponse(grantId=grant_id, expiresAt=expires_at)
 
 
@@ -290,7 +293,7 @@ async def revoke_temp_permission(agent_id: str, grant_id: str):
     return {"ok": True}
 
 
-@router.post("/tasks/{task_id}/complete")
+@router.post("/tasks/{task_id}/complete", dependencies=[Depends(require_admin)])
 async def complete_task(task_id: str):
     engine = _get_engine()
     count = engine.temp_permissions.complete_task(task_id)

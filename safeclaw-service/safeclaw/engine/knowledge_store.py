@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,10 +44,13 @@ class KnowledgeStore:
                         logger.warning(f"Skipping corrupted knowledge store line: {e}")
 
     def _save(self) -> None:
-        """Persist all facts to disk."""
-        with open(self._store_file(), "w") as f:
+        """Persist all facts to disk atomically."""
+        store_file = self._store_file()
+        tmp_file = store_file.with_suffix(".jsonl.tmp")
+        with open(tmp_file, "w") as f:
             for fact in self._facts.values():
                 f.write(json.dumps(fact) + "\n")
+        os.replace(tmp_file, store_file)
 
     def record_fact(
         self,

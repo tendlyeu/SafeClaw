@@ -17,6 +17,9 @@ class TempGrant:
     granted_at: float
 
 
+MAX_GRANTS = 10000
+
+
 class TempPermissionManager:
     """Manages temporary, scoped permission grants."""
 
@@ -52,6 +55,7 @@ class TempPermissionManager:
             task_id=task_id,
             granted_at=now,
         )
+        self._enforce_limit()
         return grant_id
 
     def revoke(self, grant_id: str) -> None:
@@ -90,6 +94,19 @@ class TempPermissionManager:
         for gid in to_remove:
             del self._grants[gid]
         return len(to_remove)
+
+    def _enforce_limit(self) -> None:
+        """Evict grants if over MAX_GRANTS: expired first, then oldest."""
+        if len(self._grants) <= MAX_GRANTS:
+            return
+        self.cleanup_expired()
+        if len(self._grants) <= MAX_GRANTS:
+            return
+        # Evict oldest by granted_at
+        by_age = sorted(self._grants.items(), key=lambda kv: kv[1].granted_at)
+        to_remove = len(self._grants) - MAX_GRANTS
+        for gid, _ in by_age[:to_remove]:
+            del self._grants[gid]
 
     def list_grants(self, agent_id: str | None = None) -> list[TempGrant]:
         """List active grants, optionally filtered by agent_id."""

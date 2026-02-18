@@ -84,7 +84,7 @@ class ContextBuilder:
             SELECT ?property ?value WHERE {{
                 ?user su:hasPreference ?pref .
                 ?pref ?property ?value .
-                FILTER(CONTAINS(STR(?user), "{safe_user_id}"))
+                FILTER(STRENDS(STR(?user), "/{safe_user_id}"))
             }}
         """)
         return [f"{str(row['property']).split('#')[-1]}: {row['value']}" for row in results]

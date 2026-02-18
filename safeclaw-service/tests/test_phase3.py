@@ -128,6 +128,23 @@ class TestMessageGate:
         assert result.block
         assert result.check_type == "rate_limit"
 
+    def test_rate_limit_boundary(self, kg):
+        """Record N-1 messages: not blocked. Record Nth: blocked (R3-67)."""
+        gate = MessageGate(kg)
+        gate._message_rate_limit = 3
+
+        # Record 2 messages (under limit)
+        gate.record_message("s1")
+        gate.record_message("s1")
+        result = gate.check(to="alice@example.com", content="Still ok", session_id="s1")
+        assert not result.block
+
+        # Record 3rd message (at limit)
+        gate.record_message("s1")
+        result = gate.check(to="alice@example.com", content="Should block", session_id="s1")
+        assert result.block
+        assert result.check_type == "rate_limit"
+
     def test_rate_limit_per_session(self, kg):
         gate = MessageGate(kg)
         gate._message_rate_limit = 3

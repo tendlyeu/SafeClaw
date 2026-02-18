@@ -126,6 +126,19 @@ async def test_audit_records_written(engine, tmp_path):
     assert records[0].action.tool_name == "read"
 
 
+@pytest.mark.asyncio
+async def test_engine_blocks_rm_rf_root_without_shacl(engine):
+    """Verifies that the engine blocks rm -rf / even without SHACL shapes loaded."""
+    event = ToolCallEvent(
+        session_id="test-session",
+        user_id="default",
+        tool_name="exec",
+        params={"command": "rm -rf /"},
+    )
+    decision = await engine.evaluate_tool_call(event)
+    assert decision.block is True
+
+
 def test_policy_checker_safe_match_malformed_regex():
     """PolicyChecker._safe_match handles invalid regex without crashing."""
     from rdflib import Literal, Namespace

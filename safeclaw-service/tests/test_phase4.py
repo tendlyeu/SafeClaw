@@ -146,27 +146,27 @@ class TestAuditReporter:
         report = reporter.generate_session_report("unknown")
         assert "No audit records found" in report
 
-    def test_statistics(self, sample_records):
+    def test_statistics(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
-        reporter = AuditReporter(AuditLogger(Path("/tmp/nonexistent")))
+        reporter = AuditReporter(AuditLogger(tmp_path))
         stats = reporter.get_statistics(sample_records)
         assert stats["total"] == 3
         assert stats["allowed"] == 1
         assert stats["blocked"] == 2
-        assert stats["block_rate"] == 66.7
+        assert stats["block_rate"] == pytest.approx(66.7, abs=0.1)
         assert "CriticalRisk" in stats["risk_distribution"]
         assert stats["risk_distribution"]["CriticalRisk"] == 2
         assert "sp:NoForcePush" in stats["top_violated_constraints"]
 
-    def test_empty_statistics(self):
+    def test_empty_statistics(self, tmp_path):
         from safeclaw.audit.logger import AuditLogger
-        reporter = AuditReporter(AuditLogger(Path("/tmp/nonexistent")))
+        reporter = AuditReporter(AuditLogger(tmp_path))
         stats = reporter.get_statistics([])
         assert stats["total"] == 0
 
-    def test_compliance_report(self, sample_records):
+    def test_compliance_report(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
-        reporter = AuditReporter(AuditLogger(Path("/tmp/nonexistent")))
+        reporter = AuditReporter(AuditLogger(tmp_path))
         report = reporter.generate_compliance_report(sample_records)
         assert "# SafeClaw Compliance Report" in report
         assert "## Summary Statistics" in report
@@ -174,9 +174,9 @@ class TestAuditReporter:
         assert "## Decision Trace" in report
         assert "CriticalRisk" in report
 
-    def test_compliance_report_empty(self):
+    def test_compliance_report_empty(self, tmp_path):
         from safeclaw.audit.logger import AuditLogger
-        reporter = AuditReporter(AuditLogger(Path("/tmp/nonexistent")))
+        reporter = AuditReporter(AuditLogger(tmp_path))
         report = reporter.generate_compliance_report([])
         assert "No records" in report
 

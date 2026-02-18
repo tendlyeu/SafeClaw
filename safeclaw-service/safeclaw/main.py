@@ -13,19 +13,24 @@ from safeclaw.engine.full_engine import FullEngine
 
 logger = logging.getLogger("safeclaw")
 
+# Module-level config singleton — read once, reused by lifespan and middleware (R3-30)
+_config = SafeClawConfig()
+
 engine: FullEngine | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    config = SafeClawConfig()
-    logging.basicConfig(level=getattr(logging, config.log_level, logging.INFO))
+    logging.basicConfig(level=getattr(logging, _config.log_level, logging.INFO))
     logger.info("Starting SafeClaw engine...")
-    engine = FullEngine(config)
+    engine = FullEngine(_config)
     logger.info("SafeClaw engine ready")
     yield
     logger.info("Shutting down SafeClaw engine")
+    # Known benign race: engine may still be referenced by in-flight requests
+    # during shutdown. This is acceptable because the process is exiting and
+    # uvicorn drains connections before calling the lifespan teardown. (R3-50)
     engine = None
 
 
@@ -36,16 +41,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS - allow the TS plugin to connect from any origin (localhost or remote)
+# CORS - configurable via SAFECLAW_CORS_ORIGIN_REGEX env var (R3-31)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://localhost:\d+",
+    allow_origin_regex=_config.cors_origin_regex,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Auth middleware
-app.add_middleware(APIKeyAuthMiddleware, require_auth=getattr(SafeClawConfig(), 'require_auth', False))
+# Auth middleware — uses the same _config instance (R3-30, R3-32)
+if _config.require_auth:
+    logger.warning(
+        "require_auth=True but no api_key_manager is configured. "
+        "Auth will be a no-op until a key manager is provided."
+    )
+app.add_middleware(APIKeyAuthMiddleware, require_auth=_config.require_auth)
 
 # Request timing
 app.add_middleware(TimingMiddleware)

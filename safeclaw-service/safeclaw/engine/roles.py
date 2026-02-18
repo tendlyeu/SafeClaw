@@ -1,9 +1,9 @@
 """Role management for multi-agent governance."""
 
+import fnmatch
 import logging
 import os
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
 
 logger = logging.getLogger(__name__)
 
@@ -111,15 +111,16 @@ class RoleManager:
 
     def is_resource_allowed(self, role: Role, resource_path: str) -> bool:
         resource_path = os.path.normpath(resource_path)
-        p = PurePosixPath(resource_path)
+        # Strip leading / for consistent fnmatch matching
+        norm = resource_path.lstrip("/")
         patterns = role.resource_patterns
         for deny_pat in patterns.get("deny", []):
-            if p.match(deny_pat):
+            if fnmatch.fnmatch(norm, deny_pat.lstrip("/")):
                 return False
         allow_pats = patterns.get("allow", [])
         if not allow_pats:
             return False
-        return any(p.match(pat) for pat in allow_pats)
+        return any(fnmatch.fnmatch(norm, pat.lstrip("/")) for pat in allow_pats)
 
     def get_effective_constraints(
         self,
@@ -163,13 +164,18 @@ class RoleManager:
         org_res_allow = org_policy.get("resource_allow", [])
         parent_res_allow = parent_constraints.get("resource_allow", [])
         if org_res_allow:
-            resource_allow = [
-                p for p in resource_allow if p in org_res_allow
-            ] or org_res_allow
+            # Keep role patterns that are a subset of any org pattern (org pattern matches role pattern)
+            narrower = [
+                p for p in resource_allow
+                if any(fnmatch.fnmatch(p.lstrip("/"), o.lstrip("/")) for o in org_res_allow)
+            ]
+            resource_allow = narrower or org_res_allow
         if parent_res_allow:
-            resource_allow = [
-                p for p in resource_allow if p in parent_res_allow
-            ] or parent_res_allow
+            narrower = [
+                p for p in resource_allow
+                if any(fnmatch.fnmatch(p.lstrip("/"), o.lstrip("/")) for o in parent_res_allow)
+            ]
+            resource_allow = narrower or parent_res_allow
 
         return {
             "denied_actions": sorted(denied),

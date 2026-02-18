@@ -1,0 +1,19 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# === File Action Validation Shapes ===
+# SHACL constraints for validating file-related agent actions.
+
+sc:FileActionShape a sh:NodeShape ;
+    sh:targetClass sc:FileAction ;
+    rdfs:label "File Action Shape" ;
+    rdfs:comment "Validates that FileAction instances have a required file path." ;
+    sh:property [
+        sh:path sc:filePath ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "FileAction must have exactly one file path (xsd:string)" ;
+    ] .

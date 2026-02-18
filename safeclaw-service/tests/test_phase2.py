@@ -131,6 +131,37 @@ class TestTemporalChecker:
         result = checker.check(action, kg)
         assert not result.violated
 
+    def test_temporal_violation_not_before(self, kg):
+        """Temporal constraint with notBefore in the future should flag a violation (R3-71)."""
+        from rdflib import Literal, Namespace, RDF, XSD
+        from safeclaw.engine.knowledge_graph import SP, SC
+
+        sp = Namespace(str(SP))
+        sc = Namespace(str(SC))
+
+        # Insert a temporal constraint: DeployAction not allowed before year 2099
+        constraint = sp["FutureDeployConstraint"]
+        kg.graph.add((constraint, RDF.type, sp["TemporalConstraint"]))
+        kg.graph.add((constraint, sp["appliesTo"], sc["DeployAction"]))
+        kg.graph.add((constraint, sp["notBefore"], Literal("2099-01-01T00:00:00+00:00", datatype=XSD.dateTime)))
+
+        # Also add DeployAction as an OWL class so rdfs:subClassOf* can match
+        from rdflib import RDFS
+        kg.graph.add((sc["DeployAction"], RDF.type, RDFS.Class))
+
+        checker = TemporalChecker()
+        action = ClassifiedAction(
+            ontology_class="DeployAction",
+            risk_level="HighRisk",
+            is_reversible=False,
+            affects_scope="SharedState",
+            tool_name="exec",
+            params={},
+        )
+        result = checker.check(action, kg)
+        assert result.violated
+        assert "not allowed before" in result.reason.lower() or "DeployAction" in result.reason
+
 
 # --- RateLimiter Tests ---
 

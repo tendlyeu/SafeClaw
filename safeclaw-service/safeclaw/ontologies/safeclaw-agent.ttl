@@ -17,6 +17,11 @@ sc:Action a owl:Class ;
     rdfs:label "Action" ;
     rdfs:comment "Base class for all agent actions" .
 
+sc:AllActions a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "All Actions" ;
+    rdfs:comment "Marker class representing all possible actions" .
+
 sc:FileAction a owl:Class ;
     rdfs:subClassOf sc:Action ;
     rdfs:label "File Action" .

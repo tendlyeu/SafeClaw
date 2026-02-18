@@ -1,5 +1,6 @@
 """Phase 5 tests: API key authentication, middleware, hybrid engine, circuit breaker."""
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -301,3 +302,31 @@ class TestHybridEngine:
 
         assert engine.circuit_breaker.failures >= 3
         assert engine.circuit_breaker.is_open is True
+
+        # R3-62: Verify fail-closed — subsequent calls with no local engine should block
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is True
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_half_open_single_probe(self, monkeypatch):
+        """Only one concurrent request probes in half-open state (R3-61)."""
+        fake_time = [1000.0]
+        monkeypatch.setattr("time.monotonic", lambda: fake_time[0])
+
+        cb = CircuitBreakerState(max_failures=1, recovery_timeout=0.1)
+        cb.record_failure()
+        assert cb.is_open is True
+
+        # Advance past recovery timeout into half-open
+        fake_time[0] += 0.2
+
+        # Fire multiple concurrent should_try_remote() calls
+        results = await asyncio.gather(
+            cb.should_try_remote(),
+            cb.should_try_remote(),
+            cb.should_try_remote(),
+            cb.should_try_remote(),
+            cb.should_try_remote(),
+        )
+        # Exactly one should get through as the probe
+        assert results.count(True) == 1

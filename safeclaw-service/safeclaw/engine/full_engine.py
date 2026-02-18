@@ -1,6 +1,7 @@
 """Full engine - the complete SafeClaw engine with owlready2 + pySHACL."""
 
 import asyncio
+import json
 import logging
 import time
 from collections import OrderedDict
@@ -93,7 +94,11 @@ class FullEngine(SafeClawEngine):
 
         # Multi-agent governance (Phase: multi-agent)
         self.agent_registry = AgentRegistry()
-        raw = config.raw if hasattr(config, 'raw') else None
+        try:
+            raw = config.raw
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning("Malformed or missing config.raw, falling back to defaults")
+            raw = {}
         self.role_manager = RoleManager(raw)
         self.delegation_detector = DelegationDetector(
             mode=raw.get("agents", {}).get("delegationPolicy", "configurable") if raw else "configurable"
@@ -125,11 +130,23 @@ class FullEngine(SafeClawEngine):
     def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._session_locks:
             self._session_locks[session_id] = asyncio.Lock()
-            while len(self._session_locks) > self._max_session_locks:
-                self._session_locks.popitem(last=False)
+            self._evict_unlocked_session_locks()
         else:
             self._session_locks.move_to_end(session_id)
         return self._session_locks[session_id]
+
+    def _evict_unlocked_session_locks(self) -> None:
+        """Evict oldest unlocked session locks when over capacity."""
+        while len(self._session_locks) > self._max_session_locks:
+            # Walk from oldest, skip actively-held locks
+            evicted = False
+            for sid in list(self._session_locks):
+                if not self._session_locks[sid].locked():
+                    del self._session_locks[sid]
+                    evicted = True
+                    break
+            if not evicted:
+                break
 
     async def evaluate_tool_call(self, event: ToolCallEvent) -> Decision:
         """Run the full constraint checking pipeline."""
@@ -358,6 +375,9 @@ class FullEngine(SafeClawEngine):
             if self.agent_registry.is_killed(event.agent_id):
                 return Decision(block=True, reason=f"[SafeClaw] Agent {event.agent_id} has been killed")
 
+        # Record ALL message attempts for rate limiting (before gate check)
+        self.message_gate.record_message(event.session_id)
+
         # Phase 3: Message gate checks (content policies, never-contact, rate limiting)
         gate_result = self.message_gate.check(
             to=event.to,
@@ -381,9 +401,6 @@ class FullEngine(SafeClawEngine):
             )
             self._log_message_decision(event, decision, start)
             return decision
-
-        # Record for rate limiting
-        self.message_gate.record_message(event.session_id)
 
         decision = Decision(block=False)
         self._log_message_decision(event, decision, start)

@@ -78,8 +78,10 @@ def set_pref(
     pattern = re.compile(
         rf'(su:{key}\s+)"([^"]*)"',
     )
-    if pattern.search(content):
-        new_content = pattern.sub(rf'\1"{value}"', content)
+    new_content, count = pattern.subn(rf'\1"{value}"', content)
+    if count > 0:
+        if count > 1:
+            console.print(f"[yellow]Warning: found {count} matches for {key}, all were updated[/yellow]")
         user_file.write_text(new_content)
         console.print(f"[green]Set {key} = {value} for user {user_id}[/green]")
     else:

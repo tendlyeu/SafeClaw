@@ -99,7 +99,7 @@ class ActionClassifier:
         command = params.get("command", "")
 
         # Strip quoted strings before splitting to avoid splitting inside quotes
-        stripped = re.sub(r'''(["'])(?:(?!\1).)*\1''', '', command)
+        stripped = re.sub(r'''(["'])(?:\\.|(?!\1).)*\1''', '', command)
         # Split on command chaining operators
         sub_commands = re.split(r'\s*(?:&&|\|\||;)\s*', stripped)
         highest_risk = None

@@ -1,6 +1,5 @@
 """Audit logger - append-only JSONL writer with daily rotation."""
 
-import json
 import logging
 import re
 import threading
@@ -44,11 +43,28 @@ class AuditLogger:
         else:
             logger.info(log_msg)
 
-    def get_session_records(self, session_id: str) -> list[DecisionRecord]:
+    def get_session_records(
+        self,
+        session_id: str,
+        since: date | None = None,
+        until: date | None = None,
+    ) -> list[DecisionRecord]:
+        """Get all records for a session, optionally filtered by date range (R3-38)."""
         records = []
         safe_id = self._safe_id(session_id)
+        if not self.audit_dir.exists():
+            return records
         for day_dir in sorted(self.audit_dir.iterdir()):
             if not day_dir.is_dir():
+                continue
+            # Only iterate directories within the requested date range (R3-38)
+            try:
+                dir_date = date.fromisoformat(day_dir.name)
+            except ValueError:
+                continue
+            if since and dir_date < since:
+                continue
+            if until and dir_date > until:
                 continue
             session_file = day_dir / f"session-{safe_id}.jsonl"
             if session_file.exists():
@@ -63,38 +79,66 @@ class AuditLogger:
         return records
 
     def get_recent_records(self, limit: int = 20) -> list[DecisionRecord]:
-        records = []
+        """Get the most recent records across all sessions (R3-39).
+
+        Collects all records from the most recent day directory, sorts globally
+        by timestamp, then moves to older directories only if limit not met.
+        """
+        records: list[DecisionRecord] = []
+        if not self.audit_dir.exists():
+            return records
         for day_dir in sorted(self.audit_dir.iterdir(), reverse=True):
             if not day_dir.is_dir():
                 continue
-            for session_file in sorted(day_dir.glob("session-*.jsonl"), reverse=True):
+            # Validate directory name is a date
+            try:
+                date.fromisoformat(day_dir.name)
+            except ValueError:
+                continue
+            day_records: list[DecisionRecord] = []
+            for session_file in day_dir.glob("session-*.jsonl"):
                 with open(session_file) as f:
-                    for line in reversed(f.readlines()):
+                    for line in f:
                         line = line.strip()
                         if line:
                             try:
-                                records.append(DecisionRecord.model_validate_json(line))
+                                day_records.append(DecisionRecord.model_validate_json(line))
                             except Exception as e:
                                 logger.warning(f"Skipping malformed audit record: {e}")
-                            if len(records) >= limit:
-                                records.sort(key=lambda r: r.timestamp, reverse=True)
-                                return records
+            records.extend(day_records)
+            if len(records) >= limit:
+                break
         records.sort(key=lambda r: r.timestamp, reverse=True)
-        return records
+        return records[:limit]
 
     def get_blocked_records(self, limit: int = 20) -> list[DecisionRecord]:
-        blocked = []
-        batch_size = limit * 5
-        offset = 0
-        while len(blocked) < limit:
-            batch = self.get_recent_records(batch_size + offset)
-            for r in batch[offset:]:
-                if r.decision == "blocked":
-                    blocked.append(r)
-                    if len(blocked) >= limit:
-                        break
-            if len(batch) < batch_size + offset:
-                break  # All records exhausted
-            offset = len(batch)
-            batch_size = limit * 5
+        """Get blocked records efficiently by filtering at file-read level (R3-40)."""
+        blocked: list[DecisionRecord] = []
+        if not self.audit_dir.exists():
+            return blocked
+        for day_dir in sorted(self.audit_dir.iterdir(), reverse=True):
+            if not day_dir.is_dir():
+                continue
+            try:
+                date.fromisoformat(day_dir.name)
+            except ValueError:
+                continue
+            for session_file in day_dir.glob("session-*.jsonl"):
+                with open(session_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        # Quick string check before full parse
+                        if '"blocked"' not in line:
+                            continue
+                        try:
+                            record = DecisionRecord.model_validate_json(line)
+                            if record.decision == "blocked":
+                                blocked.append(record)
+                        except Exception as e:
+                            logger.warning(f"Skipping malformed audit record: {e}")
+            if len(blocked) >= limit:
+                break
+        blocked.sort(key=lambda r: r.timestamp, reverse=True)
         return blocked[:limit]

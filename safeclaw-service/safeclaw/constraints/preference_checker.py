@@ -42,7 +42,7 @@ class PreferenceChecker:
                 ?user a su:User ;
                       su:hasPreference ?pref .
                 ?pref ?property ?value .
-                FILTER(CONTAINS(STR(?user), "{safe_user_id}"))
+                FILTER(STRENDS(STR(?user), "/{safe_user_id}"))
             }}
         """)
 

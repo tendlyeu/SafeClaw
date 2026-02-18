@@ -62,6 +62,12 @@ function loadConfig(): SafeClawPluginConfig {
     defaults.enforcement = 'enforce';
   }
 
+  const validFailModes = ['open', 'closed'] as const;
+  if (!validFailModes.includes(defaults.failMode as any)) {
+    console.warn(`[SafeClaw] Invalid fail mode "${defaults.failMode}", defaulting to "closed"`);
+    defaults.failMode = 'closed';
+  }
+
   return defaults;
 }
 
@@ -176,6 +182,9 @@ export default {
         content: event.content,
       });
 
+      if (r === null && config.failMode === 'closed' && config.enforcement === 'enforce') {
+        return { cancel: true };
+      }
       if (r?.block && config.enforcement === 'enforce') {
         return { cancel: true };
       }

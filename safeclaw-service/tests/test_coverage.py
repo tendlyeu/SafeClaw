@@ -70,14 +70,15 @@ async def test_message_never_contact_blocked(engine):
 
 
 @pytest.mark.asyncio
-async def test_message_normal_allowed(engine):
+async def test_message_default_user_confirm_preference(engine):
+    """Default user has confirm_before_send=True, so messages should be blocked (R3-65)."""
     event = MessageEvent(
         session_id="s1", user_id="default",
         to="friend@example.com", content="Hello",
     )
     decision = await engine.evaluate_message(event)
-    # May be blocked by confirm_before_send preference; either way we get a decision
-    assert isinstance(decision.block, bool)
+    assert decision.block is True
+    assert "confirm" in decision.reason.lower() or "send" in decision.reason.lower()
     assert decision.audit_id  # audit record is always created
 
 

@@ -42,6 +42,8 @@ class SessionTracker:
             self._sessions[session_id] = SessionState()
             while len(self._sessions) > MAX_SESSIONS:
                 self._sessions.popitem(last=False)
+        else:
+            self._sessions.move_to_end(session_id)
         return self._sessions[session_id]
 
     def record_outcome(

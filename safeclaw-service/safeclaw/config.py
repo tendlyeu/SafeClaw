@@ -19,6 +19,12 @@ class SafeClawConfig(BaseSettings):
     # Reasoner
     run_reasoner_on_startup: bool = True
 
+    # CORS
+    cors_origin_regex: str = r"https?://localhost:\d+"
+
+    # Auth
+    require_auth: bool = False
+
     # Logging
     log_level: str = "INFO"
 

@@ -92,6 +92,8 @@ class MessageGate:
         counts = self._session_message_counts.get(session_id, [])
         counts = [t for t in counts if t >= cutoff]
         self._session_message_counts[session_id] = counts
+        while len(self._session_message_counts) > MAX_SESSIONS:
+            self._session_message_counts.popitem(last=False)
 
         if len(counts) >= self._message_rate_limit:
             return MessageCheckResult(

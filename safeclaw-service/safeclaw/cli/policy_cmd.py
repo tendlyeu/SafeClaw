@@ -71,6 +71,12 @@ def add_policy(
         console.print(f"[red]Unknown policy type: {policy_type}[/red]")
         raise typer.Exit(1)
 
+    # Validate name is safe for use as a Turtle IRI local name (R3-41)
+    import re as _re
+    if not _re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_-]*', name):
+        console.print(f"[red]Invalid policy name '{name}': must match [a-zA-Z_][a-zA-Z0-9_-]*[/red]")
+        raise typer.Exit(1)
+
     # Build Turtle snippet
     safe_name = _escape_turtle(name)
     safe_reason = _escape_turtle(reason)

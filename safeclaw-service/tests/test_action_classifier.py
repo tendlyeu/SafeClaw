@@ -86,6 +86,20 @@ def test_chained_command_highest_risk():
     assert action.risk_level == "CriticalRisk"
 
 
+def test_quoted_rm_classified_as_execute_command():
+    """echo "rm -rf /" && ls should classify as ExecuteCommand, not DeleteFile (R3-63)."""
+    classifier = ActionClassifier()
+    action = classifier.classify("exec", {"command": 'echo "rm -rf /" && ls'})
+    assert action.ontology_class == "ExecuteCommand"
+
+
+def test_unquoted_rm_classified_as_delete_file():
+    """rm -rf /tmp/old && ls should classify as DeleteFile (R3-63)."""
+    classifier = ActionClassifier()
+    action = classifier.classify("exec", {"command": "rm -rf /tmp/old && ls"})
+    assert action.ontology_class == "DeleteFile"
+
+
 def test_action_rdf_graph():
     classifier = ActionClassifier()
     action = classifier.classify("exec", {"command": "git push origin main"})
@@ -109,3 +123,7 @@ def test_action_rdf_graph():
     # Verify affectsScope
     scope_triples = list(graph.triples((action_node, SC.affectsScope, SC["SharedState"])))
     assert len(scope_triples) == 1
+
+    # R3-64: Verify commandText triple exists
+    cmd_triples = list(graph.triples((None, SC.commandText, None)))
+    assert len(cmd_triples) == 1
