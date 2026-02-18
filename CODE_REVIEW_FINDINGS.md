@@ -3,28 +3,27 @@
 **Date:** 2026-02-18
 **Scope:** All files in safeclaw-service/ and openclaw-safeclaw-plugin/
 **Tests at start:** 207 passing
+**Reviewers:** 4 parallel agents (engine, API, multi-agent, tests)
 
 ---
 
-## CRITICAL
+## CRITICAL (6 findings)
 
 ### F-01: knowledge_graph.py:7-9 — Namespace mismatch with role ontology files
 
-**Problem:** `knowledge_graph.py` defines namespaces as `http://safeclaw.ai/ontology/...` but the role `.ttl` files use `http://safeclaw.uku.ai/ontology/...`. The two agent/policy ontology files (`safeclaw-agent.ttl`, `safeclaw-policy.ttl`) need to be checked as well. If namespaces don't match, SPARQL queries will silently return no results for role-based data.
+**Problem:** `knowledge_graph.py` defines namespaces as `http://safeclaw.ai/ontology/...` but the role `.ttl` files use `http://safeclaw.uku.ai/ontology/...`. If namespaces don't match, SPARQL queries will silently return no results for role-based data.
 
 **Fix plan:** Standardize ALL namespace URIs to `http://safeclaw.uku.ai/ontology/...` across:
 - `safeclaw/engine/knowledge_graph.py` lines 7-9 (SC, SP, SU)
 - `safeclaw/constraints/action_classifier.py` line 8 (SC)
 - `safeclaw/engine/context_builder.py` line 5 (import SP, SU)
-- Verify `safeclaw-agent.ttl` and `safeclaw-policy.ttl` use `safeclaw.uku.ai`
-- Verify `user-default.ttl` uses `safeclaw.uku.ai`
-- Verify shapes/ `.ttl` files use `safeclaw.uku.ai`
+- Verify all `.ttl` files use `safeclaw.uku.ai`
 
 ### F-02: config.py — SafeClawConfig has no `raw` attribute
 
-**Problem:** `full_engine.py:94` does `config.raw if hasattr(config, 'raw')` but `SafeClawConfig` (pydantic-settings BaseSettings) has no `raw` field. This means the multi-agent config (roles, delegation policy, requireTokenAuth) is NEVER loaded from config. Everything silently uses defaults.
+**Problem:** `full_engine.py:94` does `config.raw if hasattr(config, 'raw')` but `SafeClawConfig` has no `raw` field. Multi-agent config (roles, delegation policy, requireTokenAuth) is NEVER loaded from config.
 
-**Fix plan:** Add a `raw` property or classmethod to `SafeClawConfig` that loads `~/.safeclaw/config.json` and returns the raw dict. Or better: load config_template defaults and merge in the pydantic settings, then pass as dict. In `config.py`, add:
+**Fix plan:** Add a `raw` property to `SafeClawConfig`:
 ```python
 @property
 def raw(self) -> dict:
@@ -32,186 +31,415 @@ def raw(self) -> dict:
     return load_config(self.data_dir / "config.json")
 ```
 
+### F-03: main.py:39-44 — CORS allows all origins + auth middleware not wired up
+
+**Problem:** `allow_origins=["*"]` with `allow_methods=["*"]` permits any website to call SafeClaw endpoints. Combined with the fact that `APIKeyAuthMiddleware` is never added to the app in `main.py`, ALL endpoints are completely unauthenticated and accessible cross-origin.
+
+**Fix plan:** (1) Add `APIKeyAuthMiddleware` to the app in `main.py`, with `require_auth` from config (default `False` for local, `True` for cloud). (2) Replace `allow_origins=["*"]` with configurable origins, defaulting to `["http://localhost:*"]`.
+
+### F-04: routes.py — No auth on sensitive agent/admin endpoints
+
+**Problem:** `/agents/register`, `/agents/{id}/kill`, `/agents/{id}/revive`, `/reload`, `/agents/{id}/temp-grant`, and all audit endpoints have zero authentication. Anyone on the network can register rogue agents, kill agents, reload ontologies, or read audit data. The `/reload` endpoint reinitializes the entire engine with no audit trail.
+
+**Fix plan:** Wire up `APIKeyAuthMiddleware`. Agent management and `/reload` should require admin-level auth. Audit endpoints should require at least read auth. Add audit logging for `/reload`.
+
+### F-05: shacl_validator.py:55-57 — SHACL errors fail-open (silently allow all)
+
+**Problem:** When pySHACL throws an exception, the validator returns `SHACLResult(conforms=True)`, meaning the action passes validation. This is a fail-open security issue.
+
+**Fix plan:** Change to fail-closed:
+```python
+except Exception as e:
+    logger.error(f"SHACL validation error: {e}")
+    return SHACLResult(conforms=False, violations=[{"message": f"SHACL validation error: {e}"}])
+```
+
+### F-06: No API route tests or middleware tests exist
+
+**Problem:** The routes module has 17 endpoints. None are tested via TestClient. `TimingMiddleware` and `APIKeyAuthMiddleware` dispatch are also untested. If endpoint wiring breaks, no test catches it.
+
+**Fix plan:** Add `test_api.py` using FastAPI's `TestClient` covering: POST /evaluate/tool-call, POST /evaluate/message, POST /context/build, POST /agents/register, GET /health, middleware headers, and auth enforcement.
+
 ---
 
-## HIGH
-
-### F-03: main.py:40-44 — CORS allows all origins
-
-**Problem:** `allow_origins=["*"]` allows any website to make cross-origin requests to the SafeClaw API. An attacker could craft a malicious webpage that calls SafeClaw endpoints if a user has the service running locally.
-
-**Fix plan:** Default to `["http://localhost:*"]` or load allowed origins from config. In `main.py`, change to:
-```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.cors_origins if hasattr(config, 'cors_origins') else ["http://localhost:8420"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-Requires moving `config` to module scope or reading it in lifespan and patching CORS.
-
-### F-04: routes.py — No auth on sensitive agent endpoints
-
-**Problem:** `/agents/register`, `/agents/{id}/kill`, `/agents/{id}/revive`, `/reload`, `/agents/{id}/temp-grant` have no authentication. Anyone on the network can register rogue agents, kill legitimate agents, or reload ontologies. The `APIKeyAuthMiddleware` exists but isn't applied to these routes.
-
-**Fix plan:** The `APIKeyAuthMiddleware` in `auth/middleware.py` already exists and is wired up when `require_auth=True`. Ensure it covers these endpoints. Additionally, the kill/revive/temp-grant endpoints should require admin-level auth. Add path prefix checks or use FastAPI dependency injection for auth on the agent management routes.
-
-### F-05: multi_agent.py — Dead code (superseded by agent_registry.py)
-
-**Problem:** `MultiAgentGovernor` in `multi_agent.py` is not used by any route or engine. It was superseded by `AgentRegistry` in `agent_registry.py`. Tests in `test_phase6.py` still test it, but it's unreachable from production code. This creates confusion about which module manages agents.
-
-**Fix plan:** Either:
-- (a) Delete `multi_agent.py` and move the `test_phase6.py::TestMultiAgentGovernor` tests to a legacy/deprecated test file, OR
-- (b) Merge useful features (like `get_effective_constraints` which merges parent-child overrides) into `agent_registry.py` and delete the original.
-Option (b) is preferred. Then remove the file and update imports.
-
-### F-06: hybrid_engine.py — Doesn't send agent_id/agent_token to remote
-
-**Problem:** `HybridEngine.evaluate_tool_call()` builds the JSON body without `agentId` or `agentToken` fields (lines 80-86). Same for `evaluate_message` and `build_context`. In hybrid mode, the remote service never knows which agent is making the request, so all multi-agent governance is bypassed.
-
-**Fix plan:** Add `"agentId": event.agent_id` and `"agentToken": event.agent_token` to all JSON bodies in `hybrid_engine.py` for `evaluate_tool_call`, `evaluate_message`, `build_context`, and `record_action_result`.
+## HIGH (11 findings)
 
 ### F-07: audit/logger.py:25 — Path traversal via session_id
 
-**Problem:** `_get_session_file()` uses `session_id` directly in the filename: `f"session-{session_id}.jsonl"`. A malicious session_id like `../../etc/evil` could write files outside the audit directory.
+**Problem:** `_get_session_file()` uses `session_id` directly in the filename. A malicious session_id like `../../etc/evil` could write files outside the audit directory.
 
-**Fix plan:** Sanitize session_id before using in filename. Replace unsafe characters:
-```python
-safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', session_id)
-return day_dir / f"session-{safe_id}.jsonl"
-```
-Add `import re` at top of file.
+**Fix plan:** Sanitize: `safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', session_id)`
 
----
+### F-08: multi_agent.py — Dead code (superseded by agent_registry.py)
 
-## MEDIUM
+**Problem:** `MultiAgentGovernor` is not used by any route or engine. Superseded by `AgentRegistry`. Creates confusion about which module manages agents.
 
-### F-08: context_builder.py:80-88 — SPARQL injection risk
+**Fix plan:** Merge useful features (`get_effective_constraints`, `get_ancestry`) into `AgentRegistry`/`RoleManager`, delete the file, update imports and tests.
 
-**Problem:** `_get_user_preferences()` strips `\`, `"`, `'` from user_id but doesn't strip `}`, `#`, `{`, `;` which could break or manipulate the SPARQL query. A user_id like `foo") . ?x ?y ?z } #` could inject arbitrary SPARQL.
+### F-09: hybrid_engine.py — Doesn't send agent_id/agent_token to remote
 
-**Fix plan:** Use parameterized SPARQL or a stricter allowlist. Replace the FILTER with a safer approach:
-```python
-safe_user_id = re.sub(r'[^a-zA-Z0-9_-]', '', user_id)
-```
-Add `import re` to imports.
+**Problem:** `HybridEngine` builds JSON bodies without `agentId` or `agentToken`. In hybrid mode, the remote service never knows which agent is making the request, so all multi-agent governance is bypassed.
 
-### F-09: cached_engine.py — Bypasses all agent governance
+**Fix plan:** Add `"agentId": event.agent_id` and `"agentToken": event.agent_token` to all JSON bodies.
 
-**Problem:** `CachedEngine` always returns `Decision(block=False)` for all actions. When the hybrid engine falls back to local mode, a killed agent or a researcher-role agent could execute any action without restriction.
+### F-10: roles.py:101 — fnmatch resource patterns vulnerable to path traversal
 
-**Fix plan:** Add basic agent checks to `CachedEngine.evaluate_tool_call()`: at minimum, check the kill switch and role-based action allow/deny. This requires `CachedEngine` to accept an `AgentRegistry` and `RoleManager` in its constructor.
+**Problem:** `is_resource_allowed` uses `fnmatch` without path normalization. An attacker could bypass deny patterns like `/secrets/**` with paths like `/secrets/../secrets/key`.
 
-### F-10: delegation_detector.py — No max size for _blocks list
+**Fix plan:** Normalize `resource_path` with `os.path.normpath()` before pattern matching. Normalize patterns at construction time too.
 
-**Problem:** `_blocks` list is only pruned when `record_block()` or `check_delegation()` is called. In a scenario with many blocks and infrequent checks, the list could grow unbounded. `_prune_expired()` does time-based pruning but no size cap.
+### F-11: roles.py:131 — Flawed intersection logic for allowed actions
 
-**Fix plan:** Add `MAX_BLOCKS = 10000` constant and cap the list size in `record_block()`:
-```python
-if len(self._blocks) > MAX_BLOCKS:
-    self._blocks = self._blocks[-MAX_BLOCKS:]
-```
+**Problem:** When `org_allowed` is non-empty but `allowed` (from role) is empty, the code replaces the role's "allow everything" semantics with `org_allowed`. The `is_action_allowed` method treats empty `allowed_action_classes` as "allow all", but `get_effective_constraints` does not follow that convention.
 
-### F-11: routes.py:165 — `format` parameter shadows Python built-in
+**Fix plan:** Use a sentinel value (e.g., `None` or `{"*"}`) to represent "all allowed". Document the convention explicitly.
 
-**Problem:** The parameter name `format` in `audit_report()` shadows Python's built-in `format()` function. While not a bug (it's scoped to the function), it's a code smell and linter warning.
+### F-12: full_engine.py:119-325 — Rate limiter only counts allowed actions
 
-**Fix plan:** Rename to `report_format` or `fmt`:
-```python
-async def audit_report(session_id: str, fmt: str = Query("markdown", alias="format")):
-```
-Then update usages of `format` to `fmt` within the function body.
+**Problem:** Blocked actions are not recorded in the rate limiter. An attacker could spam the same blocked action indefinitely without triggering rate limits.
 
-### F-12: full_engine.py:137-142 — Duplicate make_signature call
+**Fix plan:** Add a separate "attempt counter" that tracks all attempts and enforce a secondary attempt rate limit to prevent brute-force probing.
 
-**Problem:** In `evaluate_tool_call()`, `DelegationDetector.make_signature(event.params)` is called at line 137, then again at lines 160 and 172 via `DelegationDetector.make_signature(event.params)`. The signature is re-computed for the same params up to 3 times.
+### F-13: agent_registry.py:54 — Eviction silently drops agents without audit trail
 
-**Fix plan:** Compute `params_sig` once at the top of the method (after the `if event.agent_id` check on line 126) and reuse it. Move line 137 up and use the cached `params_sig` variable in lines 158-161 and 170-173 instead of recomputing.
+**Problem:** When `MAX_AGENTS` is exceeded, the oldest agent is silently evicted. No audit event. A child agent of an evicted parent gets a dangling `parent_id`.
 
-### F-13: roles.py:92 — Default role is "researcher" not "developer"
+**Fix plan:** Log an audit event on eviction. Handle dangling `parent_id` in hierarchy lookups. Consider marking evicted agents as killed first.
 
-**Problem:** `get_default_role()` returns the "researcher" role as fallback, but `config_template.py:54` specifies `"defaultRole": "developer"`. The config value is never read by `RoleManager`.
+### F-14: cli/policy_cmd.py:70-84 — Turtle injection via CLI policy add
 
-**Fix plan:** Read `defaultRole` from config in `RoleManager.__init__`:
-```python
-self._default_role_name = "developer"
-if config and "roles" in config:
-    self._default_role_name = config["roles"].get("defaultRole", "developer")
-```
-Then in `get_default_role()`:
-```python
-return self._roles.get(self._default_role_name, BUILTIN_ROLES["developer"])
-```
+**Problem:** The `add_policy` command builds Turtle snippets by string concatenation without escaping user input. A `reason` containing `" ;` could inject arbitrary RDF statements.
 
-### F-14: roles.py:69-84 — Config keys don't match config_template format
+**Fix plan:** Escape special Turtle characters or use rdflib to programmatically construct and serialize triples.
 
-**Problem:** `RoleManager.__init__` reads `rdef.get("enforcement_mode")` and `rdef.get("autonomy_level")` (snake_case), but `config_template.py` uses `"enforcement"` and `"autonomyLevel"` (camelCase) in the role definitions. So config-based role loading silently fails and falls through to builtins.
+### F-15: action_classifier.py:24 — Non-deterministic RDF node IDs using `id(self)`
 
-**Fix plan:** Update `RoleManager.__init__` to read both formats:
-```python
-enforcement_mode=rdef.get("enforcement_mode", rdef.get("enforcement", "enforce")),
-autonomy_level=rdef.get("autonomy_level", rdef.get("autonomyLevel", "supervised")),
-```
+**Problem:** `SC[f"action_{id(self)}"]` uses Python's `id()` for RDF node URIs. `id()` returns memory addresses which can be reused after GC.
+
+**Fix plan:** Use `uuid.uuid4()`: `SC[f"action_{uuid4().hex}"]`
+
+### F-16: Multiple files — No session cleanup lifecycle
+
+**Problem:** `SessionTracker`, `ContextBuilder`, `DependencyChecker`, `RateLimiter`, and `MessageGate` all maintain per-session state. There is no coordinated cleanup. `FullEngine` has NO `clear_session` method.
+
+**Fix plan:** Add `clear_session(session_id)` to `FullEngine` that calls cleanup on all components. Expose as `POST /api/v1/session/end`.
+
+### F-17: main.py:50-52 — `get_engine()` uses assert instead of proper error handling
+
+**Problem:** `assert engine is not None` can be disabled with `python -O`. If engine is None with assertions disabled, routes crash with unhelpful `AttributeError`.
+
+**Fix plan:** Replace with `if engine is None: raise RuntimeError("Engine not initialized")`.
 
 ---
 
-## LOW
+## MEDIUM (25 findings)
 
-### F-15: Test files organized by phase rather than feature
+### F-18: context_builder.py:80-88 + preference_checker.py:37-44 — SPARQL injection risk
 
-**Problem:** Tests are in `test_phase2.py`, `test_phase3.py`, etc. This makes it hard to find tests for a specific module. Someone looking for rate limiter tests has to know it was added in Phase 2.
+**Problem:** Both files construct SPARQL queries with incomplete user_id sanitization. Characters `}`, `{`, `#`, newlines can break the query.
 
-**Fix plan:** No immediate fix needed. For future tests, prefer feature-based names (e.g., `test_rate_limiter.py`, `test_message_gate.py`). Consider reorganizing in a future cleanup.
+**Fix plan:** Use rdflib's `initBindings` for parameterized SPARQL: `graph.query(sparql, initBindings={"user_id": Literal(user_id)})`.
 
-### F-16: TypeScript plugin doesn't validate agentId/agentToken consistency
+### F-19: cached_engine.py — Bypasses all agent governance
 
-**Problem:** If `agentToken` is set but `agentId` is empty, the token is sent to the server for no agent. No harm, but wasteful.
+**Problem:** `CachedEngine` always returns `Decision(block=False)`. Killed agents or restricted roles bypass all checks in local fallback mode.
 
-**Fix plan:** In `index.ts`, only include agent fields when both are set:
-```typescript
-const agentFields = config.agentId ? { agentId: config.agentId, agentToken: config.agentToken } : {};
-body: JSON.stringify({ ...body, ...agentFields }),
-```
+**Fix plan:** Add basic agent checks (kill switch, role-based action checks). Accept `AgentRegistry` and `RoleManager` in constructor.
 
-### F-17: knowledge_store.py and audit/logger.py both use JSONL
+### F-20: delegation_detector.py — No max size for _blocks list + fragile serialization
 
-**Problem:** Both modules write JSONL files but use completely different patterns (knowledge_store uses a single file with line-by-line records; audit uses daily-rotated per-session files). No actual conflict, but inconsistent patterns.
+**Problem:** `_blocks` has no size cap and `json.dumps(params)` crashes on non-JSON-serializable values.
 
-**Fix plan:** Document the different patterns. No code change needed.
+**Fix plan:** Use `deque(maxlen=10000)`. Wrap `json.dumps` in try/except with `default=str` fallback.
 
-### F-18: Ontology roles/ .ttl files have no OWL import declarations
+### F-21: routes.py:165 — `format` parameter shadows Python built-in
 
-**Problem:** The role `.ttl` files reference classes like `sc:ReadFile` and `sp:Role` but don't declare `owl:imports` to the base ontologies. This means the role files are only valid when loaded alongside the main ontologies (which SafeClaw does), but they're not self-describing.
+**Problem:** Parameter name `format` shadows Python's built-in. Also no validation — any string accepted, silently falls through to markdown.
 
-**Fix plan:** Add `owl:imports` triples to each role `.ttl` file:
-```turtle
-<http://safeclaw.uku.ai/ontology/roles/researcher> owl:imports
-    <http://safeclaw.uku.ai/ontology/agent> ,
-    <http://safeclaw.uku.ai/ontology/policy> .
-```
+**Fix plan:** Rename to `fmt` with `alias="format"`. Add `Literal["markdown", "json", "csv"]` type validation.
+
+### F-22: full_engine.py:137-142 — Duplicate make_signature calls
+
+**Problem:** `DelegationDetector.make_signature(event.params)` is computed up to 3 times for the same params.
+
+**Fix plan:** Compute once at the top of the method and reuse.
+
+### F-23: roles.py:92 — Default role is "researcher" not "developer"
+
+**Problem:** `get_default_role()` returns "researcher" but `config_template.py:54` specifies `"defaultRole": "developer"`. Config value never read.
+
+**Fix plan:** Read `defaultRole` from config in `RoleManager.__init__` and use it in `get_default_role()`.
+
+### F-24: roles.py:69-84 — Config keys don't match config_template format
+
+**Problem:** `RoleManager.__init__` reads snake_case keys but `config_template.py` uses camelCase. Config-based role loading silently fails.
+
+**Fix plan:** Accept both formats: `rdef.get("enforcement_mode", rdef.get("enforcement", "enforce"))`.
+
+### F-25: full_engine.py:321,429 — Double recording of actions in dependency tracker
+
+**Problem:** Successful actions are recorded in both `evaluate_tool_call` (before execution) and `record_action_result` (after). Duplicate entries affect cumulative risk counting.
+
+**Fix plan:** Remove the `record_action` call from `evaluate_tool_call`. Record only in `record_action_result` after the action executes.
+
+### F-26: reasoner.py:28-30 — Only the last .ttl file retained as `self._ontology`
+
+**Problem:** The loop overwrites `self._ontology` each iteration. Only the last loaded ontology is stored, but `with self._ontology:` reasoning context uses it.
+
+**Fix plan:** Collect all ontologies or use a single merged ontology approach.
+
+### F-27: shacl_validator.py:59-72 — Fragile text parsing of SHACL violations
+
+**Problem:** `_parse_violations` parses pySHACL's `results_text` string by looking for prefixes. Brittle and dependent on output format.
+
+**Fix plan:** Parse the `results_graph` (RDF graph) instead of `results_text` for stable structured data.
+
+### F-28: hybrid_engine.py:77 — New HTTP client created per request
+
+**Problem:** `httpx.AsyncClient` created per request. Loses connection pooling and HTTP/2 multiplexing.
+
+**Fix plan:** Create a single `httpx.AsyncClient` in `__init__` and reuse it. Add `close()` for cleanup.
+
+### F-29: hybrid_engine.py:45-51 — Circuit breaker race condition
+
+**Problem:** Multiple concurrent requests can all see `should_try_remote() == True` simultaneously, causing a thundering herd against a potentially down remote.
+
+**Fix plan:** Add a "half-open" state where only one request probes the remote; others fall back locally.
+
+### F-30: message_gate.py:14 — Base64 pattern has high false positive rate
+
+**Problem:** Pattern `r"(?i)\b[A-Za-z0-9+/]{40,}={0,2}\b"` matches any 40+ char alphanumeric string, catching SHA hashes, UUIDs, encoded URLs, etc.
+
+**Fix plan:** Tighten the pattern or add a whitelist for known safe patterns (SHA-256 = 64 hex chars, UUIDs, etc.).
+
+### F-31: action_classifier.py:93-115 — Shell classifier doesn't handle command chaining
+
+**Problem:** `echo hi && rm -rf /` only returns one classification. Multi-command strings aren't split.
+
+**Fix plan:** For strings containing `&&`, `||`, `;`, `|`, split and classify each sub-command, return highest-risk.
+
+### F-32: cloud/tenant.py:87 — Tenant org_id only 8 chars, collision risk
+
+**Problem:** `str(uuid4())[:8]` has only 32 bits of entropy. ~1% collision at 10k tenants.
+
+**Fix plan:** Use full UUID or at least 16 characters. Check for existence before provisioning.
+
+### F-33: config.py:11 — Default host `0.0.0.0` exposes to network
+
+**Problem:** Default host binds to all interfaces, exposing the unauthenticated API to local network.
+
+**Fix plan:** Default to `127.0.0.1`. Users who need network access override via `SAFECLAW_HOST`.
+
+### F-34: Dockerfile:11-13 — pip install before source COPY + runs as root
+
+**Problem:** `pip install .` runs before the source directory is copied (will fail). Container also runs as root.
+
+**Fix plan:** Copy source before install. Add `RUN useradd -m safeclaw` and `USER safeclaw`.
+
+### F-35: audit/logger.py:55-68 — No error handling for malformed JSONL
+
+**Problem:** If a JSONL line is corrupted, `model_validate_json` raises `ValidationError` and the entire method fails.
+
+**Fix plan:** Wrap parsing in try/except, log the error, continue processing remaining lines.
+
+### F-36: audit/reporter.py:108 — Statistics counts `allowed_with_warning` as blocked
+
+**Problem:** `blocked = total - allowed` miscounts `allowed_with_warning` records.
+
+**Fix plan:** Count blocked explicitly: `sum(1 for r in records if r.decision == "blocked")`. Add separate `warned` count.
+
+### F-37: Full engine concurrent access — TOCTOU in rate limiting
+
+**Problem:** Multiple concurrent `evaluate_tool_call` calls can race between rate limit check and record, allowing limits to be exceeded.
+
+**Fix plan:** Add per-session async locks or atomic check-and-record operations.
+
+### F-38: temp_permissions.py:64 — check() doesn't prune expired grants
+
+**Problem:** `check()` iterates all grants including expired ones without cleanup. `list_grants()` calls `cleanup_expired()` but `check()` does not.
+
+**Fix plan:** Call `cleanup_expired()` at the start of `check()`.
+
+### F-39: agent_registry.py:33 — Token hashing uses SHA-256 without salt
+
+**Problem:** Unsalted SHA-256 for token storage. If store is ever persisted or leaked, hashes could be rainbow-tabled.
+
+**Fix plan:** Use `hmac.new(server_secret, token.encode(), 'sha256')` with a server-side secret for defense-in-depth.
+
+### F-40: roles.py:16 — resource_patterns typed as bare dict, no validation
+
+**Problem:** No validation that config follows `{"allow": [...], "deny": [...]}` shape. A string instead of list would fail silently.
+
+**Fix plan:** Use a TypedDict or Pydantic model. Validate shape in `RoleManager.__init__`.
+
+### F-41: plugin index.ts:76 — HTTP errors silently swallowed, no error distinction
+
+**Problem:** `post()` returns `null` for ALL failures: disabled, timeout, HTTP 403, HTTP 500. Cannot debug production issues.
+
+**Fix plan:** Return discriminated result type or at minimum log different error types at appropriate levels.
+
+### F-42: plugin index.ts:70 — No URL validation on serviceUrl
+
+**Problem:** `serviceUrl` not validated. Trailing slash causes doubled paths. No check for well-formed URL.
+
+**Fix plan:** Strip trailing slashes in `loadConfig()`. Validate with `new URL(serviceUrl)`.
+
+---
+
+## LOW (17 findings)
+
+### F-43: Test files organized by phase rather than feature
+
+**Problem:** Tests in `test_phase2.py`, `test_phase3.py`, etc. Hard to find tests for a specific module.
+
+**Fix plan:** For future tests, prefer feature-based names. Reorganize in a future cleanup.
+
+### F-44: TypeScript plugin doesn't validate agentId/agentToken consistency
+
+**Problem:** If `agentToken` set but `agentId` empty, token is sent for no agent.
+
+**Fix plan:** Only include agent fields when both are set.
+
+### F-45: TTL role files have unused `owl:` prefix + no `owl:imports`
+
+**Problem:** All role `.ttl` files declare `@prefix owl:` but never use it. Also no `owl:imports` declarations.
+
+**Fix plan:** Remove unused prefix. Add `owl:imports` to reference base ontologies.
+
+### F-46: TTL roles don't match Python BUILTIN_ROLES
+
+**Problem:** `researcher.ttl` denies `sc:SendMessage` but Python `BUILTIN_ROLES["researcher"]` does not include it. `developer.ttl` allows `RunTests`/`SendMessage` not in Python.
+
+**Fix plan:** Synchronize Python roles with TTL files, or load roles from TTL at startup.
+
+### F-47: test_shacl_validation.py — Tests silently pass when shapes directory missing
+
+**Problem:** `if shapes_dir.exists()` guards mean tests pass without actually running when shapes are unavailable.
+
+**Fix plan:** Use `pytest.mark.skipif` to make skip visible in test output.
+
+### F-48: test_shacl_validation.py:45 — No test verifies SHACL actually catches violations
+
+**Problem:** Test validates `rm -rf /` with no shapes conforms. No test loads real shapes and checks violations.
+
+**Fix plan:** Add test that loads real shapes and validates `conforms is False` for a known-bad action.
+
+### F-49: graph_builder.py:109-116 — search_nodes rebuilds entire graph on every search
+
+**Problem:** `search_nodes` calls `build_graph()` which runs 2 SPARQL queries and builds full structure. O(N) per search.
+
+**Fix plan:** Cache graph result with TTL or implement direct SPARQL search.
+
+### F-50: session_tracker.py:65 — Unbounded files_modified list per session
+
+**Problem:** `files_modified` grows without bound for long sessions.
+
+**Fix plan:** Cap to 100 entries, evict oldest.
+
+### F-51: hybrid_engine.py:176-177 — Silent exception swallowing in record_action_result
+
+**Problem:** `except Exception: pass` hides all errors silently.
+
+**Fix plan:** Log at debug/warning level.
+
+### F-52: knowledge_graph.py:24-26 — load_directory silently fails on parse errors
+
+**Problem:** If any `.ttl` file is malformed, parsing aborts without loading remaining files.
+
+**Fix plan:** Wrap each `load_ontology` in try/except, log error, continue.
+
+### F-53: agent_registry.py:77 — is_killed returns False for unknown agents
+
+**Problem:** Unknown/evicted agents treated as "alive" rather than "unknown".
+
+**Fix plan:** Return `True` for unknown agents (fail-closed).
+
+### F-54: Various test flakiness — time.sleep, network-dependent, fragile assertions
+
+**Problem:** `test_recovery_timeout` uses `time.sleep(0.15)`. `test_remote_failure` depends on port 99999. Various fragile string assertions.
+
+**Fix plan:** Mock `time.monotonic` instead of sleeping. Mock HTTP calls instead of real network. Relax string assertions.
+
+### F-55: Various missing test coverage
+
+**Problem:** Zero test coverage for: `cached_engine.py`, `reasoner.py`, `main.py` lifespan, CLI commands, `evaluate_message` full pipeline, `record_action_result`, `reload()`.
+
+**Fix plan:** Add targeted tests for each. Priority: cached_engine, evaluate_message, reload.
+
+### F-56: api/models.py — Unused model classes
+
+**Problem:** `AgentKillRequest` and `AuditQueryParams` are defined but never imported or used.
+
+**Fix plan:** Remove unused classes.
+
+### F-57: cli/pref_cmd.py:64-66 — Preference set silently falls back to default user
+
+**Problem:** Setting a preference for a specific user_id silently modifies `user-default.ttl` if user file doesn't exist.
+
+**Fix plan:** Create user-specific file from default, or warn the user.
+
+### F-58: plugin index.ts:161-166 — Fire-and-forget promises could reject
+
+**Problem:** `llm_input`/`llm_output` handlers don't await or catch `post()` return.
+
+**Fix plan:** Add `.catch(() => {})` to fire-and-forget calls.
+
+### F-59: plugin index.ts:32 — Enforcement mode not validated at runtime
+
+**Problem:** Invalid env var value like `SAFECLAW_ENFORCEMENT=block` passes type cast but matches no condition, silently becoming audit-only.
+
+**Fix plan:** Validate in `loadConfig()` and default to `'enforce'` for unrecognized values.
 
 ---
 
 ## Fix Dependency Order (non-conflicting)
 
-Apply fixes in this order to avoid conflicts:
+Apply fixes in this order. Same-file fixes are grouped together.
 
-1. **F-01** (namespace mismatch) — touches knowledge_graph.py, action_classifier.py, .ttl files
-2. **F-02** (config.raw) — touches config.py only
-3. **F-14** (roles config keys) — touches roles.py only
-4. **F-13** (default role) — touches roles.py only (same file as F-14, do together)
-5. **F-08** (SPARQL injection) — touches context_builder.py only
-6. **F-07** (path traversal) — touches audit/logger.py only
-7. **F-11** (format shadow) — touches routes.py only
-8. **F-04** (auth on endpoints) — touches routes.py only (same file as F-11, do together)
-9. **F-03** (CORS) — touches main.py only
-10. **F-06** (hybrid agent_id) — touches hybrid_engine.py only
-11. **F-12** (duplicate make_signature) — touches full_engine.py only
-12. **F-10** (delegation max blocks) — touches delegation_detector.py only
-13. **F-05** (dead multi_agent.py) — delete file + update tests
-14. **F-09** (cached engine) — touches cached_engine.py only
-15. **F-16** (TS plugin) — touches index.ts only
-16. **F-18** (TTL imports) — touches role .ttl files only
+### Phase A: Critical Security + Data Integrity
+1. **F-01** (namespace mismatch) — knowledge_graph.py, action_classifier.py, .ttl files
+2. **F-02** (config.raw) — config.py
+3. **F-03** (CORS + auth middleware) — main.py
+4. **F-04** (auth on endpoints) — routes.py, auth/middleware.py
+5. **F-05** (SHACL fail-open) — shacl_validator.py
 
-No two consecutive fixes touch the same file (except where noted to do together).
+### Phase B: High Security Fixes
+6. **F-07** (path traversal) — audit/logger.py
+7. **F-10** (resource path traversal) — roles.py
+8. **F-11** (allowed-actions intersection) — roles.py (same file, do with F-10)
+9. **F-09** (hybrid agent_id) — hybrid_engine.py
+10. **F-14** (Turtle injection) — cli/policy_cmd.py
+11. **F-15** (non-deterministic RDF IDs) — action_classifier.py
+12. **F-17** (assert in get_engine) — main.py
+
+### Phase C: Medium Fixes
+13. **F-18** (SPARQL injection) — context_builder.py, preference_checker.py
+14. **F-19** (cached engine governance) — cached_engine.py
+15. **F-20** (delegation max blocks + serialization) — delegation_detector.py
+16. **F-21** (format shadow + validation) — routes.py
+17. **F-22** (duplicate make_signature) — full_engine.py
+18. **F-23 + F-24** (default role + config keys) — roles.py
+19. **F-25** (double action recording) — full_engine.py
+20. **F-26** (reasoner ontology retention) — reasoner.py
+21. **F-27** (SHACL violation parsing) — shacl_validator.py
+22. **F-28 + F-29** (HTTP client reuse + circuit breaker) — hybrid_engine.py
+23. **F-30 + F-31** (message gate patterns + shell chaining) — message_gate.py, action_classifier.py
+24. **F-32** (tenant org_id) — cloud/tenant.py
+25. **F-33** (default host) — config.py
+26. **F-34** (Dockerfile) — Dockerfile
+27. **F-35 + F-36** (JSONL error handling + stats) — audit/logger.py, audit/reporter.py
+28. **F-37** (concurrent access locks) — full_engine.py
+29. **F-38** (temp permissions cleanup) — temp_permissions.py
+30. **F-39** (token hashing salt) — agent_registry.py
+31. **F-40** (resource_patterns validation) — roles.py
+32. **F-41 + F-42** (TS error handling + URL validation) — index.ts
+
+### Phase D: Dead Code + Tests
+33. **F-08** (delete multi_agent.py) — multi_agent.py, tests
+34. **F-16** (session cleanup lifecycle) — full_engine.py, routes.py
+35. **F-06** (API route tests) — new test_api.py
+36. **F-55** (missing test coverage) — various test files
+37. **F-56** (unused models) — api/models.py
+
+### Phase E: Low Priority
+38. Remaining LOW findings (F-43 through F-59) — various files, no urgency
