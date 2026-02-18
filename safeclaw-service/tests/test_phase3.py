@@ -1,4 +1,4 @@
-"""Phase 3 tests: message gate, session tracker, hot-reload."""
+"""Phase 3 tests: message gate content policies, session tracker."""
 
 import pytest
 

@@ -3,6 +3,7 @@
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from safeclaw.auth.api_key import APIKey, APIKeyManager
@@ -143,13 +144,15 @@ class TestCircuitBreaker:
         assert cb.failures == 0
 
     @pytest.mark.asyncio
-    async def test_recovery_timeout_allows_retry(self):
+    async def test_recovery_timeout_allows_retry(self, monkeypatch):
+        fake_time = [1000.0]
+        monkeypatch.setattr("time.monotonic", lambda: fake_time[0])
         cb = CircuitBreakerState(max_failures=1, recovery_timeout=0.1)
         cb.record_failure()
         assert cb.is_open is True
         assert await cb.should_try_remote() is False
-        # Wait for recovery
-        time.sleep(0.15)
+        # Advance past recovery timeout
+        fake_time[0] += 0.15
         assert await cb.should_try_remote() is True
 
     def test_partial_failures_dont_open(self):
@@ -266,7 +269,13 @@ class TestHybridEngine:
             session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}
         )
 
-        # Make 3 calls that will fail (unreachable remote)
+        # Mock the HTTP client to raise ConnectError immediately
+        async def _raise_connect_error(*args, **kwargs):
+            raise httpx.ConnectError("mocked connection refused")
+
+        engine._client.post = _raise_connect_error
+
+        # Make 3 calls that will fail
         for _ in range(3):
             await engine.evaluate_tool_call(event)
 
