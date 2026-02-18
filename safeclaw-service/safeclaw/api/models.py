@@ -56,12 +56,6 @@ class ContextResponse(BaseModel):
     prependContext: str = ""
 
 
-class AuditQueryParams(BaseModel):
-    sessionId: str | None = None
-    blocked: bool = False
-    limit: int = 20
-
-
 class AgentRegisterRequest(BaseModel):
     agentId: str
     role: str = "developer"
@@ -73,10 +67,6 @@ class AgentRegisterResponse(BaseModel):
     agentId: str
     token: str
     role: str
-
-
-class AgentKillRequest(BaseModel):
-    agentId: str
 
 
 class TempGrantRequest(BaseModel):

@@ -1,7 +1,11 @@
 """Role management for multi-agent governance."""
 
+import logging
+import os
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,6 +39,7 @@ BUILTIN_ROLES = {
             "GitPush",
             "GitForcePush",
             "ShellAction",
+            "SendMessage",
         },
         resource_patterns={"allow": ["**"], "deny": []},
     ),
@@ -66,22 +71,27 @@ class RoleManager:
 
     def __init__(self, config: dict | None = None):
         self._roles: dict[str, Role] = {}
-        if config and "roles" in config and "definitions" in config["roles"]:
-            for name, rdef in config["roles"]["definitions"].items():
-                self._roles[name] = Role(
-                    name=name,
-                    enforcement_mode=rdef.get("enforcement_mode", "enforce"),
-                    autonomy_level=rdef.get("autonomy_level", "supervised"),
-                    allowed_action_classes=set(
-                        rdef.get("allowed_action_classes", [])
-                    ),
-                    denied_action_classes=set(
-                        rdef.get("denied_action_classes", [])
-                    ),
-                    resource_patterns=rdef.get(
-                        "resource_patterns", {"allow": ["**"], "deny": []}
-                    ),
-                )
+        self._default_role_name = "developer"
+        if config and "roles" in config:
+            self._default_role_name = config["roles"].get("defaultRole", "developer")
+            if "definitions" in config["roles"]:
+                for name, rdef in config["roles"]["definitions"].items():
+                    rp = rdef.get("resource_patterns", {"allow": ["**"], "deny": []})
+                    if not isinstance(rp.get("allow"), list) or not isinstance(rp.get("deny"), list):
+                        logger.warning(f"Invalid resource_patterns for role {name}, using defaults")
+                        rp = {"allow": ["**"], "deny": []}
+                    self._roles[name] = Role(
+                        name=name,
+                        enforcement_mode=rdef.get("enforcement_mode", "enforce"),
+                        autonomy_level=rdef.get("autonomy_level", "supervised"),
+                        allowed_action_classes=set(
+                            rdef.get("allowed_action_classes", [])
+                        ),
+                        denied_action_classes=set(
+                            rdef.get("denied_action_classes", [])
+                        ),
+                        resource_patterns=rp,
+                    )
         else:
             self._roles = dict(BUILTIN_ROLES)
 
@@ -89,7 +99,7 @@ class RoleManager:
         return self._roles.get(name)
 
     def get_default_role(self) -> Role:
-        return self._roles.get("researcher", BUILTIN_ROLES["researcher"])
+        return self._roles.get(self._default_role_name, BUILTIN_ROLES["developer"])
 
     def is_action_allowed(self, role: Role, action_class: str) -> bool:
         if action_class in role.denied_action_classes:
@@ -99,6 +109,7 @@ class RoleManager:
         return True
 
     def is_resource_allowed(self, role: Role, resource_path: str) -> bool:
+        resource_path = os.path.normpath(resource_path)
         patterns = role.resource_patterns
         for deny_pat in patterns.get("deny", []):
             if fnmatch(resource_path, deny_pat):
@@ -124,18 +135,22 @@ class RoleManager:
         denied |= set(org_policy.get("denied_actions", []))
         denied |= set(parent_constraints.get("denied_actions", []))
 
-        allowed = set(role.allowed_action_classes)
-        org_allowed = set(org_policy.get("allowed_actions", []))
-        parent_allowed = set(parent_constraints.get("allowed_actions", []))
+        # Use None as sentinel for "all allowed" (empty set means all)
+        allowed = set(role.allowed_action_classes) if role.allowed_action_classes else None
+        org_allowed_raw = org_policy.get("allowed_actions", [])
+        org_allowed = set(org_allowed_raw) if org_allowed_raw else None
+        parent_allowed_raw = parent_constraints.get("allowed_actions", [])
+        parent_allowed = set(parent_allowed_raw) if parent_allowed_raw else None
 
-        if org_allowed and allowed:
-            allowed &= org_allowed
-        elif org_allowed:
+        # Only intersect when both sides are non-None sets
+        if allowed is not None and org_allowed is not None:
+            allowed = allowed & org_allowed
+        elif org_allowed is not None:
             allowed = org_allowed
 
-        if parent_allowed and allowed:
-            allowed &= parent_allowed
-        elif parent_allowed:
+        if allowed is not None and parent_allowed is not None:
+            allowed = allowed & parent_allowed
+        elif parent_allowed is not None:
             allowed = parent_allowed
 
         resource_deny = list(role.resource_patterns.get("deny", []))
@@ -156,7 +171,7 @@ class RoleManager:
 
         return {
             "denied_actions": sorted(denied),
-            "allowed_actions": sorted(allowed),
+            "allowed_actions": sorted(allowed) if allowed is not None else [],
             "resource_deny": sorted(set(resource_deny)),
             "resource_allow": sorted(set(resource_allow)),
             "enforcement_mode": role.enforcement_mode,

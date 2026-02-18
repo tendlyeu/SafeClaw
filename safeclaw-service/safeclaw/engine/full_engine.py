@@ -1,5 +1,6 @@
 """Full engine - the complete SafeClaw engine with owlready2 + pySHACL."""
 
+import asyncio
 import logging
 import time
 
@@ -99,6 +100,9 @@ class FullEngine(SafeClawEngine):
         self.temp_permissions = TempPermissionManager()
         self._require_token_auth = raw.get("agents", {}).get("requireTokenAuth", False) if raw else False
 
+        # Per-session locks for TOCTOU prevention
+        self._session_locks: dict[str, asyncio.Lock] = {}
+
         # Audit
         self.audit = AuditLogger(audit_dir)
 
@@ -108,19 +112,33 @@ class FullEngine(SafeClawEngine):
         self._init_components(self.config)
         logger.info("Hot-reload complete")
 
-    def _maybe_record_delegation_block(self, event: ToolCallEvent) -> None:
+    def _maybe_record_delegation_block(self, event: ToolCallEvent, params_sig: str | None = None) -> None:
         """Record a block for delegation detection if this is an agent action."""
         if event.agent_id:
-            sig = DelegationDetector.make_signature(event.params)
+            sig = params_sig if params_sig is not None else DelegationDetector.make_signature(event.params)
             self.delegation_detector.record_block(
                 event.session_id, event.agent_id, event.tool_name, sig
             )
 
+    def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._session_locks:
+            self._session_locks[session_id] = asyncio.Lock()
+        return self._session_locks[session_id]
+
     async def evaluate_tool_call(self, event: ToolCallEvent) -> Decision:
         """Run the full constraint checking pipeline."""
+        lock = self._get_session_lock(event.session_id)
+        async with lock:
+            return await self._evaluate_tool_call_locked(event)
+
+    async def _evaluate_tool_call_locked(self, event: ToolCallEvent) -> Decision:
+        """Internal: runs the constraint pipeline under the session lock."""
         start = time.monotonic()
         checks: list[ConstraintCheck] = []
         prefs_applied: list[PreferenceApplied] = []
+
+        # Compute params signature once for reuse
+        params_sig = DelegationDetector.make_signature(event.params) if event.agent_id else None
 
         # 0. Agent governance checks (before main pipeline)
         if event.agent_id:
@@ -134,7 +152,6 @@ class FullEngine(SafeClawEngine):
                 return Decision(block=True, reason=f"[SafeClaw] Agent {event.agent_id} has been killed")
 
             # 0c. Check delegation bypass
-            params_sig = DelegationDetector.make_signature(event.params)
             delegation = self.delegation_detector.check_delegation(
                 event.session_id, event.agent_id, event.tool_name, params_sig
             )
@@ -157,7 +174,7 @@ class FullEngine(SafeClawEngine):
                         decision = Decision(block=True, reason=reason)
                         self.delegation_detector.record_block(
                             event.session_id, event.agent_id, event.tool_name,
-                            DelegationDetector.make_signature(event.params)
+                            params_sig
                         )
                         self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
                         return decision
@@ -169,7 +186,7 @@ class FullEngine(SafeClawEngine):
                         decision = Decision(block=True, reason=reason)
                         self.delegation_detector.record_block(
                             event.session_id, event.agent_id, event.tool_name,
-                            DelegationDetector.make_signature(event.params)
+                            params_sig
                         )
                         self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
                         return decision
@@ -185,7 +202,7 @@ class FullEngine(SafeClawEngine):
                 reason=shacl_result.first_violation_message,
             ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -207,7 +224,7 @@ class FullEngine(SafeClawEngine):
                 reason=policy_result.reason,
             ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -229,7 +246,7 @@ class FullEngine(SafeClawEngine):
                 effect=pref_result.reason,
             ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -244,7 +261,7 @@ class FullEngine(SafeClawEngine):
                 reason=dep_result.reason,
             ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -259,7 +276,7 @@ class FullEngine(SafeClawEngine):
                 reason=temporal_result.reason,
             ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -274,7 +291,7 @@ class FullEngine(SafeClawEngine):
                 reason=rate_result.reason,
             ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -292,7 +309,7 @@ class FullEngine(SafeClawEngine):
                     reason=derived_result.reason,
                 ))
             decision = Decision(block=True, reason=reason)
-            self._maybe_record_delegation_block(event)
+            self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
             return decision
 
@@ -309,7 +326,7 @@ class FullEngine(SafeClawEngine):
                     reason=hierarchy_result.reason,
                 ))
                 decision = Decision(block=True, reason=reason)
-                self._maybe_record_delegation_block(event)
+                self._maybe_record_delegation_block(event, params_sig)
                 self._record_violation_and_log(event, action, decision, checks, prefs_applied, start)
                 return decision
 
@@ -317,8 +334,6 @@ class FullEngine(SafeClawEngine):
         decision = Decision(block=False)
         self._log_decision(event, action, decision, checks, prefs_applied, start)
 
-        # Record action in session history for dependency tracking
-        self.dependency_checker.record_action(event.session_id, action.ontology_class)
         # Record action for rate limiting
         self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
 

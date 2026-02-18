@@ -60,6 +60,7 @@ class TempPermissionManager:
 
     def check(self, agent_id: str, permission: str) -> bool:
         """Check if an agent has an active grant for a permission."""
+        self.cleanup_expired()
         now = monotonic()
         for g in self._grants.values():
             if g.agent_id != agent_id or g.permission != permission:

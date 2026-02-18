@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 MAX_SESSIONS = 1000
+MAX_FILES_PER_SESSION = 200
 
 
 @dataclass
@@ -61,7 +62,7 @@ class SessionTracker:
                 file_path = params["file_path"]
                 detail = f"file: {file_path}"
                 if success and tool_name in ("write", "edit", "apply_patch"):
-                    if file_path not in state.files_modified:
+                    if file_path not in state.files_modified and len(state.files_modified) < MAX_FILES_PER_SESSION:
                         state.files_modified.append(file_path)
             elif "command" in params:
                 cmd = params["command"]

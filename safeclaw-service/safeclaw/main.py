@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from safeclaw.api.middleware import TimingMiddleware
+from safeclaw.auth.middleware import APIKeyAuthMiddleware
 from safeclaw.config import SafeClawConfig
 from safeclaw.engine.full_engine import FullEngine
 
@@ -38,17 +39,21 @@ app = FastAPI(
 # CORS - allow the TS plugin to connect from any origin (localhost or remote)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Auth middleware
+app.add_middleware(APIKeyAuthMiddleware, require_auth=getattr(SafeClawConfig(), 'require_auth', False))
 
 # Request timing
 app.add_middleware(TimingMiddleware)
 
 
 def get_engine() -> FullEngine:
-    assert engine is not None, "Engine not initialized"
+    if engine is None:
+        raise RuntimeError("Engine not initialized — call startup first")
     return engine
 
 

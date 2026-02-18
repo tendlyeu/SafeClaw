@@ -37,7 +37,7 @@ class DependencyChecker:
         """Load dependency constraints from knowledge graph."""
         results = self.kg.query(f"""
             PREFIX sp: <{SP}>
-            PREFIX sc: <http://safeclaw.ai/ontology/agent#>
+            PREFIX sc: <http://safeclaw.uku.ai/ontology/agent#>
             SELECT ?action ?required ?reason WHERE {{
                 ?constraint a sp:DependencyConstraint ;
                             sp:appliesTo ?action ;

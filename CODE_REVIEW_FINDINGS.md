@@ -4,6 +4,12 @@
 **Scope:** All files in safeclaw-service/ and openclaw-safeclaw-plugin/
 **Tests at start:** 207 passing
 **Reviewers:** 4 parallel agents (engine, API, multi-agent, tests)
+**Validation:** All 59 findings validated against source code by 4 separate agents
+
+### Validation Summary
+- **49 CONFIRMED** — real bugs verified against actual code
+- **9 PARTIALLY CORRECT** — real issues but claims adjusted (F-15, F-16, F-20, F-24, F-34, F-42, F-43, F-50, F-54)
+- **1 FALSE POSITIVE** — F-36 removed (math is correct for two-state decision system)
 
 ---
 
@@ -170,11 +176,11 @@ except Exception as e:
 
 **Fix plan:** Read `defaultRole` from config in `RoleManager.__init__` and use it in `get_default_role()`.
 
-### F-24: roles.py:69-84 — Config keys don't match config_template format
+### F-24: roles.py — camelCase config keys (`defaultRole`, `policyFile`) never read
 
-**Problem:** `RoleManager.__init__` reads snake_case keys but `config_template.py` uses camelCase. Config-based role loading silently fails.
+**Problem:** Core keys (`enforcement_mode`, `autonomy_level`) DO match between `RoleManager` and `config_template.py`. However, camelCase keys like `defaultRole` and `policyFile` in the config template are never read by `RoleManager`. (Original claim of snake_case mismatch was incorrect — validated as PARTIALLY CORRECT.)
 
-**Fix plan:** Accept both formats: `rdef.get("enforcement_mode", rdef.get("enforcement", "enforce"))`.
+**Fix plan:** Read `defaultRole` and `policyFile` from config in `RoleManager.__init__`. See also F-23 which covers the defaultRole issue.
 
 ### F-25: full_engine.py:321,429 — Double recording of actions in dependency tracker
 
@@ -242,11 +248,9 @@ except Exception as e:
 
 **Fix plan:** Wrap parsing in try/except, log the error, continue processing remaining lines.
 
-### F-36: audit/reporter.py:108 — Statistics counts `allowed_with_warning` as blocked
+### ~~F-36: audit/reporter.py:108~~ — REMOVED (FALSE POSITIVE)
 
-**Problem:** `blocked = total - allowed` miscounts `allowed_with_warning` records.
-
-**Fix plan:** Count blocked explicitly: `sum(1 for r in records if r.decision == "blocked")`. Add separate `warned` count.
+**Validation:** The math `blocked = total - allowed` is correct — the system only has two decision states ("allowed" and "blocked"). No `allowed_with_warning` state exists.
 
 ### F-37: Full engine concurrent access — TOCTOU in rate limiting
 

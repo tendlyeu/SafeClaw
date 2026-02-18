@@ -2,10 +2,11 @@
 
 import re
 from dataclasses import dataclass
+from uuid import uuid4
 
 from rdflib import Graph, Literal, Namespace, RDF, XSD
 
-SC = Namespace("http://safeclaw.ai/ontology/agent#")
+SC = Namespace("http://safeclaw.uku.ai/ontology/agent#")
 
 
 @dataclass
@@ -21,7 +22,7 @@ class ClassifiedAction:
         """Create an RDF graph representing this action for SHACL validation."""
         g = Graph()
         g.bind("sc", SC)
-        action_node = SC[f"action_{id(self)}"]
+        action_node = SC[f"action_{uuid4().hex}"]
         g.add((action_node, RDF.type, SC[self.ontology_class]))
         g.add((action_node, SC.hasRiskLevel, SC[self.risk_level]))
         g.add((action_node, SC.isReversible, Literal(self.is_reversible, datatype=XSD.boolean)))
@@ -46,6 +47,8 @@ SHELL_PATTERNS = [
 ]
 
 # Default tool mappings
+RISK_ORDER = {"CriticalRisk": 4, "HighRisk": 3, "MediumRisk": 2, "LowRisk": 1}
+
 TOOL_MAPPINGS = {
     "read": ("ReadFile", "LowRisk", True, "LocalOnly"),
     "write": ("WriteFile", "MediumRisk", True, "LocalOnly"),
@@ -93,16 +96,27 @@ class ActionClassifier:
     def _classify_shell(self, params: dict) -> ClassifiedAction:
         command = params.get("command", "")
 
-        for pattern, cls, risk, reversible, scope in SHELL_PATTERNS:
-            if re.search(pattern, command, re.IGNORECASE):
-                return ClassifiedAction(
-                    ontology_class=cls,
-                    risk_level=risk,
-                    is_reversible=reversible,
-                    affects_scope=scope,
-                    tool_name="exec",
-                    params=params,
-                )
+        # Split on command chaining operators
+        sub_commands = re.split(r'\s*(?:&&|\|\||;)\s*', command)
+        highest_risk = None
+
+        for sub_cmd in sub_commands:
+            for pattern, cls, risk, reversible, scope in SHELL_PATTERNS:
+                if re.search(pattern, sub_cmd, re.IGNORECASE):
+                    candidate = ClassifiedAction(
+                        ontology_class=cls,
+                        risk_level=risk,
+                        is_reversible=reversible,
+                        affects_scope=scope,
+                        tool_name="exec",
+                        params=params,
+                    )
+                    if highest_risk is None or RISK_ORDER.get(risk, 0) > RISK_ORDER.get(highest_risk.risk_level, 0):
+                        highest_risk = candidate
+                    break
+
+        if highest_risk:
+            return highest_risk
 
         # Default shell command classification
         return ClassifiedAction(

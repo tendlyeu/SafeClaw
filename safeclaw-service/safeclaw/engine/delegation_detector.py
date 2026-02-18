@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from time import monotonic
 
 DETECTION_WINDOW = 300  # 5 minutes in seconds
+MAX_BLOCKS = 10000
 
 
 @dataclass
@@ -58,6 +59,8 @@ class DelegationDetector:
                 timestamp=monotonic(),
             )
         )
+        if len(self._blocks) > MAX_BLOCKS:
+            self._blocks = self._blocks[-MAX_BLOCKS:]
 
     def check_delegation(
         self,
@@ -100,5 +103,8 @@ class DelegationDetector:
     @staticmethod
     def make_signature(params: dict) -> str:
         """Create a deterministic signature from action parameters."""
-        serialized = json.dumps(params, sort_keys=True)
+        try:
+            serialized = json.dumps(params, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            serialized = str(sorted(params.items()) if isinstance(params, dict) else str(params))
         return hashlib.sha256(serialized.encode()).hexdigest()

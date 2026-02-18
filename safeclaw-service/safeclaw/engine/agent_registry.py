@@ -2,10 +2,14 @@
 
 import hashlib
 import hmac
+import logging
+import os
 import secrets
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from time import monotonic
+
+logger = logging.getLogger(__name__)
 
 MAX_AGENTS = 500
 
@@ -28,10 +32,10 @@ class AgentRegistry:
 
     def __init__(self):
         self._agents: OrderedDict[str, AgentRecord] = OrderedDict()
+        self._server_secret = os.urandom(32)
 
-    @staticmethod
-    def _hash_token(token: str) -> str:
-        return hashlib.sha256(token.encode()).hexdigest()
+    def _hash_token(self, token: str) -> str:
+        return hmac.new(self._server_secret, token.encode(), 'sha256').hexdigest()
 
     def register_agent(
         self,
@@ -52,7 +56,11 @@ class AgentRegistry:
         )
         self._agents[agent_id] = record
         while len(self._agents) > MAX_AGENTS:
-            self._agents.popitem(last=False)
+            evicted_id, evicted_record = self._agents.popitem(last=False)
+            logger.warning(
+                "Evicted agent %s (role=%s, session=%s) due to MAX_AGENTS limit",
+                evicted_id, evicted_record.role, evicted_record.session_id,
+            )
         return token
 
     def verify_token(self, agent_id: str, token: str) -> bool:
@@ -77,7 +85,7 @@ class AgentRegistry:
     def is_killed(self, agent_id: str) -> bool:
         record = self._agents.get(agent_id)
         if record is None:
-            return False
+            return True  # Unknown agents are treated as killed (fail-closed)
         return record.killed
 
     def get_agent(self, agent_id: str) -> AgentRecord | None:
@@ -95,6 +103,10 @@ class AgentRegistry:
             visited.add(current)
             record = self._agents.get(current)
             if record and record.parent_id:
+                # Handle dangling parent: if parent doesn't exist, stop here
+                if record.parent_id not in self._agents:
+                    root = current
+                    break
                 root = record.parent_id
                 current = record.parent_id
             else:

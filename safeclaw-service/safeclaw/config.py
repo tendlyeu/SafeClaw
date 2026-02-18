@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings
 class SafeClawConfig(BaseSettings):
     model_config = {"env_prefix": "SAFECLAW_"}
 
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8420
 
     # Paths
@@ -31,3 +31,12 @@ class SafeClawConfig(BaseSettings):
         if self.audit_dir:
             return self.audit_dir
         return self.data_dir / "audit"
+
+    @property
+    def raw(self) -> dict:
+        config_path = self.data_dir / "config.json"
+        if config_path.exists():
+            import json
+            with open(config_path) as f:
+                return json.load(f)
+        return {}

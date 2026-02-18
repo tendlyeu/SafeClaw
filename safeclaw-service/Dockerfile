@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
+COPY safeclaw/ safeclaw/
 RUN pip install --no-cache-dir .
 
-COPY safeclaw/ safeclaw/
+RUN useradd -m -r safeclaw
+USER safeclaw
 
 EXPOSE 8420
 

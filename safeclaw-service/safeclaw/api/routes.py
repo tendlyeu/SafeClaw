@@ -2,7 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, Query
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from safeclaw.api.models import (
     AgentRegisterRequest,
@@ -22,6 +24,13 @@ from safeclaw.engine.core import AgentStartEvent, LlmIOEvent, MessageEvent, Tool
 logger = logging.getLogger("safeclaw.api")
 
 router = APIRouter()
+
+
+async def require_admin(request: Request):
+    """Require admin auth for sensitive endpoints."""
+    scope = getattr(request.state, 'api_key_scope', None)
+    if scope is not None and 'admin' not in scope:
+        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 def _get_engine():
@@ -141,7 +150,7 @@ async def query_audit(
     return {"decisions": [r.model_dump() for r in records]}
 
 
-@router.post("/reload")
+@router.post("/reload", dependencies=[Depends(require_admin)])
 async def reload_ontologies():
     """Hot-reload ontologies and reinitialize constraint checkers."""
     engine = _get_engine()
@@ -162,15 +171,15 @@ async def audit_statistics(limit: int = 100):
 @router.get("/audit/report/{session_id}")
 async def audit_report(
     session_id: str,
-    format: str = Query("markdown", alias="format"),
+    fmt: Literal["markdown", "json", "csv"] = Query("markdown", alias="format"),
 ):
     """Generate a session audit report in markdown, JSON, or CSV format."""
     from fastapi.responses import PlainTextResponse
     from safeclaw.audit.reporter import AuditReporter
     engine = _get_engine()
     reporter = AuditReporter(engine.audit)
-    content = reporter.generate_session_report(session_id, format=format)
-    content_type = "text/csv" if format == "csv" else "application/json" if format == "json" else "text/markdown"
+    content = reporter.generate_session_report(session_id, format=fmt)
+    content_type = "text/csv" if fmt == "csv" else "application/json" if fmt == "json" else "text/markdown"
     return PlainTextResponse(content, media_type=content_type)
 
 
@@ -204,7 +213,7 @@ async def ontology_search(q: str = Query(...)):
     return {"results": builder.search_nodes(q)}
 
 
-@router.post("/agents/register", response_model=AgentRegisterResponse)
+@router.post("/agents/register", response_model=AgentRegisterResponse, dependencies=[Depends(require_admin)])
 async def register_agent(request: AgentRegisterRequest) -> AgentRegisterResponse:
     engine = _get_engine()
     token = engine.agent_registry.register_agent(
@@ -216,14 +225,14 @@ async def register_agent(request: AgentRegisterRequest) -> AgentRegisterResponse
     return AgentRegisterResponse(agentId=request.agentId, token=token, role=request.role)
 
 
-@router.post("/agents/{agent_id}/kill")
+@router.post("/agents/{agent_id}/kill", dependencies=[Depends(require_admin)])
 async def kill_agent(agent_id: str):
     engine = _get_engine()
     engine.agent_registry.kill_agent(agent_id)
     return {"ok": True, "agentId": agent_id, "killed": True}
 
 
-@router.post("/agents/{agent_id}/revive")
+@router.post("/agents/{agent_id}/revive", dependencies=[Depends(require_admin)])
 async def revive_agent(agent_id: str):
     engine = _get_engine()
     engine.agent_registry.revive_agent(agent_id)
@@ -240,7 +249,7 @@ async def list_agents():
     ]}
 
 
-@router.post("/agents/{agent_id}/temp-grant", response_model=TempGrantResponse)
+@router.post("/agents/{agent_id}/temp-grant", response_model=TempGrantResponse, dependencies=[Depends(require_admin)])
 async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> TempGrantResponse:
     engine = _get_engine()
     grant_id = engine.temp_permissions.grant(
@@ -261,7 +270,7 @@ async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> Tem
     return TempGrantResponse(grantId=grant_id, expiresAt=expires_at)
 
 
-@router.delete("/agents/{agent_id}/temp-grant/{grant_id}")
+@router.delete("/agents/{agent_id}/temp-grant/{grant_id}", dependencies=[Depends(require_admin)])
 async def revoke_temp_permission(agent_id: str, grant_id: str):
     engine = _get_engine()
     engine.temp_permissions.revoke(grant_id)

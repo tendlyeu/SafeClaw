@@ -11,7 +11,7 @@ MAX_SESSIONS = 1000
 
 # Patterns that match common secrets/credentials
 SENSITIVE_PATTERNS = [
-    (r"(?i)\b[A-Za-z0-9+/]{40,}={0,2}\b", "Base64 encoded string (possible secret)"),
+    (r"(?:^|[\s=])(?:[A-Za-z0-9+/]{4}){10,}={1,2}(?:\s|$)", "Base64 encoded string (possible secret)"),
     (r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*\S+",
      "API key or token"),
     (r"(?i)(password|passwd|pwd)\s*[:=]\s*\S+", "Password"),

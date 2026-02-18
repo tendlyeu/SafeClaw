@@ -34,7 +34,8 @@ class PreferenceChecker:
         prefs = UserPreferences()
 
         # Sanitize user_id to prevent SPARQL injection
-        safe_user_id = user_id.replace("\\", "").replace('"', "").replace("'", "")
+        import re
+        safe_user_id = re.sub(r'[^a-zA-Z0-9_@.-]', '', user_id)
         results = self.kg.query(f"""
             PREFIX su: <{SU}>
             SELECT ?property ?value WHERE {{

@@ -1,12 +1,12 @@
 @prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
 @prefix sp: <http://safeclaw.uku.ai/ontology/policy#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
 
 sp:DeveloperRole a sp:Role ;
     rdfs:label "Developer" ;
     rdfs:comment "Standard development access. Can read, write, edit files, run tests, and push code. Cannot force-push, delete root files, or change system config." ;
-    sp:allowsAction sc:ReadFile, sc:WriteFile, sc:EditFile, sc:ShellAction, sc:GitPush, sc:RunTests, sc:SendMessage ;
+    # Python uses empty allowed_action_classes (all actions allowed except denied)
+    sp:allowsAction sc:AllActions ;
     sp:deniesAction sc:GitForcePush, sc:DeleteRootFiles, sc:SystemConfigChange ;
     sp:deniesWritePath "/secrets/**", "/etc/**" ;
     sp:autonomyLevel "moderate" ;

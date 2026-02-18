@@ -1,4 +1,4 @@
-@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -8,7 +8,7 @@
 # Defines what an agent CAN and CANNOT do.
 # Formal specification of the agent's behavioral envelope.
 
-<http://safeclaw.ai/ontology/agent> a owl:Ontology ;
+<http://safeclaw.uku.ai/ontology/agent> a owl:Ontology ;
     rdfs:label "SafeClaw Agent Behavior Ontology" ;
     rdfs:comment "Defines action taxonomy, risk classification, and behavioral constraints for AI agents" .
 

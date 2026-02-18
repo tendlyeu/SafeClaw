@@ -49,25 +49,22 @@ class SHACLValidator:
 
             violations = []
             if not conforms:
-                violations = self._parse_violations(results_text)
+                violations = self._parse_violations(results_graph)
 
             return SHACLResult(conforms=conforms, violations=violations)
         except Exception as e:
             logger.error(f"SHACL validation error: {e}")
-            return SHACLResult(conforms=True)
+            return SHACLResult(conforms=False, violations=[{"message": f"SHACL validation error: {e}"}])
 
-    def _parse_violations(self, results_text: str) -> list[dict]:
+    def _parse_violations(self, results_graph: Graph) -> list[dict]:
+        from rdflib import SH
         violations = []
-        current = {}
-        for line in results_text.split("\n"):
-            line = line.strip()
-            if line.startswith("Message:"):
-                current["message"] = line.replace("Message:", "").strip()
-            elif line.startswith("Source Shape:"):
-                current["shape"] = line.replace("Source Shape:", "").strip()
-            elif line == "" and current:
-                violations.append(current)
-                current = {}
-        if current:
-            violations.append(current)
+        for result_node in results_graph.subjects(
+            predicate=SH.resultMessage
+        ):
+            message = str(results_graph.value(result_node, SH.resultMessage) or "")
+            shape = str(results_graph.value(result_node, SH.sourceShape) or "")
+            violations.append({"message": message, "shape": shape})
+        if not violations:
+            violations.append({"message": "SHACL constraint violated"})
         return violations

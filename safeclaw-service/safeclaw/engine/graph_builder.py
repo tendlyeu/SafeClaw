@@ -8,9 +8,18 @@ class GraphBuilder:
 
     def __init__(self, knowledge_graph: KnowledgeGraph):
         self.kg = knowledge_graph
+        self._cached_graph: dict | None = None
+        self._cache_valid: bool = False
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the cached graph when KG changes."""
+        self._cache_valid = False
+        self._cached_graph = None
 
     def build_graph(self, max_depth: int = 10) -> dict:
         """Build a D3-compatible graph from the knowledge graph."""
+        if self._cache_valid and self._cached_graph is not None:
+            return self._cached_graph
         nodes: list[dict] = []
         edges: list[dict] = []
         seen_nodes: set[str] = set()
@@ -96,7 +105,7 @@ class GraphBuilder:
                 "type": "instanceOf",
             })
 
-        return {
+        result = {
             "nodes": nodes,
             "edges": edges,
             "stats": {
@@ -105,11 +114,14 @@ class GraphBuilder:
                 "total_triples": len(self.kg),
             },
         }
+        self._cached_graph = result
+        self._cache_valid = True
+        return result
 
     def search_nodes(self, query: str) -> list[dict]:
         """Fuzzy search for nodes by name or label."""
         query_lower = query.lower()
-        graph = self.build_graph()
+        graph = self.build_graph()  # uses cache if valid
         return [
             n for n in graph["nodes"]
             if query_lower in n["name"].lower() or query_lower in n["label"].lower()

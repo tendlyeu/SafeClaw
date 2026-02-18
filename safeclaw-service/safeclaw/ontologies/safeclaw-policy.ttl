@@ -1,5 +1,5 @@
-@prefix sp: <http://safeclaw.ai/ontology/policy#> .
-@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix sp: <http://safeclaw.uku.ai/ontology/policy#> .
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -9,7 +9,7 @@
 # Defines organizational/project-specific rules.
 # Prohibitions, Obligations, and Permissions (deontic logic).
 
-<http://safeclaw.ai/ontology/policy> a owl:Ontology ;
+<http://safeclaw.uku.ai/ontology/policy> a owl:Ontology ;
     rdfs:label "SafeClaw Domain Policy Ontology" ;
     rdfs:comment "Defines governance rules: what MUST, MUST NOT, and MAY happen" .
 

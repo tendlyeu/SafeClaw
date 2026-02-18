@@ -62,9 +62,13 @@ def set_pref(
     # Find or create user file
     user_file = users_dir / f"user-{user_id}.ttl"
     if not user_file.exists():
-        user_file = users_dir / "user-default.ttl"
-        if not user_file.exists():
-            console.print("[red]No user preference file found[/red]")
+        default_file = users_dir / "user-default.ttl"
+        if default_file.exists():
+            import shutil
+            shutil.copy2(default_file, user_file)
+            console.print(f"Created user preferences file: {user_file.name}")
+        else:
+            console.print("No default preferences file found", err=True)
             raise typer.Exit(1)
 
     content = user_file.read_text()

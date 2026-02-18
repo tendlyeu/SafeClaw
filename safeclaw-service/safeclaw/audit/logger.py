@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import threading
 from datetime import date
 from pathlib import Path
@@ -22,7 +23,8 @@ class AuditLogger:
         today = date.today().isoformat()
         day_dir = self.audit_dir / today
         day_dir.mkdir(parents=True, exist_ok=True)
-        return day_dir / f"session-{session_id}.jsonl"
+        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', session_id)
+        return day_dir / f"session-{safe_id}.jsonl"
 
     def log(self, record: DecisionRecord) -> None:
         filepath = self._get_session_file(record.session_id)
@@ -49,7 +51,10 @@ class AuditLogger:
                     for line in f:
                         line = line.strip()
                         if line:
-                            records.append(DecisionRecord.model_validate_json(line))
+                            try:
+                                records.append(DecisionRecord.model_validate_json(line))
+                            except Exception as e:
+                                logger.warning(f"Skipping malformed audit record: {e}")
         return records
 
     def get_recent_records(self, limit: int = 20) -> list[DecisionRecord]:
@@ -62,7 +67,10 @@ class AuditLogger:
                     for line in f:
                         line = line.strip()
                         if line:
-                            records.append(DecisionRecord.model_validate_json(line))
+                            try:
+                                records.append(DecisionRecord.model_validate_json(line))
+                            except Exception as e:
+                                logger.warning(f"Skipping malformed audit record: {e}")
                             if len(records) >= limit:
                                 return records
         return records

@@ -51,6 +51,14 @@ function loadConfig(): SafeClawPluginConfig {
     }
   }
 
+  defaults.serviceUrl = defaults.serviceUrl.replace(/\/+$/, '');
+
+  const validModes = ['enforce', 'warn-only', 'audit-only', 'disabled'] as const;
+  if (!validModes.includes(defaults.enforcement as any)) {
+    console.warn(`[SafeClaw] Invalid enforcement mode "${defaults.enforcement}", defaulting to "enforce"`);
+    defaults.enforcement = 'enforce';
+  }
+
   return defaults;
 }
 
@@ -66,17 +74,27 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
     headers['Authorization'] = `Bearer ${config.apiKey}`;
   }
 
+  const agentFields = config.agentId ? { agentId: config.agentId, agentToken: config.agentToken } : {};
+
   try {
     const res = await fetch(`${config.serviceUrl}${path}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ...body, agentId: config.agentId, agentToken: config.agentToken }),
+      body: JSON.stringify({ ...body, ...agentFields }),
       signal: AbortSignal.timeout(config.timeoutMs),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[SafeClaw] HTTP ${res.status} from ${path}`);
+      return null;
+    }
     return await res.json() as Record<string, unknown>;
-  } catch {
-    return null; // Service unavailable — degrade gracefully
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      console.debug(`[SafeClaw] Timeout on ${path}`);
+    } else {
+      console.debug(`[SafeClaw] Service unavailable: ${path}`);
+    }
+    return null;
   }
 }
 
@@ -162,14 +180,14 @@ export default {
       post('/log/llm-input', {
         sessionId: ctx.sessionId ?? event.sessionId,
         content: event.content,
-      });
+      }).catch(() => {});
     });
 
     api.on('llm_output', (event: PluginEvent, ctx: PluginContext) => {
       post('/log/llm-output', {
         sessionId: ctx.sessionId ?? event.sessionId,
         content: event.content,
-      });
+      }).catch(() => {});
     });
 
     api.on('after_tool_call', (event: PluginEvent, ctx: PluginContext) => {
@@ -179,7 +197,7 @@ export default {
         params: event.params ?? {},
         result: event.result ?? '',
         success: event.success ?? true,
-      });
+      }).catch(() => {});
     });
   },
 };

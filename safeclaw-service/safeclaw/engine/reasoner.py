@@ -17,6 +17,7 @@ class OWLReasoner:
         self.ontology_dir = ontology_dir
         self._world = None
         self._ontology = None
+        self._ontologies: list = []
 
     def initialize(self, run_reasoner: bool = True) -> None:
         """Load ontologies and optionally run HermiT reasoner."""
@@ -24,10 +25,14 @@ class OWLReasoner:
             import owlready2
 
             self._world = owlready2.World()
+            self._ontologies = []
             # Load all .owl and .ttl files
             for owl_file in self.ontology_dir.glob("*.ttl"):
                 logger.info(f"Loading ontology: {owl_file.name}")
-                self._ontology = self._world.get_ontology(str(owl_file)).load()
+                onto = self._world.get_ontology(str(owl_file)).load()
+                self._ontologies.append(onto)
+
+            self._ontology = self._ontologies[-1] if self._ontologies else None
 
             if run_reasoner and self._ontology:
                 logger.info("Running HermiT reasoner (one-time pre-computation)...")

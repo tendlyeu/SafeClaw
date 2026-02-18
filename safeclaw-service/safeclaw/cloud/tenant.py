@@ -84,7 +84,7 @@ class TenantProvisioner:
         autonomy_level: str = "moderate",
     ) -> TenantConfig:
         """Provision a new tenant with ontologies and policies."""
-        org_id = str(uuid4())[:8]
+        org_id = str(uuid4())
         org_dir = self.base_dir / "tenants" / org_id
         ontology_dir = org_dir / "ontologies"
 

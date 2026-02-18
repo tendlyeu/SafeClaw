@@ -116,20 +116,22 @@ class TestAPIKeyAuthMiddleware:
 # --- CircuitBreakerState Tests ---
 
 class TestCircuitBreaker:
-    def test_initial_state_closed(self):
+    @pytest.mark.asyncio
+    async def test_initial_state_closed(self):
         cb = CircuitBreakerState()
         assert cb.is_open is False
         assert cb.failures == 0
-        assert cb.should_try_remote() is True
+        assert await cb.should_try_remote() is True
 
-    def test_opens_after_max_failures(self):
+    @pytest.mark.asyncio
+    async def test_opens_after_max_failures(self):
         cb = CircuitBreakerState(max_failures=3)
         cb.record_failure()
         cb.record_failure()
         assert cb.is_open is False
         cb.record_failure()
         assert cb.is_open is True
-        assert cb.should_try_remote() is False
+        assert await cb.should_try_remote() is False
 
     def test_closes_on_success(self):
         cb = CircuitBreakerState(max_failures=2)
@@ -140,14 +142,15 @@ class TestCircuitBreaker:
         assert cb.is_open is False
         assert cb.failures == 0
 
-    def test_recovery_timeout_allows_retry(self):
+    @pytest.mark.asyncio
+    async def test_recovery_timeout_allows_retry(self):
         cb = CircuitBreakerState(max_failures=1, recovery_timeout=0.1)
         cb.record_failure()
         assert cb.is_open is True
-        assert cb.should_try_remote() is False
+        assert await cb.should_try_remote() is False
         # Wait for recovery
         time.sleep(0.15)
-        assert cb.should_try_remote() is True
+        assert await cb.should_try_remote() is True
 
     def test_partial_failures_dont_open(self):
         cb = CircuitBreakerState(max_failures=3)

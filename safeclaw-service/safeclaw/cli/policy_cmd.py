@@ -7,6 +7,10 @@ policy_app = typer.Typer(help="Policy management commands")
 console = Console()
 
 
+def _escape_turtle(s: str) -> str:
+    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
+
 @policy_app.command("list")
 def list_policies():
     """List active policies."""
@@ -68,15 +72,17 @@ def add_policy(
         raise typer.Exit(1)
 
     # Build Turtle snippet
+    safe_name = _escape_turtle(name)
+    safe_reason = _escape_turtle(reason)
     lines = [f"\nsp:{name} a {owl_type}"]
     if path_pattern:
         lines[0] += ", sp:PathConstraint"
-        lines.append(f'    sp:forbiddenPathPattern "{path_pattern}"')
+        lines.append(f'    sp:forbiddenPathPattern "{_escape_turtle(path_pattern)}"')
     if command_pattern:
         lines[0] += ", sp:CommandConstraint"
-        lines.append(f'    sp:forbiddenCommandPattern "{command_pattern}"')
-    lines.append(f'    sp:reason "{reason}"')
-    lines.append(f'    rdfs:label "{name}"')
+        lines.append(f'    sp:forbiddenCommandPattern "{_escape_turtle(command_pattern)}"')
+    lines.append(f'    sp:reason "{safe_reason}"')
+    lines.append(f'    rdfs:label "{safe_name}"')
 
     turtle_block = " ;\n".join(lines) + " .\n"
 

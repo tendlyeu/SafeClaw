@@ -1,5 +1,5 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix sc: <http://safeclaw.ai/ontology/agent#> .
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 

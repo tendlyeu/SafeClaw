@@ -4,9 +4,9 @@ from pathlib import Path
 
 from rdflib import Graph, Namespace
 
-SC = Namespace("http://safeclaw.ai/ontology/agent#")
-SP = Namespace("http://safeclaw.ai/ontology/policy#")
-SU = Namespace("http://safeclaw.ai/ontology/user#")
+SC = Namespace("http://safeclaw.uku.ai/ontology/agent#")
+SP = Namespace("http://safeclaw.uku.ai/ontology/policy#")
+SU = Namespace("http://safeclaw.uku.ai/ontology/user#")
 
 
 class KnowledgeGraph:
@@ -23,7 +23,12 @@ class KnowledgeGraph:
 
     def load_directory(self, directory: Path) -> None:
         for ttl_file in directory.rglob("*.ttl"):
-            self.load_ontology(ttl_file)
+            try:
+                self.load_ontology(ttl_file)
+            except Exception as e:
+                import logging
+                logging.getLogger("safeclaw.kg").error(f"Failed to parse {ttl_file}: {e}")
+                continue
 
     def query(self, sparql: str) -> list[dict]:
         results = self.graph.query(sparql)

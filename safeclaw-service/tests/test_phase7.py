@@ -96,7 +96,7 @@ class TestTenantProvisioner:
         assert config.org_name == "Acme Corp"
         assert config.policy_template == "devops"
         assert config.autonomy_level == "autonomous"
-        assert len(config.org_id) == 8
+        assert len(config.org_id) == 36
         assert config.data_dir != ""
 
     def test_provision_with_missing_bundled_ontologies_dir(self, tmp_path):
