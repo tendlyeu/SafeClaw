@@ -1,11 +1,15 @@
 """SafeClaw FastAPI application - the neurosymbolic governance service."""
 
 import logging
+import time
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from safeclaw.api.errors import SafeClawError
 from safeclaw.api.middleware import TimingMiddleware
 from safeclaw.auth.middleware import APIKeyAuthMiddleware
 from safeclaw.config import SafeClawConfig
@@ -17,6 +21,7 @@ logger = logging.getLogger("safeclaw")
 _config = SafeClawConfig()
 
 engine: FullEngine | None = None
+_start_time = time.monotonic()
 
 
 @asynccontextmanager
@@ -61,15 +66,59 @@ app.add_middleware(APIKeyAuthMiddleware, require_auth=_config.require_auth)
 app.add_middleware(TimingMiddleware)
 
 
+@app.exception_handler(SafeClawError)
+async def safeclaw_error_handler(request: Request, exc: SafeClawError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.code, "detail": exc.detail, "hint": exc.hint},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error: %s\n%s", exc, traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "INTERNAL_ERROR",
+            "detail": "An unexpected error occurred.",
+            "hint": "Check service logs for details.",
+        },
+    )
+
+
 def get_engine() -> FullEngine:
     if engine is None:
-        raise RuntimeError("Engine not initialized — call startup first")
+        raise SafeClawError(
+            code="ENGINE_NOT_READY",
+            detail="Engine not initialized — the service is still starting up.",
+            hint="Wait a moment and retry, or check service logs.",
+            status_code=503,
+        )
     return engine
 
 
 @app.get("/api/v1/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0", "engine_ready": engine is not None}
+    result = {
+        "status": "ok",
+        "version": "0.1.0",
+        "engine_ready": engine is not None,
+        "uptime_seconds": round(time.monotonic() - _start_time),
+    }
+    if engine is not None:
+        result["components"] = {
+            "knowledge_graph": {"triples": len(engine.kg)},
+            "llm": {"configured": engine.llm_client is not None},
+            "sessions": {"active": len(engine.session_tracker._sessions)},
+            "agents": {
+                "registered": len(engine.agent_registry.list_agents()),
+                "active": sum(
+                    1 for a in engine.agent_registry.list_agents() if not a.killed
+                ),
+            },
+        }
+    return result
 
 
 # Import and include API routes

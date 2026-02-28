@@ -34,6 +34,7 @@ from safeclaw.engine.core import (
     ToolResultEvent,
 )
 from safeclaw.engine.agent_registry import AgentRegistry
+from safeclaw.engine.event_bus import EventBus, SafeClawEvent
 from safeclaw.engine.delegation_detector import DelegationDetector
 from safeclaw.engine.knowledge_graph import KnowledgeGraph
 from safeclaw.engine.reasoner import OWLReasoner
@@ -51,6 +52,7 @@ class FullEngine(SafeClawEngine):
 
     def __init__(self, config: SafeClawConfig):
         self.config = config
+        self.event_bus = EventBus()
         self._init_components(config)
 
     def _init_components(self, config: SafeClawConfig) -> None:
@@ -598,6 +600,17 @@ class FullEngine(SafeClawEngine):
                     finding.category,
                     finding.description,
                 )
+                self.event_bus.publish(SafeClawEvent(
+                    event_type="security_finding",
+                    severity="critical" if finding.severity == "critical" else "warning",
+                    title=f"Security: {finding.category}",
+                    detail=finding.description,
+                    metadata={
+                        "category": finding.category,
+                        "finding_severity": finding.severity,
+                        "tool_name": review_event.classified_action.tool_name,
+                    },
+                ))
                 if finding.severity == "critical" and review_event.classified_action.tool_name:
                     logger.critical("CRITICAL security finding — manual review required")
         except Exception:
@@ -623,6 +636,20 @@ class FullEngine(SafeClawEngine):
         self.context_builder.record_violation(event.session_id, decision.reason)
         self.session_tracker.record_violation(event.session_id, decision.reason)
         self._log_decision(event, action, decision, checks, prefs_applied, start_time)
+
+        # Publish blocked event to event bus
+        self.event_bus.publish(SafeClawEvent(
+            event_type="blocked",
+            severity="warning",
+            title=f"Blocked: {event.tool_name}",
+            detail=decision.reason,
+            metadata={
+                "tool_name": event.tool_name,
+                "session_id": event.session_id,
+                "ontology_class": action.ontology_class,
+                "risk_level": action.risk_level,
+            },
+        ))
 
     def _log_decision(
         self,

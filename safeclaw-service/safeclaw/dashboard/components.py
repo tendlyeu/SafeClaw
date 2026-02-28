@@ -6,6 +6,7 @@ from fasthtml.common import (
     H1,
     Main,
     Nav,
+    Script,
     Span,
     Style,
     Title,
@@ -253,6 +254,29 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); }
 .mt-2 { margin-top: 1rem; }
 .mb-1 { margin-bottom: 0.5rem; }
 .mb-2 { margin-bottom: 1rem; }
+
+/* ── Toast Notifications ── */
+.toast-container {
+    position: fixed; bottom: 1.5rem; right: 1.5rem;
+    z-index: 9999; display: flex; flex-direction: column-reverse; gap: 0.5rem;
+    max-width: 400px;
+}
+.toast {
+    padding: 0.75rem 1rem; border-radius: 8px;
+    font-size: 0.85rem; line-height: 1.4;
+    background: var(--surface); border: 1px solid var(--border);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    animation: toast-in 0.3s ease-out;
+}
+.toast-warning { border-left: 3px solid var(--orange); }
+.toast-critical { border-left: 3px solid var(--red); }
+.toast-info { border-left: 3px solid var(--blue); }
+.toast .toast-title { font-weight: 600; margin-bottom: 0.2rem; }
+.toast .toast-detail { color: var(--muted); font-size: 0.8rem; }
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(0.5rem); }
+    to { opacity: 1; transform: translateY(0); }
+}
 """)
 
 
@@ -279,6 +303,34 @@ def NavBar(active: str = "home"):
     )
 
 
+def NotificationListener():
+    """JS EventSource listener that creates toast notifications from SSE events."""
+    return (
+        Div(id="toast-container", cls="toast-container"),
+        Script("""
+(function() {
+  var src = new EventSource('/api/v1/events');
+  src.addEventListener('safeclaw', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      var container = document.getElementById('toast-container');
+      if (!container) return;
+      var cls = 'toast toast-' + (d.severity || 'info');
+      var toast = document.createElement('div');
+      toast.className = cls;
+      toast.innerHTML = '<div class="toast-title">' +
+        d.title.replace(/</g,'&lt;') + '</div><div class="toast-detail">' +
+        (d.detail || '').replace(/</g,'&lt;').substring(0, 200) + '</div>';
+      container.appendChild(toast);
+      setTimeout(function() { toast.remove(); }, 8000);
+    } catch(ex) {}
+  });
+  src.onerror = function() { setTimeout(function() {}, 5000); };
+})();
+"""),
+    )
+
+
 def Page(title_text: str, *content, active: str = "home"):
     """Wrap page content with the standard dashboard layout."""
     return (
@@ -286,6 +338,7 @@ def Page(title_text: str, *content, active: str = "home"):
         DashboardCSS(),
         NavBar(active=active),
         Main(Div(H1(title_text), *content, cls="dashboard-container")),
+        NotificationListener(),
     )
 
 

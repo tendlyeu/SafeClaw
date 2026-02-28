@@ -93,15 +93,25 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
       signal: AbortSignal.timeout(config.timeoutMs),
     });
     if (!res.ok) {
-      console.warn(`[SafeClaw] HTTP ${res.status} from ${path}`);
+      // Try to parse structured error body from service
+      try {
+        const errBody = await res.json() as Record<string, unknown>;
+        const detail = errBody.detail ?? `HTTP ${res.status}`;
+        const hint = errBody.hint ? ` (${errBody.hint})` : '';
+        console.warn(`[SafeClaw] ${path}: ${detail}${hint}`);
+      } catch {
+        console.warn(`[SafeClaw] HTTP ${res.status} from ${path}`);
+      }
       return null;  // Caller checks failMode
     }
     return await res.json() as Record<string, unknown>;
   } catch (e) {
     if (e instanceof DOMException && e.name === 'TimeoutError') {
-      console.debug(`[SafeClaw] Timeout on ${path}`);
+      console.warn(`[SafeClaw] Timeout after ${config.timeoutMs}ms on ${path} (${config.serviceUrl})`);
+    } else if (e instanceof TypeError && (e.message.includes('fetch') || e.message.includes('ECONNREFUSED'))) {
+      console.warn(`[SafeClaw] Connection refused: ${config.serviceUrl}${path} — is the service running?`);
     } else {
-      console.debug(`[SafeClaw] Service unavailable: ${path}`);
+      console.warn(`[SafeClaw] Service unavailable: ${config.serviceUrl}${path}`);
     }
     return null;  // Caller checks failMode
   }
@@ -157,7 +167,7 @@ async function checkConnection(): Promise<void> {
 export default {
   id: 'openclaw-safeclaw-plugin',
   name: 'SafeClaw Neurosymbolic Governance',
-  version: '0.1.1',
+  version: '0.1.2',
 
   register(api: PluginApi) {
     if (!config.enabled) {
@@ -179,9 +189,9 @@ export default {
       });
 
       if (r === null && config.failMode === 'closed' && config.enforcement === 'enforce') {
-        return { block: true, blockReason: 'SafeClaw service unavailable (fail-closed)' };
+        return { block: true, blockReason: `SafeClaw service unavailable at ${config.serviceUrl} (fail-closed)` };
       } else if (r === null && config.failMode === 'closed' && config.enforcement === 'warn-only') {
-        console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
+        console.warn(`[SafeClaw] Service unavailable at ${config.serviceUrl} (fail-closed mode, warn-only)`);
       }
       if (r?.block) {
         if (config.enforcement === 'enforce') {

@@ -49,7 +49,7 @@ async def require_admin(request: Request):
 def _get_engine():
     from safeclaw.main import get_engine
 
-    return get_engine()
+    return get_engine()  # raises SafeClawError("ENGINE_NOT_READY") if engine is None
 
 
 @router.post("/evaluate/tool-call", response_model=DecisionResponse)
@@ -372,6 +372,20 @@ async def explain_decision(audit_id: str):
 
     explanation = await engine.explainer.explain(record)
     return {"auditId": audit_id, "explanation": explanation}
+
+
+@router.get("/events")
+async def event_stream():
+    """SSE endpoint — streams real-time SafeClaw events."""
+    from starlette.responses import StreamingResponse
+
+    engine = _get_engine()
+
+    async def generate():
+        async for event in engine.event_bus.subscribe():
+            yield f"event: safeclaw\ndata: {event.to_json()}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.get("/llm/findings")

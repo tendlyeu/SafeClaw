@@ -140,6 +140,33 @@ def register(rt, get_engine):
         if record is None:
             return Div(P("Record not found.", cls="text-muted"))
 
+        sections = []
+
+        # ── Action params (truncated) ─────────────────────────────
+        import json
+
+        params_str = json.dumps(record.action.params, default=str)
+        if len(params_str) > 500:
+            params_str = params_str[:500] + "..."
+        sections.append(
+            Div(
+                H2("Action Parameters"),
+                P(Span(params_str, cls="mono text-xs"), style="word-break: break-all;"),
+                cls="mt-1",
+            )
+        )
+
+        # ── Decision reason (for early-exit blocks with no constraint checks) ──
+        if record.decision == "blocked" and not record.justification.constraints_checked:
+            # Early-exit block (agent governance, role check, etc.)
+            sections.append(
+                Div(
+                    H2("Block Reason"),
+                    P("Blocked before constraint pipeline (agent governance or role check)."),
+                    cls="mt-1",
+                )
+            )
+
         # ── Constraints checked table ─────────────────────────────
         constraint_rows = []
         for c in record.justification.constraints_checked:
@@ -165,6 +192,7 @@ def register(rt, get_engine):
             if constraint_rows
             else P("No constraints checked.", cls="text-muted")
         )
+        sections.append(Div(H2("Constraints Checked"), constraints_table))
 
         # ── Preferences applied ───────────────────────────────────
         pref_rows = []
@@ -177,28 +205,37 @@ def register(rt, get_engine):
                 )
             )
 
-        preferences_section = (
-            Div(
-                H2("Preferences Applied"),
-                Table(
-                    Thead(
-                        Tr(
-                            Th("Preference"),
-                            Th("Value"),
-                            Th("Effect"),
-                        )
+        if pref_rows:
+            sections.append(
+                Div(
+                    H2("Preferences Applied"),
+                    Table(
+                        Thead(
+                            Tr(
+                                Th("Preference"),
+                                Th("Value"),
+                                Th("Effect"),
+                            )
+                        ),
+                        Tbody(*pref_rows),
                     ),
-                    Tbody(*pref_rows),
-                ),
-                cls="mt-2",
+                    cls="mt-2",
+                )
             )
-            if pref_rows
-            else ""
-        )
 
-        return Div(
-            H2("Constraints Checked"),
-            constraints_table,
-            preferences_section,
-            style="padding: 0.75rem 0;",
-        )
+        # ── Session action history (last 5) ───────────────────────
+        history = getattr(record, "session_action_history", None) or []
+        if history:
+            last_5 = history[-5:]
+            history_rows = [
+                Tr(Td(Span(str(h), cls="mono text-xs"))) for h in last_5
+            ]
+            sections.append(
+                Div(
+                    H2("Session History (last 5)"),
+                    Table(Thead(Tr(Th("Action"))), Tbody(*history_rows)),
+                    cls="mt-2",
+                )
+            )
+
+        return Div(*sections, style="padding: 0.75rem 0;")
