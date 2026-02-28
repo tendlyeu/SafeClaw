@@ -28,6 +28,9 @@ class SafeClawConfig(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Admin dashboard
+    admin_password: str = ""
+
     # LLM layer (passive observer — all features gated on mistral_api_key)
     mistral_api_key: str = ""
     mistral_model: str = "mistral-small-latest"
