@@ -6,6 +6,7 @@ import typer
 
 from safeclaw.cli.serve import serve_cmd
 from safeclaw.cli.audit_cmd import audit_app
+from safeclaw.cli.llm_cmd import llm_app
 from safeclaw.cli.policy_cmd import policy_app
 from safeclaw.cli.pref_cmd import pref_app
 
@@ -13,6 +14,7 @@ app = typer.Typer(name="safeclaw", help="SafeClaw - Neurosymbolic governance for
 
 app.command("serve")(serve_cmd)
 app.add_typer(audit_app, name="audit")
+app.add_typer(llm_app, name="llm")
 app.add_typer(policy_app, name="policy")
 app.add_typer(pref_app, name="pref")
 

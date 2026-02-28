@@ -144,3 +144,32 @@ def compliance(
         console.print(f"[green]Compliance report written to {output}[/green]")
     else:
         console.print(content)
+
+
+@audit_app.command("explain")
+def explain(
+    audit_id: str = typer.Argument(help="Audit record ID to explain"),
+):
+    """Explain a decision in plain English (requires LLM)."""
+    import asyncio
+    from safeclaw.llm.client import create_client
+
+    config = SafeClawConfig()
+    client = create_client(config)
+    if client is None:
+        console.print("[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]")
+        raise typer.Exit(1)
+
+    audit_logger = AuditLogger(config.get_audit_dir())
+    records = audit_logger.get_recent_records(limit=200)
+    record = next((r for r in records if r.id == audit_id), None)
+
+    if record is None:
+        console.print(f"[red]Audit record '{audit_id}' not found[/red]")
+        raise typer.Exit(1)
+
+    from safeclaw.llm.explainer import DecisionExplainer
+
+    explainer = DecisionExplainer(client)
+    explanation = asyncio.run(explainer.explain(record))
+    console.print(f"\n{explanation}\n")

@@ -138,3 +138,47 @@ def remove_policy(
     policy_file.write_text(new_content)
     console.print(f"[green]Policy '{name}' removed (commented out)[/green]")
     console.print("[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]")
+
+
+@policy_app.command("add-nl")
+def add_nl(
+    description: str = typer.Argument(help="Natural language policy description"),
+):
+    """Add a policy using natural language (requires LLM)."""
+    import asyncio
+    from safeclaw.config import SafeClawConfig
+    from safeclaw.llm.client import create_client
+
+    config = SafeClawConfig()
+    client = create_client(config)
+    if client is None:
+        console.print("[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]")
+        raise typer.Exit(1)
+
+    from safeclaw.engine.knowledge_graph import KnowledgeGraph
+    from safeclaw.llm.policy_compiler import PolicyCompiler
+
+    kg = KnowledgeGraph()
+    kg.load_directory(config.get_ontology_dir())
+    compiler = PolicyCompiler(client, kg)
+
+    result = asyncio.run(compiler.compile(description))
+
+    if not result.success:
+        console.print("[red]Failed to compile policy:[/red]")
+        for err in result.validation_errors:
+            console.print(f"  - {err}")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold]Generated policy: {result.policy_name}[/bold]")
+    console.print(f"Type: {result.policy_type}")
+    console.print(f"\n[dim]{result.turtle}[/dim]\n")
+
+    if typer.confirm("Apply this policy?"):
+        policy_file = config.get_ontology_dir() / "safeclaw-policy.ttl"
+        with open(policy_file, "a") as f:
+            f.write(f"\n# Added via NL compiler: {description}\n{result.turtle}\n")
+        console.print("[green]Policy applied successfully[/green]")
+        console.print("[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]")
+    else:
+        console.print("[yellow]Policy not applied[/yellow]")
