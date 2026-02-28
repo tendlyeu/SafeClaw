@@ -83,7 +83,12 @@ def create_dashboard(get_engine_fn, mount_prefix: str = ""):
 
     bware = Beforeware(
         auth_before,
-        skip=["/login", "/favicon.ico", "/css", "/js"],
+        skip=[
+            f"{_prefix}/login",
+            f"{_prefix}/favicon.ico",
+            f"{_prefix}/css.*",
+            f"{_prefix}/js.*",
+        ],
     )
 
     cfg = _get_config()
