@@ -1,0 +1,130 @@
+sequenceDiagram
+    autonumber
+
+    participant Agent as OpenClaw Agent
+    participant Plugin as SafeClaw Plugin<br/>(TypeScript)
+    participant API as SafeClaw API<br/>(FastAPI)
+    participant Engine as FullEngine
+    participant KG as Knowledge Graph<br/>(RDFLib + OWL)
+    participant SHACL as SHACL Validator<br/>(pySHACL)
+    participant Audit as Audit Logger<br/>(JSONL)
+
+    Note over Agent,Audit: SESSION START
+
+    Agent->>Plugin: before_agent_start event
+    Plugin->>API: POST /api/v1/context/build
+    API->>Engine: build_context(session, user)
+    Engine->>KG: Query user preferences
+    KG-->>Engine: Preferences (OWL triples)
+    Engine->>KG: Query active policies
+    KG-->>Engine: Policies (prohibitions, obligations)
+    Engine->>KG: Query session facts
+    KG-->>Engine: Session state
+    Engine-->>API: ContextResult (governance prompt)
+    API-->>Plugin: { prependContext: "## SafeClaw Governance..." }
+    Plugin-->>Agent: Inject constraints into system prompt
+
+    Note over Agent,Audit: TOOL CALL EVALUATION
+
+    Agent->>Plugin: before_tool_call(toolName, params)
+    Plugin->>API: POST /api/v1/evaluate/tool-call
+    API->>Engine: evaluate_tool_call(event)
+
+    rect rgb(240, 248, 255)
+        Note over Engine: Step 0: Agent Governance
+        Engine->>Engine: Verify agent token
+        Engine->>Engine: Check kill switch
+        Engine->>Engine: Detect delegation bypass
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine,KG: Step 1: Action Classification
+        Engine->>KG: Classify tool + params → OWL action class
+        KG-->>Engine: ActionClass (risk, reversibility, scope)
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine,KG: Step 2: Role-Based Access
+        Engine->>KG: Check agent role vs action class
+        KG-->>Engine: Role permission result
+    end
+
+    rect rgb(255, 250, 230)
+        Note over Engine,SHACL: Step 3: SHACL Validation
+        Engine->>SHACL: Validate action graph against shapes
+        SHACL-->>Engine: Conforms / Violation report
+    end
+
+    alt SHACL violation detected
+        Engine->>Audit: Log BLOCKED decision
+        Audit-->>Engine: Audit ID
+        Engine-->>API: Decision: BLOCKED (SHACL violation)
+        API-->>Plugin: { block: true, reason: "..." }
+        Plugin-->>Agent: Action blocked with explanation
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine,KG: Step 4: Policy Check
+        Engine->>KG: SPARQL query for matching prohibitions
+        KG-->>Engine: Matching policies (if any)
+    end
+
+    alt Policy prohibition matched
+        Engine->>Audit: Log BLOCKED decision
+        Engine-->>API: Decision: BLOCKED (policy violation)
+        API-->>Plugin: { block: true, reason: "..." }
+        Plugin-->>Agent: Action blocked with explanation
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine,KG: Step 5: Preference Check
+        Engine->>KG: Query user preferences for action type
+        KG-->>Engine: Preference constraints
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine: Step 6: Dependency Check
+        Engine->>Engine: Check session history for prerequisites
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine: Step 7: Temporal & Rate Limit
+        Engine->>Engine: Check time constraints
+        Engine->>Engine: Check rate limits
+    end
+
+    rect rgb(240, 255, 240)
+        Note over Engine: Step 8: Derived Rules
+        Engine->>Engine: Evaluate combined OWL inferences
+    end
+
+    Note over Engine: All 9 steps passed
+
+    Engine->>Engine: Record action for rate limiting
+    Engine->>Audit: Log ALLOWED decision
+    Audit-->>Engine: Audit ID
+    Engine-->>API: Decision: ALLOWED
+    API-->>Plugin: { block: false }
+    Plugin-->>Agent: Action permitted — proceed
+
+    Note over Agent,Audit: TOOL RESULT FEEDBACK
+
+    Agent->>Plugin: after_tool_call(result)
+    Plugin->>API: POST /api/v1/record/tool-result
+    API->>Engine: record_action_result(event)
+    Engine->>KG: Update session facts (outcome, state changes)
+    KG-->>Engine: Facts stored
+    Engine-->>API: OK
+    API-->>Plugin: 200 OK
+
+    Note over Agent,Audit: MESSAGE GOVERNANCE
+
+    Agent->>Plugin: message_sending(to, content)
+    Plugin->>API: POST /api/v1/evaluate/message
+    API->>Engine: evaluate_message(event)
+    Engine->>KG: Check communication policies
+    KG-->>Engine: Policy result
+    Engine->>Audit: Log message decision
+    Engine-->>API: Decision: ALLOWED / BLOCKED
+    API-->>Plugin: { cancel: false } or { cancel: true, reason: "..." }
+    Plugin-->>Agent: Send or cancel message

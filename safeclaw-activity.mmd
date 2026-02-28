@@ -1,0 +1,136 @@
+flowchart TB
+    subgraph PluginLane["OpenClaw Plugin (TypeScript)"]
+        direction TB
+        START(( ))
+        P1["Agent initiates tool call"]
+        P2["Fire before_tool_call hook"]
+        P3["HTTP POST /evaluate/tool-call"]
+        P4["Receive DecisionResponse"]
+        P5{"Enforcement\nmode?"}
+        P6{"block ==\ntrue?"}
+        P_BLOCK["Return block\nto OpenClaw"]
+        P_WARN["Log warning,\nallow action"]
+        P_ALLOW["Return allow\nto OpenClaw"]
+        STOP(( ))
+
+        START --> P1
+        P1 --> P2
+        P2 --> P3
+    end
+
+    subgraph APILane["SafeClaw API (FastAPI)"]
+        direction TB
+        A1["Deserialize request\ninto ToolCallEvent"]
+        A2["Resolve session\nand user context"]
+        A3["Call engine.evaluate_tool_call()"]
+        A4["Serialize DecisionResponse"]
+    end
+
+    subgraph EngineLane["Validation Pipeline (FullEngine)"]
+        direction TB
+
+        AG{"Agent ID\npresent?"}
+        AG_YES["Token auth\nKill switch check\nDelegation detection"]
+
+        E1["1. Classify action\n(tool + params → OWL class)"]
+        E1_OUT["ActionClass resolved:\nrisk level, reversibility, scope"]
+
+        AG2{"Agent ID\npresent?"}
+        ROLE["1b. Role-based\naccess check"]
+
+        E2{"2. SHACL\nvalidation\npasses?"}
+        E3{"3. Policy\ncheck\npasses?"}
+        E4{"4. Preference\ncheck\npasses?"}
+        E5{"5. Dependency\ncheck\npasses?"}
+        E6{"6. Temporal\nconstraint\npasses?"}
+        E7{"7. Rate\nlimit\npasses?"}
+        E8{"8. Derived\nrules\npass?"}
+
+        AG3{"Agent ID\npresent?"}
+        HIER["9. Hierarchy\nlimit check"]
+
+        E9["Record action\nfor rate limiting"]
+        PASS["Decision: ALLOWED"]
+        FAIL["Decision: BLOCKED\n+ violation reason"]
+
+        AG -- Yes --> AG_YES --> E1
+        AG -- No --> E1
+        E1 --> E1_OUT --> AG2
+        AG2 -- Yes --> ROLE --> E2
+        AG2 -- No --> E2
+
+        E2 -- Yes --> E3
+        E2 -- No --> FAIL
+        E3 -- Yes --> E4
+        E3 -- No --> FAIL
+        E4 -- Yes --> E5
+        E4 -- No --> FAIL
+        E5 -- Yes --> E6
+        E5 -- No --> FAIL
+        E6 -- Yes --> E7
+        E6 -- No --> FAIL
+        E7 -- Yes --> E8
+        E7 -- No --> FAIL
+        E8 -- Yes --> AG3
+        E8 -- No --> FAIL
+
+        AG3 -- Yes --> HIER --> E9
+        AG3 -- No --> E9
+        E9 --> PASS
+    end
+
+    subgraph AuditLane["Audit Logger"]
+        direction TB
+        AUD_B["Write BLOCKED entry\n(JSONL append-only)"]
+        AUD_B_DET["Record:\n- action proposed\n- constraint violated\n- violation reason\n- ontology URI"]
+        AUD_A["Write ALLOWED entry\n(JSONL append-only)"]
+        AUD_A_DET["Record:\n- action proposed\n- all constraints checked\n- risk assessment\n- session context"]
+
+        AUD_B --> AUD_B_DET
+        AUD_A --> AUD_A_DET
+    end
+
+    %% Cross-lane: Plugin → API
+    P3 --> A1
+    A1 --> A2
+    A2 --> A3
+
+    %% API → Engine
+    A3 --> AG
+
+    %% Engine → Audit
+    FAIL --> AUD_B
+    PASS --> AUD_A
+
+    %% Audit → API → Plugin
+    AUD_B_DET --> A4
+    AUD_A_DET --> A4
+    A4 --> P4
+
+    %% Plugin enforcement decision
+    P4 --> P5
+    P5 -- "enforce" --> P6
+    P5 -- "warn-only" --> P_WARN
+    P5 -- "audit-only /\ndisabled" --> P_ALLOW
+    P6 -- Yes --> P_BLOCK
+    P6 -- No --> P_ALLOW
+    P_BLOCK --> STOP
+    P_WARN --> STOP
+    P_ALLOW --> STOP
+
+    %% Styling
+    style START fill:#000,stroke:#000,color:#000
+    style STOP fill:#000,stroke:#000,color:#000
+    style P_BLOCK fill:#f8cecc,stroke:#b85450,font-weight:bold
+    style P_ALLOW fill:#d5e8d4,stroke:#82b366,font-weight:bold
+    style P_WARN fill:#fff2cc,stroke:#d6b656,font-weight:bold
+    style PASS fill:#d5e8d4,stroke:#82b366,font-weight:bold
+    style FAIL fill:#f8cecc,stroke:#b85450,font-weight:bold
+    style E1_OUT fill:#e1d5e7,stroke:#9673a6
+    style AUD_B fill:#f8cecc,stroke:#b85450
+    style AUD_A fill:#d5e8d4,stroke:#82b366
+    style AUD_B_DET fill:#e1d5e7,stroke:#9673a6
+    style AUD_A_DET fill:#e1d5e7,stroke:#9673a6
+    style AG_YES fill:#dae8fc,stroke:#6c8ebf
+    style ROLE fill:#dae8fc,stroke:#6c8ebf
+    style HIER fill:#dae8fc,stroke:#6c8ebf
