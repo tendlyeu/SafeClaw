@@ -229,10 +229,16 @@ def QuickStart():
     return Section(
         Div(
             H2("Quick Start", cls="section-title"),
-            P("Up and running in three commands", cls="section-subtitle"),
+            P("Clone, install, and run", cls="section-subtitle"),
             Div(
                 Div(
-                    Span("$ ", cls="prompt"), Span("pip install safeclaw", cls="cmd"),
+                    Span("$ ", cls="prompt"), Span("git clone https://github.com/tendlyeu/SafeClaw.git", cls="cmd"),
+                ),
+                Div(
+                    Span("$ ", cls="prompt"), Span("cd SafeClaw/safeclaw-service", cls="cmd"),
+                ),
+                Div(
+                    Span("$ ", cls="prompt"), Span('pip install -e ".[dev]"', cls="cmd"),
                 ),
                 Div(
                     Span("$ ", cls="prompt"), Span('safeclaw init --user-id yourname', cls="cmd"),
