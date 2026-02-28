@@ -1,5 +1,7 @@
 # SafeClaw
 
+> Built during the Mistral hackathon
+
 Neurosymbolic governance layer for autonomous AI agents. SafeClaw validates every tool call, message, and action against OWL ontologies and SHACL constraints before execution.
 
 ## Architecture
