@@ -1,27 +1,44 @@
 {
-  "name": "safeclaw",
+  "name": "openclaw-safeclaw-plugin",
   "version": "0.1.0",
-  "description": "SafeClaw Neurosymbolic Governance plugin for OpenClaw",
+  "description": "SafeClaw Neurosymbolic Governance plugin for OpenClaw — validates AI agent actions against OWL ontologies and SHACL constraints",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "files": [
     "dist/",
     "index.ts",
-    "SKILL.md"
+    "SKILL.md",
+    "README.md"
   ],
   "keywords": [
     "openclaw",
     "safeclaw",
     "governance",
     "neurosymbolic",
-    "ai-safety"
+    "ai-safety",
+    "owl",
+    "shacl",
+    "ontology",
+    "ai-agent",
+    "tool-validation"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tendlyeu/SafeClaw.git",
+    "directory": "openclaw-safeclaw-plugin"
+  },
+  "homepage": "https://safeclaw.eu",
+  "bugs": {
+    "url": "https://github.com/tendlyeu/SafeClaw/issues"
+  },
+  "author": "Tendly EU",
   "devDependencies": {
     "typescript": "^5.4.0",
     "@types/node": "^20.0.0"

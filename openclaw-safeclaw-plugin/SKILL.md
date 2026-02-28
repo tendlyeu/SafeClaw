@@ -24,13 +24,13 @@ uvicorn safeclaw.main:app --port 8420
 # The plugin auto-connects to http://localhost:8420
 ```
 
-### Option B: Cloud mode (safeclaw.uku.ai)
+### Option B: Cloud mode (safeclaw.eu)
 
 ```bash
-# 1. Sign up at safeclaw.uku.ai and get your API key
+# 1. Sign up at safeclaw.eu and get your API key
 
 # 2. Set your API key
-export SAFECLAW_URL="https://api.safeclaw.uku.ai/api/v1"
+export SAFECLAW_URL="https://api.safeclaw.eu/api/v1"
 export SAFECLAW_API_KEY="sc_live_your_key_here"
 ```
 

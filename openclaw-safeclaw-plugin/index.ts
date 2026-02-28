@@ -130,7 +130,7 @@ interface PluginApi {
 }
 
 export default {
-  id: 'safeclaw',
+  id: 'openclaw-safeclaw-plugin',
   name: 'SafeClaw Neurosymbolic Governance',
   version: '0.1.0',
 
