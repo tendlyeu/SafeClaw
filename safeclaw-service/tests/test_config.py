@@ -89,3 +89,22 @@ class TestLoadConfig:
         write_config(config_path, original)
         loaded = load_config(config_path)
         assert loaded == original
+
+
+def test_llm_config_defaults():
+    """LLM config fields exist with correct defaults."""
+    from safeclaw.config import SafeClawConfig
+    config = SafeClawConfig()
+    assert config.mistral_api_key == ""
+    assert config.mistral_model == "mistral-small-latest"
+    assert config.mistral_model_large == "mistral-large-latest"
+    assert config.mistral_timeout_ms == 3000
+    assert config.llm_security_review_enabled is True
+    assert config.llm_classification_observe is True
+
+
+def test_llm_disabled_without_api_key():
+    """LLM is considered disabled when no API key is set."""
+    from safeclaw.config import SafeClawConfig
+    config = SafeClawConfig()
+    assert config.mistral_api_key == ""

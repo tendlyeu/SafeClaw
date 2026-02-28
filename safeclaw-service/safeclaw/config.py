@@ -28,6 +28,14 @@ class SafeClawConfig(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # LLM layer (passive observer — all features gated on mistral_api_key)
+    mistral_api_key: str = ""
+    mistral_model: str = "mistral-small-latest"
+    mistral_model_large: str = "mistral-large-latest"
+    mistral_timeout_ms: int = 3000
+    llm_security_review_enabled: bool = True
+    llm_classification_observe: bool = True
+
     def get_ontology_dir(self) -> Path:
         if self.ontology_dir:
             return self.ontology_dir
