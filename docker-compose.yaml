@@ -26,5 +26,22 @@ services:
     labels:
       - coolify.managed=true
 
+  landing:
+    build:
+      context: ./safeclaw-landing
+      dockerfile: Dockerfile
+    container_name: safeclaw-landing
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - coolify.managed=true
+
 volumes:
   safeclaw-data:
