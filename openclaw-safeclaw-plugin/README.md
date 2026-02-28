@@ -8,20 +8,23 @@ Neurosymbolic governance plugin for OpenClaw AI agents. Validates every tool cal
 npm install openclaw-safeclaw-plugin
 ```
 
-## Quick Start (SaaS)
+## Quick Start
 
-Point the plugin at the hosted SafeClaw service:
+Install and go — the plugin connects to SafeClaw's hosted service by default:
 
 ```bash
-export SAFECLAW_URL="https://api.safeclaw.eu/api/v1"
-export SAFECLAW_ENFORCEMENT="enforce"
+npm install openclaw-safeclaw-plugin
 ```
 
-No server setup needed — the plugin connects to SafeClaw's hosted service.
+No configuration needed. The default service URL is `https://api.safeclaw.eu/api/v1`.
 
-## Quick Start (Self-Hosted)
+## Self-Hosted
+
+To run your own SafeClaw service, override the URL:
 
 ```bash
+export SAFECLAW_URL="http://localhost:8420/api/v1"
+
 # Start the SafeClaw service
 git clone https://github.com/tendlyeu/SafeClaw.git
 cd SafeClaw/safeclaw-service
@@ -31,8 +34,6 @@ safeclaw init --user-id yourname
 safeclaw serve
 # Engine ready on http://localhost:8420
 ```
-
-The plugin auto-connects to `http://localhost:8420/api/v1` by default.
 
 ## What It Does
 
@@ -58,7 +59,7 @@ Set via environment variables or `~/.safeclaw/config.json`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SAFECLAW_URL` | `http://localhost:8420/api/v1` | SafeClaw service URL |
+| `SAFECLAW_URL` | `https://api.safeclaw.eu/api/v1` | SafeClaw service URL |
 | `SAFECLAW_API_KEY` | *(empty)* | API key for cloud mode |
 | `SAFECLAW_TIMEOUT_MS` | `500` | Request timeout in ms |
 | `SAFECLAW_ENABLED` | `true` | Set `false` to disable |

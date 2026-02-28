@@ -242,17 +242,15 @@ def QuickStart():
                 ),
                 cls="quickstart-terminal",
             ),
-            P("Then configure your environment:", cls="quickstart-desc"),
+            P("That's it. The plugin connects to the hosted service by default.", cls="quickstart-desc"),
             Div(
                 Div(
-                    Span("SAFECLAW_SERVICE_URL", cls="cmd"),
-                    Span("=", cls="comment"),
-                    Span("https://api.safeclaw.eu", cls="allowed"),
+                    Span("# ", cls="comment"),
+                    Span("Default: https://api.safeclaw.eu/api/v1", cls="comment"),
                 ),
                 Div(
-                    Span("SAFECLAW_ENFORCEMENT", cls="cmd"),
-                    Span("=", cls="comment"),
-                    Span("enforce", cls="allowed"),
+                    Span("# ", cls="comment"),
+                    Span("No configuration needed", cls="comment"),
                 ),
                 cls="quickstart-terminal",
             ),
@@ -800,7 +798,7 @@ def DocsPage():
                             Thead(Tr(Th("Variable"), Th("Default"), Th("Description"))),
                             Tbody(
                                 Tr(Td(Code("SAFECLAW_URL")),
-                                   Td(Code("http://localhost:8420/api/v1")),
+                                   Td(Code("https://api.safeclaw.eu/api/v1")),
                                    Td("SafeClaw service URL")),
                                 Tr(Td(Code("SAFECLAW_API_KEY")), Td("(none)"),
                                    Td("Bearer token for service authentication")),

@@ -12,26 +12,15 @@ SafeClaw adds ontology-based constraint checking to your OpenClaw agent. Every t
 
 ## Setup
 
-### Option A: Local mode (self-hosted)
+The plugin connects to `https://api.safeclaw.eu/api/v1` by default — no configuration needed.
+
+### Self-hosted mode
+
+To run your own SafeClaw service, override the URL:
 
 ```bash
-# 1. Start the SafeClaw service
-pip install safeclaw
-safeclaw init
-uvicorn safeclaw.main:app --port 8420
-
-# 2. Install this plugin (done if you're reading this via clawhub)
-# The plugin auto-connects to http://localhost:8420
-```
-
-### Option B: Cloud mode (safeclaw.eu)
-
-```bash
-# 1. Sign up at safeclaw.eu and get your API key
-
-# 2. Set your API key
-export SAFECLAW_URL="https://api.safeclaw.eu/api/v1"
-export SAFECLAW_API_KEY="sc_live_your_key_here"
+export SAFECLAW_URL="http://localhost:8420/api/v1"
+export SAFECLAW_API_KEY="sc_live_your_key_here"  # optional
 ```
 
 ## Configuration
@@ -40,7 +29,7 @@ Set via environment variables or `~/.safeclaw/config.json`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SAFECLAW_URL` | `http://localhost:8420/api/v1` | SafeClaw service URL |
+| `SAFECLAW_URL` | `https://api.safeclaw.eu/api/v1` | SafeClaw service URL |
 | `SAFECLAW_API_KEY` | (empty) | API key for remote/cloud mode |
 | `SAFECLAW_TIMEOUT_MS` | `500` | Request timeout in milliseconds |
 | `SAFECLAW_ENABLED` | `true` | Set to `false` to disable |

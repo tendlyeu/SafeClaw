@@ -26,7 +26,7 @@ interface SafeClawPluginConfig {
 
 function loadConfig(): SafeClawPluginConfig {
   const defaults: SafeClawPluginConfig = {
-    serviceUrl: process.env.SAFECLAW_URL ?? 'http://localhost:8420/api/v1',
+    serviceUrl: process.env.SAFECLAW_URL ?? 'https://api.safeclaw.eu/api/v1',
     apiKey: process.env.SAFECLAW_API_KEY ?? '',
     timeoutMs: parseInt(process.env.SAFECLAW_TIMEOUT_MS ?? '500', 10),
     enabled: process.env.SAFECLAW_ENABLED !== 'false',
