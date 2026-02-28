@@ -14,6 +14,8 @@ from safeclaw.api.models import (
     DecisionResponse,
     LlmIORequest,
     MessageRequest,
+    PolicyCompileRequest,
+    PolicyCompileResponse,
     SessionEndRequest,
     TempGrantRequest,
     TempGrantResponse,
@@ -305,3 +307,70 @@ async def complete_task(task_id: str):
     engine = _get_engine()
     count = engine.temp_permissions.complete_task(task_id)
     return {"ok": True, "taskId": task_id, "grantsRevoked": count}
+
+
+# ── LLM Layer Routes ──
+
+
+@router.post("/policies/compile", response_model=PolicyCompileResponse)
+async def compile_policy(request: PolicyCompileRequest) -> PolicyCompileResponse:
+    engine = _get_engine()
+    if not hasattr(engine, "llm_client") or engine.llm_client is None:
+        raise HTTPException(status_code=503, detail="LLM not configured (set SAFECLAW_MISTRAL_API_KEY)")
+
+    from safeclaw.llm.policy_compiler import PolicyCompiler
+
+    compiler = PolicyCompiler(engine.llm_client, engine.kg)
+    result = await compiler.compile(request.description)
+    return PolicyCompileResponse(
+        success=result.success,
+        turtle=result.turtle,
+        policyName=result.policy_name,
+        policyType=result.policy_type,
+        explanation=result.explanation,
+        validationErrors=result.validation_errors,
+    )
+
+
+@router.get("/audit/{audit_id}/explain")
+async def explain_decision(audit_id: str):
+    engine = _get_engine()
+    if not hasattr(engine, "explainer") or engine.explainer is None:
+        raise HTTPException(status_code=503, detail="LLM not configured (set SAFECLAW_MISTRAL_API_KEY)")
+
+    # Try to find the audit record
+    records = engine.audit.get_recent_records(limit=200)
+    record = next((r for r in records if r.id == audit_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail="Audit record not found")
+
+    explanation = await engine.explainer.explain(record)
+    return {"auditId": audit_id, "explanation": explanation}
+
+
+@router.get("/llm/findings")
+async def get_findings():
+    # Findings are currently logged but not persisted to a queryable store.
+    return {"findings": []}
+
+
+@router.get("/llm/suggestions")
+async def get_suggestions():
+    import json
+    from safeclaw.config import SafeClawConfig
+
+    config = SafeClawConfig()
+    suggestions_file = config.data_dir / "llm" / "classification_suggestions.jsonl"
+
+    if not suggestions_file.exists():
+        return {"suggestions": []}
+
+    suggestions = []
+    for line in suggestions_file.read_text().strip().split("\n"):
+        if line.strip():
+            try:
+                suggestions.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    return {"suggestions": suggestions}

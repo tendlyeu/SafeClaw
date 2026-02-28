@@ -123,3 +123,20 @@ class TempGrantRequest(BaseModel):
 class TempGrantResponse(BaseModel):
     grantId: str
     expiresAt: str | None = None
+
+
+class PolicyCompileRequest(BaseModel):
+    description: str
+
+
+class PolicyCompileResponse(BaseModel):
+    success: bool
+    turtle: str = ""
+    policyName: str = ""
+    policyType: str = ""
+    explanation: str = ""
+    validationErrors: list[str] = []
+
+
+class PolicyApplyRequest(BaseModel):
+    turtle: str
