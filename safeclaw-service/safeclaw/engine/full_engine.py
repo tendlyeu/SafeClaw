@@ -113,6 +113,28 @@ class FullEngine(SafeClawEngine):
         # Audit
         self.audit = AuditLogger(audit_dir)
 
+        # LLM layer (passive observer — gated on API key)
+        self.llm_client = None
+        self.security_reviewer = None
+        self.classification_observer = None
+        self.explainer = None
+
+        if config.mistral_api_key:
+            from safeclaw.llm.client import create_client
+            from safeclaw.llm.security_reviewer import SecurityReviewer
+            from safeclaw.llm.classification_observer import ClassificationObserver
+            from safeclaw.llm.explainer import DecisionExplainer
+
+            self.llm_client = create_client(config)
+            if self.llm_client:
+                suggestions_path = config.data_dir / "llm" / "classification_suggestions.jsonl"
+                self.security_reviewer = SecurityReviewer(self.llm_client, self)
+                self.classification_observer = ClassificationObserver(
+                    self.llm_client, suggestions_path
+                )
+                self.explainer = DecisionExplainer(self.llm_client)
+                logger.info("LLM layer initialized (security review, observer, explainer)")
+
     def reload(self) -> None:
         """Hot-reload: re-read ontologies and reinitialize constraint checkers."""
         logger.info("Hot-reloading ontologies...")
@@ -357,6 +379,10 @@ class FullEngine(SafeClawEngine):
         self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
         decision = Decision(block=False)
         self._log_decision(event, action, decision, checks, prefs_applied, start)
+
+        # Fire-and-forget LLM tasks (non-blocking, passive observer)
+        self._fire_llm_tasks(event, action, decision, checks)
+
         return decision
 
     async def evaluate_message(self, event: MessageEvent) -> Decision:
@@ -475,6 +501,62 @@ class FullEngine(SafeClawEngine):
 
     async def log_llm_io(self, event: LlmIOEvent) -> None:
         logger.debug(f"LLM {event.direction}: {event.content[:100]}{'...' if len(event.content) > 100 else ''}")
+
+    def _fire_llm_tasks(
+        self,
+        event: ToolCallEvent,
+        action,
+        decision,
+        checks,
+    ) -> None:
+        """Launch background LLM review tasks. Non-blocking, fire-and-forget."""
+        if self.security_reviewer and self.config.llm_security_review_enabled:
+            from safeclaw.llm.security_reviewer import ReviewEvent
+
+            review_event = ReviewEvent(
+                tool_name=event.tool_name,
+                params=event.params,
+                classified_action=action,
+                symbolic_decision="allowed" if not decision.block else "blocked",
+                session_history=getattr(event, "session_history", []),
+                constraints_checked=[
+                    {"type": c.constraint_type, "result": c.result, "reason": c.reason}
+                    for c in checks
+                ],
+            )
+            asyncio.create_task(self._run_security_review(review_event))
+
+        if (
+            self.classification_observer
+            and self.config.llm_classification_observe
+            and action.ontology_class == "Action"
+        ):
+            asyncio.create_task(
+                self._run_classification_observer(event.tool_name, event.params, action)
+            )
+
+    async def _run_security_review(self, review_event) -> None:
+        """Background task: run security review and handle findings."""
+        try:
+            finding = await self.security_reviewer.review(review_event)
+            if finding:
+                logger.warning(
+                    "Security finding [%s/%s]: %s",
+                    finding.severity,
+                    finding.category,
+                    finding.description,
+                )
+                if finding.severity == "critical" and review_event.classified_action.tool_name:
+                    logger.critical("CRITICAL security finding — manual review required")
+        except Exception:
+            logger.debug("Security review background task failed", exc_info=True)
+
+    async def _run_classification_observer(self, tool_name, params, action) -> None:
+        """Background task: observe classification and suggest improvements."""
+        try:
+            await self.classification_observer.observe(tool_name, params, action)
+        except Exception:
+            logger.debug("Classification observer background task failed", exc_info=True)
 
     def _record_violation_and_log(
         self,
