@@ -39,9 +39,7 @@ def register(rt, get_engine):
 
         # ── Flash message ────────────────────────────────────────
         flash_msg = sess.pop("settings_flash", None) if sess else None
-        flash_el = (
-            Div(flash_msg, cls="flash flash-success") if flash_msg else ""
-        )
+        flash_el = Div(flash_msg, cls="flash flash-success") if flash_msg else ""
 
         # ── Mistral API Key panel ────────────────────────────────
         key_configured = bool(config.mistral_api_key)

@@ -83,9 +83,7 @@ def register(rt, get_engine):
                 Tbody(*rows),
             )
         else:
-            activity_table = Div(
-                P("No recent decisions recorded."), cls="empty-state"
-            )
+            activity_table = Div(P("No recent decisions recorded."), cls="empty-state")
 
         activity_panel = Div(H2("Recent Activity"), activity_table, cls="panel")
 

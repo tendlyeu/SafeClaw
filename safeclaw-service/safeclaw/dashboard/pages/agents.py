@@ -39,7 +39,9 @@ def register(rt, get_engine):
             # Truncate session ID for display
             session_display = agent.session_id[:8] if agent.session_id else "—"
             parent_display = (
-                Span(agent.parent_id, cls="mono") if agent.parent_id else Span("—", cls="text-muted")
+                Span(agent.parent_id, cls="mono")
+                if agent.parent_id
+                else Span("—", cls="text-muted")
             )
 
             # Kill or Revive button depending on status

@@ -64,9 +64,7 @@ def create_dashboard(get_engine_fn):
     @rt("/login", methods=["get"])
     def login_page(req, error: str = ""):
         error_flash = (
-            Div("Invalid password. Please try again.", cls="flash flash-error")
-            if error
-            else ""
+            Div("Invalid password. Please try again.", cls="flash flash-error") if error else ""
         )
         return (
             DashboardCSS(),

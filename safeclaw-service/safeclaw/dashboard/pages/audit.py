@@ -125,9 +125,7 @@ def register(rt, get_engine):
                 Tbody(*rows),
             )
         else:
-            results_table = Div(
-                P("No audit records found."), cls="empty-state"
-            )
+            results_table = Div(P("No audit records found."), cls="empty-state")
 
         results_panel = Div(H2("Results"), results_table, cls="panel")
 
@@ -157,16 +155,20 @@ def register(rt, get_engine):
                 )
             )
 
-        constraints_table = Table(
-            Thead(
-                Tr(
-                    Th("Type"),
-                    Th("Result"),
-                    Th("Reason"),
-                )
-            ),
-            Tbody(*constraint_rows),
-        ) if constraint_rows else P("No constraints checked.", cls="text-muted")
+        constraints_table = (
+            Table(
+                Thead(
+                    Tr(
+                        Th("Type"),
+                        Th("Result"),
+                        Th("Reason"),
+                    )
+                ),
+                Tbody(*constraint_rows),
+            )
+            if constraint_rows
+            else P("No constraints checked.", cls="text-muted")
+        )
 
         # ── Preferences applied ───────────────────────────────────
         pref_rows = []
