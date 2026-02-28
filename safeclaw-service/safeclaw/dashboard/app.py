@@ -1,5 +1,8 @@
 """SafeClaw admin dashboard — FastHTML application factory."""
 
+import hashlib
+import os
+
 from fasthtml.common import (
     Beforeware,
     Button,
@@ -14,6 +17,13 @@ from fasthtml.common import (
 
 from safeclaw.dashboard.components import DashboardCSS
 from safeclaw.dashboard.pages import agents, audit, home, settings
+
+
+def _derive_secret(admin_password: str) -> str:
+    """Derive a session secret key from the admin password or generate one."""
+    if admin_password:
+        return hashlib.sha256(f"safeclaw-session-{admin_password}".encode()).hexdigest()
+    return os.urandom(32).hex()
 
 
 def create_dashboard(get_engine_fn):
@@ -50,10 +60,13 @@ def create_dashboard(get_engine_fn):
         skip=["/login", "/favicon.ico", "/css", "/js"],
     )
 
+    cfg = _get_config()
+    secret = _derive_secret(cfg.admin_password)
+
     app, rt = fast_app(
         pico=False,
         before=bware,
-        secret_key="safeclaw-admin-session-key",
+        secret_key=secret,
     )
 
     # Store engine accessor on app for external use
