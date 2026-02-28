@@ -61,7 +61,8 @@ def create_dashboard(get_engine_fn):
         try:
             eng = _engine()
             return eng.config
-        except Exception:
+        except RuntimeError:
+            # Engine not yet initialized (startup) — fall back to env-based config
             from safeclaw.config import SafeClawConfig
 
             return SafeClawConfig()
