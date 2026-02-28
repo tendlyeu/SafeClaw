@@ -129,13 +129,44 @@ interface PluginApi {
   ): void;
 }
 
+async function checkConnection(): Promise<void> {
+  const label = `[SafeClaw]`;
+  console.log(`${label} Connecting to ${config.serviceUrl} ...`);
+  console.log(`${label} Mode: enforcement=${config.enforcement}, failMode=${config.failMode}`);
+
+  try {
+    const res = await fetch(`${config.serviceUrl}/health`, {
+      signal: AbortSignal.timeout(config.timeoutMs * 2),
+    });
+    if (res.ok) {
+      const data = await res.json() as Record<string, unknown>;
+      console.log(`${label} ✓ Connected — service ${data.status ?? 'ok'}`);
+    } else {
+      console.warn(`${label} ✗ Service responded with HTTP ${res.status}`);
+    }
+  } catch {
+    console.warn(`${label} ✗ Cannot reach service at ${config.serviceUrl}`);
+    if (config.failMode === 'closed') {
+      console.warn(`${label}   fail-mode=closed → tool calls will be BLOCKED until service is reachable`);
+    } else {
+      console.warn(`${label}   fail-mode=open → tool calls will be ALLOWED despite no connection`);
+    }
+  }
+}
+
 export default {
   id: 'openclaw-safeclaw-plugin',
   name: 'SafeClaw Neurosymbolic Governance',
-  version: '0.1.0',
+  version: '0.1.1',
 
   register(api: PluginApi) {
-    if (!config.enabled) return;
+    if (!config.enabled) {
+      console.log('[SafeClaw] Plugin disabled');
+      return;
+    }
+
+    // Fire-and-forget startup health check
+    checkConnection().catch(() => {});
 
     // THE GATE — constraint checking on every tool call
     api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
