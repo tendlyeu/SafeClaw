@@ -18,7 +18,8 @@ from fasthtml.common import (
     Tr,
 )
 
-from safeclaw.dashboard.components import DecisionBadge, MOUNT_PREFIX, Page, RiskBadge
+import safeclaw.dashboard.components as _comp
+from safeclaw.dashboard.components import DecisionBadge, Page, RiskBadge
 
 
 def register(rt, get_engine):
@@ -64,7 +65,7 @@ def register(rt, get_engine):
                     style="display: flex; gap: 1rem; align-items: end;",
                 ),
                 method="get",
-                action=f"{MOUNT_PREFIX}/audit",
+                action=f"{_comp.MOUNT_PREFIX}/audit",
             ),
             cls="panel",
         )
@@ -92,7 +93,7 @@ def register(rt, get_engine):
                             Button(
                                 "Details",
                                 cls="btn btn-sm",
-                                hx_get=f"{MOUNT_PREFIX}/audit/detail/{r.id}",
+                                hx_get=f"{_comp.MOUNT_PREFIX}/audit/detail/{r.id}",
                                 hx_target=f"#detail-{r.id}",
                                 hx_swap="innerHTML",
                             )

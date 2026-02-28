@@ -18,7 +18,8 @@ from fasthtml.common import (
 
 from starlette.responses import Response
 
-from safeclaw.dashboard.components import AgentStatusBadge, MOUNT_PREFIX, Page
+import safeclaw.dashboard.components as _comp
+from safeclaw.dashboard.components import AgentStatusBadge, Page
 
 
 def register(rt, get_engine, csrf_field=None, verify_csrf=None):
@@ -53,14 +54,14 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
                     csrf,
                     Button("Revive", type="submit", cls="btn btn-primary btn-sm"),
                     method="post",
-                    action=f"{MOUNT_PREFIX}/agents/{agent.agent_id}/revive",
+                    action=f"{_comp.MOUNT_PREFIX}/agents/{agent.agent_id}/revive",
                 )
             else:
                 action_form = Form(
                     csrf,
                     Button("Kill", type="submit", cls="btn btn-danger btn-sm"),
                     method="post",
-                    action=f"{MOUNT_PREFIX}/agents/{agent.agent_id}/kill",
+                    action=f"{_comp.MOUNT_PREFIX}/agents/{agent.agent_id}/kill",
                 )
 
             rows.append(
@@ -97,7 +98,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
         engine.agent_registry.kill_agent(agent_id)
-        return RedirectResponse(f"{MOUNT_PREFIX}/agents", status_code=303)
+        return RedirectResponse(f"{_comp.MOUNT_PREFIX}/agents", status_code=303)
 
     @rt("/agents/{agent_id}/revive", methods=["post"])
     def revive_agent(agent_id: str, sess, _csrf: str = ""):
@@ -105,4 +106,4 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
         engine.agent_registry.revive_agent(agent_id)
-        return RedirectResponse(f"{MOUNT_PREFIX}/agents", status_code=303)
+        return RedirectResponse(f"{_comp.MOUNT_PREFIX}/agents", status_code=303)
