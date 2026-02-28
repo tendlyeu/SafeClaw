@@ -328,6 +328,10 @@ def DocsToc():
         ("context", "Context Injection"),
         ("audit", "Audit Trail"),
         ("messages", "Message Governance"),
+        ("errors", "Error Handling"),
+        ("cli-diagnostics", "CLI Diagnostics"),
+        ("events", "Real-Time Events (SSE)"),
+        ("dashboard", "Admin Dashboard"),
         ("config", "Configuration Reference"),
     ]
     return Div(
@@ -790,7 +794,165 @@ def DocsPage():
                     P("Default: 50 messages per session per hour."),
                 ),
 
-                # ── 12. Configuration Reference ──
+                # ── 12. Error Handling ──
+                DocsSection("errors", "Error Handling",
+                    P("The SafeClaw service returns structured error responses with machine-readable "
+                      "codes and human-readable hints for every failure:"),
+                    Div(
+                        Pre(
+                            '{\n'
+                            '  "error": "ENGINE_NOT_READY",\n'
+                            '  "detail": "Engine not initialized — the service is still starting up.",\n'
+                            '  "hint": "Wait a moment and retry, or check service logs."\n'
+                            '}',
+                            cls="docs-pre",
+                        ),
+                    ),
+                    H3("Error Codes", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Code"), Th("HTTP"), Th("Meaning"))),
+                            Tbody(
+                                Tr(Td(Code("ENGINE_NOT_READY")), Td("503"),
+                                   Td("Service is starting up, engine not yet initialized")),
+                                Tr(Td(Code("INTERNAL_ERROR")), Td("500"),
+                                   Td("Unhandled exception — check service logs")),
+                                Tr(Td(Code("INVALID_REQUEST")), Td("400"),
+                                   Td("Malformed request body or missing fields")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Plugin Error Handling", cls="docs-h3"),
+                    P("The TypeScript plugin (v0.1.2+) parses structured errors and provides "
+                      "context-specific warnings:"),
+                    Ul(
+                        Li(Strong("Timeout"), " — logs timeout duration and service URL"),
+                        Li(Strong("Connection refused"), " — suggests checking if the service is running"),
+                        Li(Strong("HTTP errors"), " — parses and displays the ", Code("detail"),
+                           " and ", Code("hint"), " fields from the response"),
+                        Li(Strong("Fail-closed blocks"), " — include the service URL in the block reason "
+                           "for easier debugging"),
+                        cls="docs-list",
+                    ),
+                ),
+
+                # ── 13. CLI Diagnostics ──
+                DocsSection("cli-diagnostics", "CLI Diagnostics",
+                    P("SafeClaw includes two CLI commands for diagnosing service health "
+                      "and configuration issues."),
+                    H3("safeclaw status check", cls="docs-h3"),
+                    P("Pings the running service and displays component-level health:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw status check\n"
+                            "Service: ok\n"
+                            "Version: 0.1.0\n"
+                            "Engine ready: True\n"
+                            "Uptime: 1234s\n"
+                            "\n"
+                            "┌───────────────┬────────────────────────┐\n"
+                            "│ Component     │ Detail                 │\n"
+                            "├───────────────┼────────────────────────┤\n"
+                            "│ Knowledge Graph│ 847 triples           │\n"
+                            "│ LLM           │ not configured         │\n"
+                            "│ Sessions      │ 3 active               │\n"
+                            "│ Agents        │ 2 registered, 1 active │\n"
+                            "└───────────────┴────────────────────────┘",
+                            cls="docs-pre",
+                        ),
+                    ),
+                    P("If the service is not running, it shows a clear error with the suggested fix."),
+                    H3("safeclaw status diagnose", cls="docs-h3"),
+                    P("Runs offline checks without requiring the service to be running:"),
+                    Ul(
+                        Li("Config file at ", Code("~/.safeclaw/config.json")),
+                        Li("Ontology ", Code(".ttl"), " files present"),
+                        Li("Audit directory exists"),
+                        Li("Java available (for OWL reasoner)"),
+                        Li("Mistral API key set (optional)"),
+                        cls="docs-list",
+                    ),
+                    P("Each check prints ", Span("OK", cls="risk-low"), " or ",
+                      Span("ISSUE", cls="risk-critical"), " with remediation hints."),
+                ),
+
+                # ── 14. Real-Time Events (SSE) ──
+                DocsSection("events", "Real-Time Events (SSE)",
+                    P("SafeClaw provides a Server-Sent Events (SSE) endpoint for real-time "
+                      "visibility into governance decisions:"),
+                    Div(
+                        Pre(
+                            "$ curl -N http://localhost:8420/api/v1/events\n"
+                            "\n"
+                            'event: safeclaw\n'
+                            'data: {"event_type":"blocked","severity":"warning",'
+                            '"title":"Blocked: shell",'
+                            '"detail":"[SafeClaw] Force push can destroy shared history",'
+                            '"metadata":{"tool_name":"shell","ontology_class":"ForcePush"}}\n',
+                            cls="docs-pre",
+                        ),
+                    ),
+                    H3("Event Types", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Type"), Th("Severity"), Th("When"))),
+                            Tbody(
+                                Tr(Td(Code("blocked")), Td("warning"),
+                                   Td("A tool call was blocked by the constraint pipeline")),
+                                Tr(Td(Code("security_finding")), Td("warning / critical"),
+                                   Td("The LLM security reviewer flagged a concern")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Event Bus Limits", cls="docs-h3"),
+                    Ul(
+                        Li("Max 50 concurrent SSE subscribers"),
+                        Li("Max 100 queued events per subscriber (oldest dropped on overflow)"),
+                        Li("No external dependencies — uses ", Code("asyncio.Queue"), " internally"),
+                        cls="docs-list",
+                    ),
+                ),
+
+                # ── 15. Admin Dashboard ──
+                DocsSection("dashboard", "Admin Dashboard",
+                    P("The admin dashboard is available at ", Code("/admin"),
+                      " and provides a web interface for monitoring and managing SafeClaw."),
+                    H3("Live Features", cls="docs-h3"),
+                    Ul(
+                        Li(Strong("Toast notifications"), " — real-time pop-up alerts when actions "
+                           "are blocked or security findings are detected, powered by the SSE event stream"),
+                        Li(Strong("Auto-refresh"), " — home page stats update every 5 seconds via HTMX"),
+                        Li(Strong("Agent monitoring"), " — cards showing registered and active agent counts"),
+                        cls="docs-list",
+                    ),
+                    H3("Audit Log Detail", cls="docs-h3"),
+                    P("Clicking 'Details' on any audit record expands to show:"),
+                    Ul(
+                        Li("Action parameters (truncated to 500 chars)"),
+                        Li("Constraint checks with type, result, and reason"),
+                        Li("Preferences applied"),
+                        Li("Session action history (last 5 entries)"),
+                        Li("Block reason for early-exit blocks (agent governance, role checks)"),
+                        cls="docs-list",
+                    ),
+                    H3("Dashboard Pages", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Page"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td(Strong("Home")), Td("System health, decision stats, recent activity")),
+                                Tr(Td(Strong("Audit")), Td("Filterable audit log with detail expansion")),
+                                Tr(Td(Strong("Agents")), Td("Agent management — register, kill, revive")),
+                                Tr(Td(Strong("Settings")), Td("Configuration overview, ontology reload")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                ),
+
+                # ── 16. Configuration Reference ──
                 DocsSection("config", "Configuration Reference",
                     H3("Plugin Environment Variables", cls="docs-h3"),
                     Div(
