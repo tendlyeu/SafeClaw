@@ -1,0 +1,260 @@
+<mxfile host="app.diagrams.net" modified="2026-02-28" agent="Claude Code" version="24.0.0" type="device">
+  <diagram id="safeclaw-process" name="SafeClaw Protsess">
+    <mxGraphModel dx="1422" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="3000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- ═══════════════ SWIMLANES ═══════════════ -->
+
+        <mxCell id="lane1" value="OpenClaw Plugin (TypeScript)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="290" height="2550" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane2" value="SafeClaw API (FastAPI)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="310" y="20" width="230" height="2550" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane3" value="Valideerimise torujuhe (FullEngine)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="540" y="20" width="490" height="2550" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lane4" value="Audit" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="20" width="290" height="2550" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ PLUGIN LANE ═══════════════ -->
+
+        <mxCell id="start" value="ALGUS" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;" vertex="1" parent="lane1">
+          <mxGeometry x="80" y="50" width="130" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p1" value="Agent käivitab&lt;br&gt;tööriistakutse" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane1">
+          <mxGeometry x="45" y="130" width="200" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p2" value="&lt;font face=&quot;Courier New&quot;&gt;before_tool_call&lt;/font&gt;&lt;br&gt;sündmus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane1">
+          <mxGeometry x="45" y="220" width="200" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p3" value="HTTP POST&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;/evaluate/tool-call&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane1">
+          <mxGeometry x="45" y="310" width="200" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p4" value="Saa vastus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane1">
+          <mxGeometry x="45" y="1930" width="200" height="45" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p5" value="block == true&lt;br&gt;JA enforce?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane1">
+          <mxGeometry x="55" y="2020" width="180" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p_block" value="Blokeeri&lt;br&gt;tegevus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" vertex="1" parent="lane1">
+          <mxGeometry x="10" y="2170" width="120" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="p_allow" value="Luba&lt;br&gt;tegevus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="lane1">
+          <mxGeometry x="160" y="2170" width="120" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="end" value="LÕPP" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;" vertex="1" parent="lane1">
+          <mxGeometry x="80" y="2300" width="130" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ API LANE ═══════════════ -->
+
+        <mxCell id="a1" value="Loo &lt;font face=&quot;Courier New&quot;&gt;ToolCallEvent&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane2">
+          <mxGeometry x="15" y="410" width="200" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="a2" value="Kutsu&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;evaluate_tool_call()&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane2">
+          <mxGeometry x="15" y="510" width="200" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="a3" value="Tagasta&lt;br&gt;&lt;font face=&quot;Courier New&quot;&gt;DecisionResponse&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="lane2">
+          <mxGeometry x="15" y="1840" width="200" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ PIPELINE LANE ═══════════════ -->
+
+        <mxCell id="e1" value="1. Klassifitseeri tegevus (OWL)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="lane3">
+          <mxGeometry x="115" y="620" width="240" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e2" value="2. SHACL&lt;br&gt;vastab?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="720" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e3" value="3. Poliitika&lt;br&gt;OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="855" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e4" value="4. Eelistused&lt;br&gt;OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="990" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e5" value="5. Sõltuvused&lt;br&gt;täidetud?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="1125" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e6" value="6. Ajaline&lt;br&gt;piirang OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="1260" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e7" value="7. Limiit&lt;br&gt;OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="1395" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e8" value="8. Tuletatud&lt;br&gt;reeglid OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="lane3">
+          <mxGeometry x="145" y="1530" width="170" height="85" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e9" value="Salvesta tegevus limiidi jaoks" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="lane3">
+          <mxGeometry x="115" y="1670" width="240" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Agent-specific note -->
+        <mxCell id="note1" value="&lt;b&gt;Agent-spetsiifilised sammud&lt;/b&gt;&lt;br&gt;(kui &lt;font face=&quot;Courier New&quot;&gt;agent_id&lt;/font&gt; olemas):&lt;br&gt;&lt;br&gt;0a. Token autentimine&lt;br&gt;0b. Kill switch kontroll&lt;br&gt;0c. Delegeerimise tuvastus&lt;br&gt;1b. Rolli kontroll&lt;br&gt;9. Hierarhia limiit" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;spacingRight=5;" vertex="1" parent="lane3">
+          <mxGeometry x="340" y="620" width="140" height="175" as="geometry"/>
+        </mxCell>
+
+        <!-- Bracket grouping all Ei paths -->
+        <mxCell id="bracket" value="Ei" style="shape=curlyBracket;whiteSpace=wrap;html=1;rounded=1;flipH=0;size=0.5;strokeColor=#b85450;strokeWidth=2;fontSize=14;fontStyle=1;fontColor=#b85450;labelPosition=right;verticalLabelPosition=middle;align=left;verticalAlign=middle;" vertex="1" parent="lane3">
+          <mxGeometry x="330" y="720" width="20" height="895" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ AUDIT LANE ═══════════════ -->
+
+        <mxCell id="blokeeri" value="&lt;b&gt;BLOKEERITUD&lt;/b&gt;&lt;br&gt;Salvesta rikkumine" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="lane4">
+          <mxGeometry x="35" y="1100" width="220" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="audit_block" value="Kirjuta audit kirje&lt;br&gt;(JSONL, block=true)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="lane4">
+          <mxGeometry x="35" y="1200" width="220" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="audit_allow" value="Kirjuta audit kirje&lt;br&gt;(JSONL, block=false)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="lane4">
+          <mxGeometry x="35" y="1780" width="220" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ ARROWS - Plugin lane ═══════════════ -->
+
+        <mxCell id="arr_start_p1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="start" target="p1" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_p1_p2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="p1" target="p2" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_p2_p3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="p2" target="p3" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_p4_p5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="p4" target="p5" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_p5_block" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontStyle=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="p5" target="p_block" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_p5_allow" value="Ei" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" edge="1" source="p5" target="p_allow" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_pblock_end" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="p_block" target="end" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_pallow_end" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="p_allow" target="end" parent="lane1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ ARROWS - API lane ═══════════════ -->
+
+        <mxCell id="arr_a1_a2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="a1" target="a2" parent="lane2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ ARROWS - Pipeline lane ═══════════════ -->
+
+        <mxCell id="arr_e1_e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="e1" target="e2" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e2_e3" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e2" target="e3" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e3_e4" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e3" target="e4" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e4_e5" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e4" target="e5" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e5_e6" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e5" target="e6" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e6_e7" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e6" target="e7" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e7_e8" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e7" target="e8" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="arr_e8_e9" value="Jah" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontStyle=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="e8" target="e9" parent="lane3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ ARROWS - Audit lane ═══════════════ -->
+
+        <mxCell id="arr_blokeeri_audit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="blokeeri" target="audit_block" parent="lane4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════════ CROSS-LANE ARROWS ═══════════════ -->
+
+        <!-- Plugin → API -->
+        <mxCell id="arr_p3_a1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="p3" target="a1" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- API → Pipeline -->
+        <mxCell id="arr_a2_e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="a2" target="e1" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Pipeline bracket → Audit (block path) -->
+        <mxCell id="arr_bracket_blokeeri" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" source="bracket" target="blokeeri" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Pipeline → Audit (allow path) -->
+        <mxCell id="arr_e9_audit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" source="e9" target="audit_allow" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Audit block → API (return blocked) -->
+        <mxCell id="arr_auditblock_a3" value="block=true" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontColor=#b85450;fontSize=10;dashed=1;" edge="1" source="audit_block" target="a3" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Audit allow → API (return allowed) -->
+        <mxCell id="arr_auditallow_a3" value="block=false" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontColor=#82b366;fontSize=10;dashed=1;" edge="1" source="audit_allow" target="a3" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- API → Plugin (return response) -->
+        <mxCell id="arr_a3_p4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" source="a3" target="p4" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,30 @@
+services:
+  safeclaw:
+    build:
+      context: ./safeclaw-service
+      dockerfile: Dockerfile
+    container_name: safeclaw
+    restart: unless-stopped
+    ports:
+      - "8420:8420"
+    volumes:
+      - safeclaw-data:/home/safeclaw/.safeclaw
+    environment:
+      - SAFECLAW_HOST=0.0.0.0
+      - SAFECLAW_PORT=8420
+      - SAFECLAW_LOG_LEVEL=INFO
+      - SAFECLAW_DATA_DIR=/home/safeclaw/.safeclaw
+      - SAFECLAW_RUN_REASONER_ON_STARTUP=true
+      - SAFECLAW_CORS_ORIGIN_REGEX=https?://.*
+      - SAFECLAW_REQUIRE_AUTH=false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8420/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - coolify.managed=true
+
+volumes:
+  safeclaw-data:

@@ -4,7 +4,7 @@ services:
     ports:
       - "8420:8420"
     volumes:
-      - safeclaw-data:/root/.safeclaw
+      - safeclaw-data:/home/safeclaw/.safeclaw
     environment:
       - SAFECLAW_LOG_LEVEL=INFO
 
