@@ -9,6 +9,7 @@ app, rt = fast_app(
     static_path="static",
     hdrs=(
         Link(rel="stylesheet", href="/style.css"),
+        Link(rel="icon", href="/favicon.ico", type="image/x-icon"),
         Meta(name="viewport", content="width=device-width, initial-scale=1"),
         Meta(name="description", content="SafeClaw — Neurosymbolic governance layer for autonomous AI agents"),
     ),
