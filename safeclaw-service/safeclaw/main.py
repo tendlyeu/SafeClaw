@@ -76,3 +76,8 @@ async def health():
 from safeclaw.api.routes import router  # noqa: E402
 
 app.include_router(router, prefix="/api/v1")
+
+# Admin dashboard (FastHTML sub-app)
+from safeclaw.dashboard.app import create_dashboard  # noqa: E402
+
+app.mount("/admin", create_dashboard(get_engine))

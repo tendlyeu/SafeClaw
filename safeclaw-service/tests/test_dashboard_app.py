@@ -79,6 +79,21 @@ def test_no_password_configured_allows_access(open_client):
     assert resp.status_code == 200
 
 
+def test_home_page_shows_stats():
+    """Home page shows system health stats."""
+    engine = _make_engine(admin_password="")
+
+    def get_engine():
+        return engine
+
+    app = create_dashboard(get_engine)
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "Engine" in resp.text
+    assert "Decisions" in resp.text
+
+
 def test_logout_clears_session(auth_client):
     """After logging in, GET /logout redirects to /login and clears the session."""
     # Log in first
