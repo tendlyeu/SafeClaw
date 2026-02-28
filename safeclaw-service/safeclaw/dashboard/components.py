@@ -11,6 +11,9 @@ from fasthtml.common import (
     Title,
 )
 
+# Mount prefix — set by create_dashboard() at startup.
+MOUNT_PREFIX = ""
+
 
 def DashboardCSS():
     """Return a Style element with the full dark-theme CSS for the dashboard."""
@@ -253,7 +256,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); }
 """)
 
 
-_NAV_LINKS = [
+_NAV_PATHS = [
     ("Home", "/", "home"),
     ("Audit", "/audit", "audit"),
     ("Agents", "/agents", "agents"),
@@ -263,14 +266,15 @@ _NAV_LINKS = [
 
 def NavBar(active: str = "home"):
     """Sticky top navigation bar."""
+    p = MOUNT_PREFIX
     links = [
-        A(label, href=href, cls="active" if key == active else "")
-        for label, href, key in _NAV_LINKS
+        A(label, href=f"{p}{path}", cls="active" if key == active else "")
+        for label, path, key in _NAV_PATHS
     ]
     return Nav(
-        A("SafeClaw Admin", href="/", cls="logo"),
+        A("SafeClaw Admin", href=f"{p}/", cls="logo"),
         Div(*links, cls="nav-links"),
-        Div(A("Logout", href="/logout"), cls="nav-right"),
+        Div(A("Logout", href=f"{p}/logout"), cls="nav-right"),
         cls="dashboard-nav",
     )
 

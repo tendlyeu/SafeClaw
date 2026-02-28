@@ -2,6 +2,8 @@
 
 import os
 
+import safeclaw.dashboard.components as _comp
+
 from fasthtml.common import (
     Button,
     Div,
@@ -76,7 +78,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
                     ),
                     Button("Update", type="submit", cls="btn btn-primary"),
                     method="post",
-                    action="/settings/api-key",
+                    action=f"{_comp.MOUNT_PREFIX}/settings/api-key",
                 ),
                 P(
                     "Changes take effect after service restart.",
@@ -125,7 +127,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
                 csrf,
                 Button("Reload Ontologies", type="submit", cls="btn btn-primary"),
                 method="post",
-                action="/settings/reload",
+                action=f"{_comp.MOUNT_PREFIX}/settings/reload",
             ),
             cls="panel",
         )
@@ -182,7 +184,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
         sess["settings_flash"] = (
             "API key updated (runtime). Restart the service to reinitialise LLM features."
         )
-        return RedirectResponse("/settings", status_code=303)
+        return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)
 
     @rt("/settings/reload", methods=["post"])
     def reload_ontologies(sess, _csrf: str = ""):
@@ -191,4 +193,4 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
         engine = get_engine()
         engine.reload()
         sess["settings_flash"] = "Ontologies reloaded successfully."
-        return RedirectResponse("/settings", status_code=303)
+        return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)

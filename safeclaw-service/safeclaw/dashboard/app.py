@@ -16,6 +16,7 @@ from fasthtml.common import (
     RedirectResponse,
     fast_app,
 )
+import safeclaw.dashboard.components as _components
 from safeclaw.dashboard.components import DashboardCSS
 from safeclaw.dashboard.pages import agents, audit, home, settings
 
@@ -45,11 +46,12 @@ def verify_csrf(sess, token: str) -> bool:
     return secrets.compare_digest(expected, token) if expected else False
 
 
-def create_dashboard(get_engine_fn):
+def create_dashboard(get_engine_fn, mount_prefix: str = ""):
     """Create the FastHTML dashboard app.
 
     Args:
         get_engine_fn: callable that returns the current FullEngine instance.
+        mount_prefix: URL prefix where this app is mounted (e.g. "/admin").
 
     Returns:
         A FastHTML app ready to be mounted at ``/admin``.
@@ -67,13 +69,17 @@ def create_dashboard(get_engine_fn):
 
             return SafeClawConfig()
 
+    # Resolve mount prefix so redirects work when app is mounted at /admin
+    _prefix = mount_prefix.rstrip("/")
+    _components.MOUNT_PREFIX = _prefix
+
     def auth_before(req, sess):
         cfg = _get_config()
         # Dev mode: no password configured -> skip auth
         if not cfg.admin_password:
             return
         if not sess.get("admin_auth"):
-            return RedirectResponse("/login", status_code=303)
+            return RedirectResponse(f"{_prefix}/login", status_code=303)
 
     bware = Beforeware(
         auth_before,
@@ -116,7 +122,7 @@ def create_dashboard(get_engine_fn):
                         ),
                         Button("Sign in", type="submit", cls="btn btn-primary"),
                         method="post",
-                        action="/login",
+                        action=f"{_prefix}/login",
                     ),
                     cls="login-card",
                 ),
@@ -129,13 +135,13 @@ def create_dashboard(get_engine_fn):
         cfg = _get_config()
         if password == cfg.admin_password:
             sess["admin_auth"] = True
-            return RedirectResponse("/", status_code=303)
-        return RedirectResponse("/login?error=1", status_code=303)
+            return RedirectResponse(f"{_prefix}/", status_code=303)
+        return RedirectResponse(f"{_prefix}/login?error=1", status_code=303)
 
     @rt("/logout")
     def logout(sess):
         sess.clear()
-        return RedirectResponse("/login", status_code=303)
+        return RedirectResponse(f"{_prefix}/login", status_code=303)
 
     # ── Register page modules ───────────────────────────────────
 

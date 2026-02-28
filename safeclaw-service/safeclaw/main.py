@@ -80,4 +80,4 @@ app.include_router(router, prefix="/api/v1")
 # Admin dashboard (FastHTML sub-app)
 from safeclaw.dashboard.app import create_dashboard  # noqa: E402
 
-app.mount("/admin", create_dashboard(get_engine))
+app.mount("/admin", create_dashboard(get_engine, mount_prefix="/admin"))
