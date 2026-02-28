@@ -1,4 +1,4 @@
-"""Full engine - the complete SafeClaw engine with owlready2 + pySHACL."""
+"""Full engine - the complete SafeClaw engine with pySHACL + RDFLib."""
 
 import asyncio
 import json
@@ -36,8 +36,9 @@ from safeclaw.engine.core import (
 from safeclaw.engine.agent_registry import AgentRegistry
 from safeclaw.engine.event_bus import EventBus, SafeClawEvent
 from safeclaw.engine.delegation_detector import DelegationDetector
+from safeclaw.engine.class_hierarchy import ClassHierarchy
 from safeclaw.engine.knowledge_graph import KnowledgeGraph
-from safeclaw.engine.reasoner import OWLReasoner
+from safeclaw.engine.ontology_validator import OntologyValidator
 from safeclaw.engine.reasoning_rules import DerivedConstraintChecker
 from safeclaw.engine.roles import RoleManager
 from safeclaw.engine.session_tracker import SessionTracker
@@ -48,7 +49,7 @@ logger = logging.getLogger("safeclaw.engine")
 
 
 class FullEngine(SafeClawEngine):
-    """Complete engine with owlready2 + pySHACL + RDFLib."""
+    """Complete engine with pySHACL + RDFLib + ClassHierarchy."""
 
     def __init__(self, config: SafeClawConfig):
         self.config = config
@@ -71,19 +72,22 @@ class FullEngine(SafeClawEngine):
         if shapes_dir.exists():
             self.shacl.load_shapes(shapes_dir)
 
-        # OWL reasoner (optional, may fail without Java)
-        self.reasoner = OWLReasoner(ontology_dir)
-        if config.run_reasoner_on_startup:
-            self.reasoner.initialize(run_reasoner=True)
+        # Class hierarchy (pure-Python replacement for Java OWL reasoner)
+        self.hierarchy = ClassHierarchy(self.kg)
+
+        # Ontology consistency validation (advisory)
+        validator = OntologyValidator(self.kg, self.hierarchy)
+        for warning in validator.validate():
+            logger.warning("Ontology: %s", warning)
 
         # Constraint checkers
-        self.classifier = ActionClassifier()
-        self.policy_checker = PolicyChecker(self.kg)
+        self.classifier = ActionClassifier(hierarchy=self.hierarchy)
+        self.policy_checker = PolicyChecker(self.kg, hierarchy=self.hierarchy)
         self.preference_checker = PreferenceChecker(self.kg)
         self.dependency_checker = DependencyChecker(self.kg)
 
         # Phase 2: Advanced constraint checkers
-        self.derived_checker = DerivedConstraintChecker(self.kg)
+        self.derived_checker = DerivedConstraintChecker(self.kg, hierarchy=self.hierarchy)
         self.temporal_checker = TemporalChecker()
         self.rate_limiter = RateLimiter()
 
@@ -101,7 +105,7 @@ class FullEngine(SafeClawEngine):
         except (json.JSONDecodeError, AttributeError, OSError):
             logger.warning("Malformed or missing config.raw, falling back to defaults")
             raw = {}
-        self.role_manager = RoleManager(raw)
+        self.role_manager = RoleManager(raw, hierarchy=self.hierarchy)
         self.delegation_detector = DelegationDetector(
             mode=raw.get("agents", {}).get("delegationPolicy", "configurable")
             if raw

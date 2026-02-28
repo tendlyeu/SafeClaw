@@ -434,6 +434,12 @@ def DocsPage():
                     P("Together, they give SafeClaw a machine-readable understanding of what each action "
                       "means, how risky it is, and what constraints apply — not just pattern matching, "
                       "but genuine semantic reasoning."),
+                    P("At startup, SafeClaw pre-computes the full ", Code("rdfs:subClassOf"),
+                      " hierarchy via pure-Python SPARQL traversal (no Java required). "
+                      "This enables hierarchy-aware policy checking — blocking ",
+                      Code("ShellAction"), " automatically blocks all subclasses like ",
+                      Code("GitPush"), " and ", Code("ForcePush"), ". Custom ontology extensions "
+                      "inherit risk levels and constraints without Python code changes."),
                     H3("Action Class Hierarchy", cls="docs-h3"),
                     Div(
                         Pre(
@@ -513,6 +519,7 @@ def DocsPage():
                             "Unknown tool type", "Unclassifiable action"),
                         _pipeline_step("3", "Role-Based Access Control",
                             "Checks if the agent's role allows the classified action and resource path. "
+                            "Uses ontology hierarchy: denying a parent class denies all subclasses. "
                             "Temporary permissions are checked first.",
                             "Role 'researcher' does not allow action 'WriteFile'",
                             "Access to /secrets/** denied"),
@@ -521,7 +528,8 @@ def DocsPage():
                             "ForbiddenCommandShape violated",
                             "CriticalPathShape violated"),
                         _pipeline_step("5", "Policy Check",
-                            "Evaluates against policy rules from the knowledge graph (prohibitions, obligations).",
+                            "Evaluates against policy rules from the knowledge graph (prohibitions, obligations). "
+                            "Hierarchy-aware: blocking a parent class blocks all subclasses.",
                             "Environment files may contain secrets",
                             "Force push can destroy shared history"),
                         _pipeline_step("6", "Preference Check",
@@ -869,7 +877,7 @@ def DocsPage():
                         Li("Config file at ", Code("~/.safeclaw/config.json")),
                         Li("Ontology ", Code(".ttl"), " files present"),
                         Li("Audit directory exists"),
-                        Li("Java available (for OWL reasoner)"),
+                        Li("Class hierarchy built from ontology"),
                         Li("Mistral API key set (optional)"),
                         cls="docs-list",
                     ),
@@ -999,8 +1007,6 @@ def DocsPage():
                                    Td("Log level")),
                                 Tr(Td(Code("SAFECLAW_ADMIN_PASSWORD")), Td("(none)"),
                                    Td("Dashboard admin password")),
-                                Tr(Td(Code("SAFECLAW_RUN_REASONER_ON_STARTUP")), Td(Code("true")),
-                                   Td("Run OWL reasoner on startup (requires Java)")),
                                 Tr(Td(Code("SAFECLAW_MISTRAL_API_KEY")), Td("(none)"),
                                    Td("Enable LLM layer (Mistral)")),
                                 Tr(Td(Code("SAFECLAW_MISTRAL_MODEL")), Td(Code("mistral-small-latest")),

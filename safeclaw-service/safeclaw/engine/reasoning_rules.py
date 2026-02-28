@@ -1,11 +1,17 @@
 """Derived constraint rules - Python-based reasoning over the knowledge graph."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.constraints.preference_checker import UserPreferences
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SC, SP
+
+if TYPE_CHECKING:
+    from safeclaw.engine.class_hierarchy import ClassHierarchy
 
 _SAFE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -24,8 +30,25 @@ class DerivedConstraintChecker:
     but are implemented here since we use owlready2/pySHACL.
     """
 
-    def __init__(self, knowledge_graph: KnowledgeGraph):
+    def __init__(
+        self, knowledge_graph: KnowledgeGraph, hierarchy: ClassHierarchy | None = None
+    ):
         self.kg = knowledge_graph
+        self._hierarchy = hierarchy
+        # Pre-load prohibition target classes for cached lookups
+        self._prohibition_targets: set[str] = set()
+        if hierarchy:
+            results = self.kg.query(f"""
+                PREFIX sp: <{SP}>
+                SELECT ?target WHERE {{
+                    ?constraint a sp:Prohibition ;
+                                sp:appliesTo ?target .
+                }}
+            """)
+            for r in results:
+                uri = str(r["target"])
+                cls = uri.rsplit("#", 1)[-1] if "#" in uri else uri
+                self._prohibition_targets.add(cls)
 
     def check(
         self,
@@ -89,6 +112,12 @@ class DerivedConstraintChecker:
 
     def _check_transitive_prohibition(self, action: ClassifiedAction) -> bool:
         """Rule 3: If a parent class has a prohibition, child inherits it."""
+        # Use cached hierarchy when available (faster than SPARQL)
+        if self._hierarchy:
+            superclasses = self._hierarchy.get_superclasses(action.ontology_class)
+            return bool(superclasses & self._prohibition_targets)
+
+        # Fallback: SPARQL query
         if not _SAFE_ID.match(action.ontology_class):
             return False
         results = self.kg.query(f"""

@@ -140,7 +140,6 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             ("ontology_dir", str(config.ontology_dir) if config.ontology_dir else "bundled"),
             ("audit_dir", str(config.audit_dir) if config.audit_dir else "default"),
             ("require_auth", config.require_auth),
-            ("run_reasoner_on_startup", config.run_reasoner_on_startup),
             ("mistral_model", config.mistral_model),
             ("mistral_model_large", config.mistral_model_large),
             ("mistral_timeout_ms", config.mistral_timeout_ms),

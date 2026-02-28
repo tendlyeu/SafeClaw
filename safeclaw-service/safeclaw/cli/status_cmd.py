@@ -1,6 +1,5 @@
 """CLI status and diagnostic commands."""
 
-import shutil
 from pathlib import Path
 
 import typer
@@ -100,14 +99,7 @@ def status_diagnose():
     else:
         console.print(f"[yellow]ISSUE[/yellow]  Audit directory missing: {audit_dir} (will be created on first run)")
 
-    # 4. Java (for OWL reasoner)
-    java = shutil.which("java")
-    if java:
-        console.print(f"[green]OK[/green]  Java: {java}")
-    else:
-        console.print("[yellow]ISSUE[/yellow]  Java not found (needed for OWL reasoner, optional)")
-
-    # 5. Mistral API key
+    # 4. Mistral API key
     import os
 
     if os.environ.get("SAFECLAW_MISTRAL_API_KEY"):

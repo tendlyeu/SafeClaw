@@ -17,7 +17,6 @@ def engine_no_llm(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
-        run_reasoner_on_startup=False,
         mistral_api_key="",
     )
     return FullEngine(config)
@@ -30,7 +29,6 @@ def engine_with_llm(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
-        run_reasoner_on_startup=False,
         mistral_api_key="test-key",
     )
     mock_client = MagicMock()
@@ -65,7 +63,6 @@ async def test_engine_initializes_llm_with_api_key(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
-        run_reasoner_on_startup=False,
         mistral_api_key="test-key-for-init",
     )
 
@@ -86,7 +83,6 @@ async def test_security_review_fires_after_allow(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
-        run_reasoner_on_startup=False,
         mistral_api_key="test-key",
     )
 

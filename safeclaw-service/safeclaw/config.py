@@ -16,9 +16,6 @@ class SafeClawConfig(BaseSettings):
     ontology_dir: Path | None = None  # defaults to bundled ontologies
     audit_dir: Path | None = None  # defaults to data_dir / "audit"
 
-    # Reasoner
-    run_reasoner_on_startup: bool = True
-
     # CORS
     cors_origin_regex: str = r"https?://localhost:\d+"
 

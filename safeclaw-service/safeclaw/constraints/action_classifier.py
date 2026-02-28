@@ -1,10 +1,16 @@
 """Action classifier - maps OpenClaw tool calls to ontology action classes."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from rdflib import Graph, Literal, Namespace, RDF, XSD
+
+if TYPE_CHECKING:
+    from safeclaw.engine.class_hierarchy import ClassHierarchy
 
 SC = Namespace("http://safeclaw.uku.ai/ontology/agent#")
 
@@ -68,6 +74,9 @@ TOOL_MAPPINGS = {
 class ActionClassifier:
     """Maps tool calls to ontology action classes."""
 
+    def __init__(self, hierarchy: ClassHierarchy | None = None):
+        self._hierarchy = hierarchy
+
     def classify(self, tool_name: str, params: dict) -> ClassifiedAction:
         # Shell commands need deeper inspection
         if tool_name in ("exec", "bash", "shell"):
@@ -86,7 +95,7 @@ class ActionClassifier:
             )
 
         # Unknown tool - conservative default
-        return ClassifiedAction(
+        action = ClassifiedAction(
             ontology_class="Action",
             risk_level="MediumRisk",
             is_reversible=True,
@@ -94,6 +103,7 @@ class ActionClassifier:
             tool_name=tool_name,
             params=params,
         )
+        return self._enrich_from_ontology(action)
 
     def _classify_shell(self, params: dict) -> ClassifiedAction:
         command = params.get("command", "")
@@ -131,3 +141,14 @@ class ActionClassifier:
             tool_name="exec",
             params=params,
         )
+
+    def _enrich_from_ontology(self, action: ClassifiedAction) -> ClassifiedAction:
+        """Override Python-default risk/scope with ontology-defined values when available."""
+        if not self._hierarchy:
+            return action
+        defaults = self._hierarchy.get_defaults(action.ontology_class)
+        if defaults:
+            action.risk_level = defaults["risk_level"]
+            action.is_reversible = defaults["is_reversible"]
+            action.affects_scope = defaults["affects_scope"]
+        return action

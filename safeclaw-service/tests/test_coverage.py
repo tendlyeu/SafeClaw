@@ -20,7 +20,6 @@ def engine(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
-        run_reasoner_on_startup=False,
     )
     return FullEngine(config)
 

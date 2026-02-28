@@ -1,9 +1,15 @@
 """Role management for multi-agent governance."""
 
+from __future__ import annotations
+
 import fnmatch
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from safeclaw.engine.class_hierarchy import ClassHierarchy
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +76,9 @@ BUILTIN_ROLES = {
 class RoleManager:
     """Manages roles and checks action/resource permissions."""
 
-    def __init__(self, config: dict | None = None):
+    def __init__(self, config: dict | None = None, hierarchy: ClassHierarchy | None = None):
         self._roles: dict[str, Role] = {}
+        self._hierarchy = hierarchy
         self._default_role_name = "developer"
         if config and "roles" in config:
             self._default_role_name = config["roles"].get("defaultRole", "developer")
@@ -103,6 +110,16 @@ class RoleManager:
         return self._roles.get(self._default_role_name, BUILTIN_ROLES["developer"])
 
     def is_action_allowed(self, role: Role, action_class: str) -> bool:
+        if self._hierarchy:
+            superclasses = self._hierarchy.get_superclasses(action_class)
+            # Denied if action_class or any ancestor is denied
+            if superclasses & role.denied_action_classes:
+                return False
+            # If allowed list is set, allowed if action_class or any ancestor matches
+            if role.allowed_action_classes:
+                return bool(superclasses & role.allowed_action_classes)
+            return True
+        # Fallback: exact match (no hierarchy)
         if action_class in role.denied_action_classes:
             return False
         if role.allowed_action_classes:
