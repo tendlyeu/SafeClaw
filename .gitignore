@@ -38,3 +38,6 @@ audit_logs/
 # Environment
 .env
 .env.local
+
+# Worktrees
+.worktrees/
