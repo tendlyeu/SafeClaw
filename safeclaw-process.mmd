@@ -1,0 +1,87 @@
+flowchart TD
+    subgraph Plugin["OpenClaw Plugin (TypeScript)"]
+        START([START])
+        P1["Agent initiates\ntool call"]
+        P2["before_tool_call\nevent"]
+        P3["HTTP POST\n/evaluate/tool-call"]
+        P4["Receive response"]
+        P5{"block == true\nAND enforce?"}
+        P_BLOCK["**Block\naction**"]
+        P_ALLOW["**Allow\naction**"]
+        FINISH([END])
+
+        START --> P1 --> P2 --> P3
+        P4 --> P5
+        P5 -- Yes --> P_BLOCK --> FINISH
+        P5 -- No --> P_ALLOW --> FINISH
+    end
+
+    subgraph API["SafeClaw API (FastAPI)"]
+        A1["Create ToolCallEvent"]
+        A2["Call\nevaluate_tool_call()"]
+        A3["Return\nDecisionResponse"]
+    end
+
+    subgraph Pipeline["Validation Pipeline (FullEngine)"]
+        E1["**1. Classify action (OWL)**"]
+        E2{"2. SHACL\npasses?"}
+        E3{"3. Policy\nOK?"}
+        E4{"4. Preferences\nOK?"}
+        E5{"5. Dependencies\nmet?"}
+        E6{"6. Time\nconstraint OK?"}
+        E7{"7. Rate limit\nOK?"}
+        E8{"8. Derived\nrules OK?"}
+        E9["Record action for rate limiting"]
+
+        NOTE["**Agent-specific steps**\n(when agent_id present):\n0a. Token authentication\n0b. Kill switch check\n0c. Delegation detection\n1b. Role check\n9. Hierarchy limit"]
+
+        E1 --> E2
+        E2 -- Yes --> E3
+        E3 -- Yes --> E4
+        E4 -- Yes --> E5
+        E5 -- Yes --> E6
+        E6 -- Yes --> E7
+        E7 -- Yes --> E8
+        E8 -- Yes --> E9
+    end
+
+    subgraph Audit["Audit"]
+        BLOCKED["**BLOCKED**\nRecord violation"]
+        AUDIT_BLOCK["Write audit entry\n(JSONL, block=true)"]
+        AUDIT_ALLOW["Write audit entry\n(JSONL, block=false)"]
+
+        BLOCKED --> AUDIT_BLOCK
+    end
+
+    %% Cross-lane arrows
+    P3 --> A1
+    A1 --> A2
+    A2 --> E1
+
+    %% Any pipeline check fails → blocked
+    E2 -- No --> BLOCKED
+    E3 -- No --> BLOCKED
+    E4 -- No --> BLOCKED
+    E5 -- No --> BLOCKED
+    E6 -- No --> BLOCKED
+    E7 -- No --> BLOCKED
+    E8 -- No --> BLOCKED
+
+    %% All checks pass → allowed
+    E9 --> AUDIT_ALLOW
+
+    %% Audit → API → Plugin
+    AUDIT_BLOCK -. "block=true" .-> A3
+    AUDIT_ALLOW -. "block=false" .-> A3
+    A3 --> P4
+
+    %% Styling
+    style START fill:#d5e8d4,stroke:#82b366,font-weight:bold
+    style FINISH fill:#d5e8d4,stroke:#82b366,font-weight:bold
+    style P_BLOCK fill:#f8cecc,stroke:#b85450,font-weight:bold
+    style P_ALLOW fill:#d5e8d4,stroke:#82b366,font-weight:bold
+    style BLOCKED fill:#f8cecc,stroke:#b85450
+    style AUDIT_BLOCK fill:#e1d5e7,stroke:#9673a6
+    style AUDIT_ALLOW fill:#e1d5e7,stroke:#9673a6
+    style E9 fill:#d5e8d4,stroke:#82b366
+    style NOTE fill:#ffffcc,stroke:#d6b656
