@@ -15,8 +15,12 @@ def findings(
     last: int = typer.Option(20, help="Number of recent findings to show"),
 ):
     """Show recent security findings from the LLM reviewer."""
-    console.print("[yellow]Security findings are currently logged to the safeclaw.llm.security logger.[/yellow]")
-    console.print("Use log aggregation to review findings, or check the API: GET /api/v1/llm/findings")
+    console.print(
+        "[yellow]Security findings are currently logged to the safeclaw.llm.security logger.[/yellow]"
+    )
+    console.print(
+        "Use log aggregation to review findings, or check the API: GET /api/v1/llm/findings"
+    )
 
 
 @llm_app.command("suggestions")

@@ -22,7 +22,13 @@ from safeclaw.api.models import (
     ToolCallRequest,
     ToolResultRequest,
 )
-from safeclaw.engine.core import AgentStartEvent, LlmIOEvent, MessageEvent, ToolCallEvent, ToolResultEvent
+from safeclaw.engine.core import (
+    AgentStartEvent,
+    LlmIOEvent,
+    MessageEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
 
 logger = logging.getLogger("safeclaw.api")
 
@@ -35,13 +41,14 @@ async def require_admin(request: Request):
     When auth is disabled (local mode), scope is None and check passes
     intentionally — all users are treated as admin in local dev.
     """
-    scope = getattr(request.state, 'api_key_scope', None)
-    if scope is not None and 'admin' not in scope:
+    scope = getattr(request.state, "api_key_scope", None)
+    if scope is not None and "admin" not in scope:
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
 def _get_engine():
     from safeclaw.main import get_engine
+
     return get_engine()
 
 
@@ -177,6 +184,7 @@ async def reload_ontologies():
 async def audit_statistics(limit: int = Query(100, ge=1, le=1000)):
     """Get aggregate statistics from recent audit records."""
     from safeclaw.audit.reporter import AuditReporter
+
     engine = _get_engine()
     reporter = AuditReporter(engine.audit)
     records = engine.audit.get_recent_records(limit)
@@ -191,10 +199,13 @@ async def audit_report(
     """Generate a session audit report in markdown, JSON, or CSV format."""
     from fastapi.responses import PlainTextResponse
     from safeclaw.audit.reporter import AuditReporter
+
     engine = _get_engine()
     reporter = AuditReporter(engine.audit)
     content = reporter.generate_session_report(session_id, format=fmt)
-    content_type = "text/csv" if fmt == "csv" else "application/json" if fmt == "json" else "text/markdown"
+    content_type = (
+        "text/csv" if fmt == "csv" else "application/json" if fmt == "json" else "text/markdown"
+    )
     return PlainTextResponse(content, media_type=content_type)
 
 
@@ -203,6 +214,7 @@ async def compliance_report(limit: int = Query(100, ge=1, le=1000)):
     """Generate a compliance report from recent audit records."""
     from fastapi.responses import PlainTextResponse
     from safeclaw.audit.reporter import AuditReporter
+
     engine = _get_engine()
     reporter = AuditReporter(engine.audit)
     records = engine.audit.get_recent_records(limit)
@@ -214,6 +226,7 @@ async def compliance_report(limit: int = Query(100, ge=1, le=1000)):
 async def ontology_graph():
     """Get D3-compatible graph of the knowledge graph."""
     from safeclaw.engine.graph_builder import GraphBuilder
+
     engine = _get_engine()
     builder = GraphBuilder(engine.kg)
     return builder.build_graph()
@@ -223,12 +236,15 @@ async def ontology_graph():
 async def ontology_search(q: str = Query(..., max_length=200)):
     """Fuzzy search for ontology nodes by name or label."""
     from safeclaw.engine.graph_builder import GraphBuilder
+
     engine = _get_engine()
     builder = GraphBuilder(engine.kg)
     return {"results": builder.search_nodes(q)}
 
 
-@router.post("/agents/register", response_model=AgentRegisterResponse, dependencies=[Depends(require_admin)])
+@router.post(
+    "/agents/register", response_model=AgentRegisterResponse, dependencies=[Depends(require_admin)]
+)
 async def register_agent(request: AgentRegisterRequest) -> AgentRegisterResponse:
     engine = _get_engine()
     token = engine.agent_registry.register_agent(
@@ -262,13 +278,19 @@ async def revive_agent(agent_id: str):
 async def list_agents():
     engine = _get_engine()
     agents = engine.agent_registry.list_agents()
-    return {"agents": [
-        {"agentId": a.agent_id, "role": a.role, "parentId": a.parent_id, "killed": a.killed}
-        for a in agents
-    ]}
+    return {
+        "agents": [
+            {"agentId": a.agent_id, "role": a.role, "parentId": a.parent_id, "killed": a.killed}
+            for a in agents
+        ]
+    }
 
 
-@router.post("/agents/{agent_id}/temp-grant", response_model=TempGrantResponse, dependencies=[Depends(require_admin)])
+@router.post(
+    "/agents/{agent_id}/temp-grant",
+    response_model=TempGrantResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def grant_temp_permission(agent_id: str, request: TempGrantRequest) -> TempGrantResponse:
     from datetime import datetime, timezone, timedelta
 
@@ -316,7 +338,9 @@ async def complete_task(task_id: str):
 async def compile_policy(request: PolicyCompileRequest) -> PolicyCompileResponse:
     engine = _get_engine()
     if not hasattr(engine, "llm_client") or engine.llm_client is None:
-        raise HTTPException(status_code=503, detail="LLM not configured (set SAFECLAW_MISTRAL_API_KEY)")
+        raise HTTPException(
+            status_code=503, detail="LLM not configured (set SAFECLAW_MISTRAL_API_KEY)"
+        )
 
     from safeclaw.llm.policy_compiler import PolicyCompiler
 
@@ -336,7 +360,9 @@ async def compile_policy(request: PolicyCompileRequest) -> PolicyCompileResponse
 async def explain_decision(audit_id: str):
     engine = _get_engine()
     if not hasattr(engine, "explainer") or engine.explainer is None:
-        raise HTTPException(status_code=503, detail="LLM not configured (set SAFECLAW_MISTRAL_API_KEY)")
+        raise HTTPException(
+            status_code=503, detail="LLM not configured (set SAFECLAW_MISTRAL_API_KEY)"
+        )
 
     # Try to find the audit record
     records = engine.audit.get_recent_records(limit=200)

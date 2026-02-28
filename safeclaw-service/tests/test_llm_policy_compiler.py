@@ -23,12 +23,12 @@ def kg():
     return kg
 
 
-VALID_TURTLE = '''\
+VALID_TURTLE = """\
 sp:NoProdDeploy a sp:Prohibition, sp:CommandConstraint ;
     sp:forbiddenCommandPattern "deploy.*production" ;
     sp:reason "Deploying to production is forbidden without approval" ;
     rdfs:label "No production deploy" .
-'''
+"""
 
 
 @pytest.mark.asyncio
@@ -66,11 +66,11 @@ async def test_compile_missing_reason(mock_llm_client, kg):
     """compile() flags policies without sp:reason."""
     from safeclaw.llm.policy_compiler import PolicyCompiler
 
-    no_reason_turtle = '''\
+    no_reason_turtle = """\
 sp:BadPolicy a sp:Prohibition, sp:CommandConstraint ;
     sp:forbiddenCommandPattern "bad" ;
     rdfs:label "Bad policy" .
-'''
+"""
     mock_llm_client.chat.return_value = no_reason_turtle
 
     compiler = PolicyCompiler(mock_llm_client, kg)

@@ -1,25 +1,35 @@
 """Tests for the Mistral client wrapper."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from safeclaw.config import SafeClawConfig
 
 
 def test_create_client_returns_wrapper():
     """create_client returns a SafeClawLLMClient with correct config."""
-    from safeclaw.llm.client import create_client
-    config = SafeClawConfig(mistral_api_key="test-key-123")
-    client = create_client(config)
-    assert client is not None
-    assert client.model == "mistral-small-latest"
-    assert client.model_large == "mistral-large-latest"
-    assert client.timeout_ms == 3000
+    import sys
+
+    mock_mistralai = MagicMock()
+    sys.modules["mistralai"] = mock_mistralai
+    try:
+        # Force re-import after patching
+        from safeclaw.llm.client import create_client
+
+        config = SafeClawConfig(mistral_api_key="test-key-123")
+        client = create_client(config)
+        assert client is not None
+        assert client.model == "mistral-small-latest"
+        assert client.model_large == "mistral-large-latest"
+        assert client.timeout_ms == 3000
+    finally:
+        del sys.modules["mistralai"]
 
 
 def test_create_client_no_key_returns_none():
     """create_client returns None when no API key is configured."""
     from safeclaw.llm.client import create_client
+
     config = SafeClawConfig(mistral_api_key="")
     client = create_client(config)
     assert client is None
@@ -29,6 +39,7 @@ def test_create_client_no_key_returns_none():
 async def test_chat_returns_content():
     """chat() calls Mistral and returns the text content."""
     from safeclaw.llm.client import SafeClawLLMClient
+
     mock_mistral = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
@@ -49,6 +60,7 @@ async def test_chat_returns_content():
 async def test_chat_timeout_returns_none():
     """chat() returns None on timeout."""
     from safeclaw.llm.client import SafeClawLLMClient
+
     mock_mistral = MagicMock()
     mock_mistral.chat.complete_async = AsyncMock(side_effect=Exception("timeout"))
     client = SafeClawLLMClient(
@@ -65,6 +77,7 @@ async def test_chat_timeout_returns_none():
 async def test_chat_json_parses_response():
     """chat_json() parses JSON from LLM response."""
     from safeclaw.llm.client import SafeClawLLMClient
+
     mock_mistral = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
@@ -84,6 +97,7 @@ async def test_chat_json_parses_response():
 async def test_chat_json_invalid_json_returns_none():
     """chat_json() returns None when LLM response is not valid JSON."""
     from safeclaw.llm.client import SafeClawLLMClient
+
     mock_mistral = MagicMock()
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]

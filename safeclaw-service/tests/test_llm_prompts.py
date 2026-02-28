@@ -2,8 +2,6 @@
 
 from safeclaw.llm.prompts import (
     SECURITY_REVIEW_SYSTEM,
-    CLASSIFICATION_OBSERVER_SYSTEM,
-    DECISION_EXPLAINER_SYSTEM,
     POLICY_COMPILER_SYSTEM,
     build_security_review_user_prompt,
     build_classification_observer_user_prompt,

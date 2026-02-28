@@ -8,7 +8,13 @@ console = Console()
 
 
 def _escape_turtle(s: str) -> str:
-    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+    return (
+        s.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
 
 
 @policy_app.command("list")
@@ -46,7 +52,9 @@ def list_policies():
 @policy_app.command("add")
 def add_policy(
     name: str = typer.Argument(help="Policy name (e.g., NoStagingDeploy)"),
-    policy_type: str = typer.Option("prohibition", "--type", "-t", help="Policy type: prohibition, obligation, permission"),
+    policy_type: str = typer.Option(
+        "prohibition", "--type", "-t", help="Policy type: prohibition, obligation, permission"
+    ),
     reason: str = typer.Option(..., "--reason", "-r", help="Why this policy exists"),
     path_pattern: str = typer.Option(None, "--path-pattern", help="Forbidden file path regex"),
     command_pattern: str = typer.Option(None, "--command-pattern", help="Forbidden command regex"),
@@ -73,8 +81,11 @@ def add_policy(
 
     # Validate name is safe for use as a Turtle IRI local name (R3-41)
     import re as _re
-    if not _re.fullmatch(r'[a-zA-Z_][a-zA-Z0-9_-]*', name):
-        console.print(f"[red]Invalid policy name '{name}': must match [a-zA-Z_][a-zA-Z0-9_-]*[/red]")
+
+    if not _re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]*", name):
+        console.print(
+            f"[red]Invalid policy name '{name}': must match [a-zA-Z_][a-zA-Z0-9_-]*[/red]"
+        )
         raise typer.Exit(1)
 
     # Build Turtle snippet
@@ -96,7 +107,9 @@ def add_policy(
         f.write(f"\n# Added via CLI\n{turtle_block}")
 
     console.print(f"[green]Policy '{name}' added successfully[/green]")
-    console.print("[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]")
+    console.print(
+        "[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]"
+    )
 
 
 @policy_app.command("remove")
@@ -122,6 +135,7 @@ def remove_policy(
 
     # Comment out the policy block (find from sp:Name to the next period+newline)
     import re
+
     pattern = re.compile(
         rf"(^sp:{re.escape(name)}\s[^\n]*(?:\n[ \t]+[^\n]*)*\.)\s*$",
         re.MULTILINE,
@@ -137,7 +151,9 @@ def remove_policy(
 
     policy_file.write_text(new_content)
     console.print(f"[green]Policy '{name}' removed (commented out)[/green]")
-    console.print("[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]")
+    console.print(
+        "[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]"
+    )
 
 
 @policy_app.command("add-nl")
@@ -152,7 +168,9 @@ def add_nl(
     config = SafeClawConfig()
     client = create_client(config)
     if client is None:
-        console.print("[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]")
+        console.print(
+            "[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]"
+        )
         raise typer.Exit(1)
 
     from safeclaw.engine.knowledge_graph import KnowledgeGraph
@@ -179,6 +197,8 @@ def add_nl(
         with open(policy_file, "a") as f:
             f.write(f"\n# Added via NL compiler: {description}\n{result.turtle}\n")
         console.print("[green]Policy applied successfully[/green]")
-        console.print("[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]")
+        console.print(
+            "[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]"
+        )
     else:
         console.print("[yellow]Policy not applied[/yellow]")

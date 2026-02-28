@@ -34,9 +34,11 @@ def engine_with_llm(tmp_path):
         mistral_api_key="test-key",
     )
     mock_client = MagicMock()
-    with patch("safeclaw.llm.client.create_client", return_value=mock_client) as mock_create:
+    with patch("safeclaw.llm.client.create_client", return_value=mock_client):
         # We need to patch where create_client is looked up by full_engine
-        with patch("safeclaw.engine.full_engine.create_client", return_value=mock_client, create=True):
+        with patch(
+            "safeclaw.engine.full_engine.create_client", return_value=mock_client, create=True
+        ):
             engine = FullEngine(config)
     return engine
 

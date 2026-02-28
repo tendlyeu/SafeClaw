@@ -38,9 +38,7 @@ async def test_observe_default_classification(mock_llm_client, tmp_path):
         tool_name="http_client",
         params={"url": "https://api.example.com"},
     )
-    suggestion = await observer.observe(
-        "http_client", {"url": "https://api.example.com"}, action
-    )
+    suggestion = await observer.observe("http_client", {"url": "https://api.example.com"}, action)
     assert suggestion is not None
     assert suggestion.suggested_class == "NetworkRequest"
     assert suggestion.suggested_risk == "HighRisk"

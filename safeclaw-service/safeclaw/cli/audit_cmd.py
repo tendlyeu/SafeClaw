@@ -68,7 +68,9 @@ def show(
 @audit_app.command("report")
 def report(
     session: str = typer.Argument(help="Session ID to generate report for"),
-    format: str = typer.Option("markdown", "--format", "-f", help="Output format: markdown, json, csv"),
+    format: str = typer.Option(
+        "markdown", "--format", "-f", help="Output format: markdown, json, csv"
+    ),
     output: str = typer.Option(None, "--output", "-o", help="Output file path"),
 ):
     """Generate an audit report for a session."""
@@ -157,7 +159,9 @@ def explain(
     config = SafeClawConfig()
     client = create_client(config)
     if client is None:
-        console.print("[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]")
+        console.print(
+            "[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]"
+        )
         raise typer.Exit(1)
 
     audit_logger = AuditLogger(config.get_audit_dir())

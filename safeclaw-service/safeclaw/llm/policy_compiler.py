@@ -117,9 +117,7 @@ class PolicyCompiler:
         }
         for s, _, _ in g:
             s_str = str(s)
-            if s_str.startswith("http://") and not any(
-                s_str.startswith(ns) for ns in valid_ns
-            ):
+            if s_str.startswith("http://") and not any(s_str.startswith(ns) for ns in valid_ns):
                 errors.append(f"Unknown namespace in subject: {s_str}")
 
         return errors

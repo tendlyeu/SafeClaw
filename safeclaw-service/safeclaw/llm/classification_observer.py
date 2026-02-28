@@ -62,9 +62,7 @@ class ClassificationObserver:
 
     def _parse_and_save(self, data, tool_name, params, symbolic_result):
         try:
-            summary = ", ".join(
-                f"{k}={str(v)[:50]}" for k, v in list(params.items())[:5]
-            )
+            summary = ", ".join(f"{k}={str(v)[:50]}" for k, v in list(params.items())[:5])
             suggestion = ClassificationSuggestion(
                 tool_name=tool_name,
                 params_summary=summary,

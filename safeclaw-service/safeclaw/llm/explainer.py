@@ -50,13 +50,11 @@ class DecisionExplainer:
         for r in records:
             reason = self._extract_reason(r)
             summary_parts.append(
-                f"- {r.action.tool_name} ({r.action.ontology_class}): "
-                f"{r.decision} — {reason}"
+                f"- {r.action.tool_name} ({r.action.ontology_class}): {r.decision} — {reason}"
             )
 
-        user_prompt = (
-            "Summarize these governance decisions from one session:\n\n"
-            + "\n".join(summary_parts)
+        user_prompt = "Summarize these governance decisions from one session:\n\n" + "\n".join(
+            summary_parts
         )
 
         result = await self.client.chat(
