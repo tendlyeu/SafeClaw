@@ -19,6 +19,8 @@ from fasthtml.common import (
     Tr,
 )
 
+from starlette.responses import Response
+
 from safeclaw.dashboard.components import Page
 
 
@@ -31,7 +33,7 @@ def _mask_key(key: str) -> str:
     return key[:4] + "..." + key[-4:]
 
 
-def register(rt, get_engine):
+def register(rt, get_engine, csrf_field=None, verify_csrf=None):
     @rt("/settings")
     def settings(sess):
         engine = get_engine()
@@ -47,6 +49,8 @@ def register(rt, get_engine):
         status_cls = "text-green" if key_configured else "text-red"
         masked = _mask_key(config.mistral_api_key)
 
+        csrf = csrf_field(sess) if csrf_field else ""
+
         api_key_panel = Div(
             H2("Mistral API Key"),
             Div(
@@ -61,6 +65,7 @@ def register(rt, get_engine):
                     cls="mb-2",
                 ),
                 Form(
+                    csrf,
                     Div(
                         Input(
                             type="password",
@@ -117,6 +122,7 @@ def register(rt, get_engine):
                 cls="mb-2",
             ),
             Form(
+                csrf,
                 Button("Reload Ontologies", type="submit", cls="btn btn-primary"),
                 method="post",
                 action="/settings/reload",
@@ -167,13 +173,21 @@ def register(rt, get_engine):
         )
 
     @rt("/settings/api-key", methods=["post"])
-    def update_api_key(api_key: str, sess):
+    def update_api_key(api_key: str, sess, _csrf: str = ""):
+        if verify_csrf and not verify_csrf(sess, _csrf):
+            return Response("CSRF token invalid", status_code=403)
+        engine = get_engine()
+        engine.config.mistral_api_key = api_key
         os.environ["SAFECLAW_MISTRAL_API_KEY"] = api_key
-        sess["settings_flash"] = "API key updated. Restart the service for changes to take effect."
+        sess["settings_flash"] = (
+            "API key updated (runtime). Restart the service to reinitialise LLM features."
+        )
         return RedirectResponse("/settings", status_code=303)
 
     @rt("/settings/reload", methods=["post"])
-    def reload_ontologies(sess):
+    def reload_ontologies(sess, _csrf: str = ""):
+        if verify_csrf and not verify_csrf(sess, _csrf):
+            return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
         engine.reload()
         sess["settings_flash"] = "Ontologies reloaded successfully."

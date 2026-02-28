@@ -20,7 +20,7 @@ class AuditLogger:
 
     @staticmethod
     def _safe_id(session_id: str) -> str:
-        return re.sub(r'[^a-zA-Z0-9_-]', '_', session_id)
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", session_id)
 
     def _get_session_file(self, session_id: str) -> Path:
         today = date.today().isoformat()
@@ -77,6 +77,33 @@ class AuditLogger:
                             except Exception as e:
                                 logger.warning(f"Skipping malformed audit record: {e}")
         return records
+
+    def get_record_by_id(self, record_id: str) -> DecisionRecord | None:
+        """Look up a single record by its ID across all session files."""
+        if not self.audit_dir.exists():
+            return None
+        for day_dir in sorted(self.audit_dir.iterdir(), reverse=True):
+            if not day_dir.is_dir():
+                continue
+            try:
+                date.fromisoformat(day_dir.name)
+            except ValueError:
+                continue
+            for session_file in day_dir.glob("session-*.jsonl"):
+                with open(session_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if f'"id":"{record_id}"' not in line and f'"id": "{record_id}"' not in line:
+                            continue
+                        try:
+                            record = DecisionRecord.model_validate_json(line)
+                            if record.id == record_id:
+                                return record
+                        except Exception as e:
+                            logger.warning(f"Skipping malformed audit record: {e}")
+        return None
 
     def get_recent_records(self, limit: int = 20) -> list[DecisionRecord]:
         """Get the most recent records across all sessions (R3-39).

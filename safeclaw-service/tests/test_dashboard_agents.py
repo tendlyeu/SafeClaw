@@ -69,11 +69,21 @@ def test_agents_page_shows_status(agents_client):
     assert "KILLED" in resp.text or "killed" in resp.text.lower()
 
 
+def _extract_csrf(html: str) -> str:
+    """Extract CSRF token from a hidden input in the page HTML."""
+    import re
+
+    match = re.search(r'value="([^"]+)"\s+name="_csrf"', html)
+    return match.group(1) if match else ""
+
+
 def test_kill_agent(agents_client):
     """POST to kill endpoint kills an agent."""
     client, engine = agents_client
     engine.agent_registry.kill_agent.return_value = True
-    resp = client.post("/agents/agent-1/kill", follow_redirects=False)
+    page = client.get("/agents")
+    csrf = _extract_csrf(page.text)
+    resp = client.post("/agents/agent-1/kill", data={"_csrf": csrf}, follow_redirects=False)
     assert resp.status_code in (200, 303)
     engine.agent_registry.kill_agent.assert_called_with("agent-1")
 
@@ -82,6 +92,8 @@ def test_revive_agent(agents_client):
     """POST to revive endpoint revives an agent."""
     client, engine = agents_client
     engine.agent_registry.revive_agent.return_value = True
-    resp = client.post("/agents/agent-2/revive", follow_redirects=False)
+    page = client.get("/agents")
+    csrf = _extract_csrf(page.text)
+    resp = client.post("/agents/agent-2/revive", data={"_csrf": csrf}, follow_redirects=False)
     assert resp.status_code in (200, 303)
     engine.agent_registry.revive_agent.assert_called_with("agent-2")

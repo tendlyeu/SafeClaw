@@ -134,12 +134,7 @@ def register(rt, get_engine):
     @rt("/audit/detail/{audit_id}")
     def audit_detail(audit_id: str):
         engine = get_engine()
-        records = engine.audit.get_recent_records(limit=200)
-        record = None
-        for r in records:
-            if r.id == audit_id:
-                record = r
-                break
+        record = engine.audit.get_record_by_id(audit_id)
 
         if record is None:
             return Div(P("Record not found.", cls="text-muted"))

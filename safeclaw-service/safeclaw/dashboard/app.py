@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import secrets
 
 from fasthtml.common import (
     Beforeware,
@@ -9,12 +10,12 @@ from fasthtml.common import (
     Div,
     Form,
     H1,
+    Hidden,
     Input,
     P,
     RedirectResponse,
     fast_app,
 )
-
 from safeclaw.dashboard.components import DashboardCSS
 from safeclaw.dashboard.pages import agents, audit, home, settings
 
@@ -24,6 +25,24 @@ def _derive_secret(admin_password: str) -> str:
     if admin_password:
         return hashlib.sha256(f"safeclaw-session-{admin_password}".encode()).hexdigest()
     return os.urandom(32).hex()
+
+
+def get_csrf_token(sess) -> str:
+    """Get or create a CSRF token stored in the session."""
+    if "csrf_token" not in sess:
+        sess["csrf_token"] = secrets.token_hex(32)
+    return sess["csrf_token"]
+
+
+def csrf_field(sess) -> Hidden:
+    """Return a hidden input with the CSRF token."""
+    return Hidden(name="_csrf", value=get_csrf_token(sess))
+
+
+def verify_csrf(sess, token: str) -> bool:
+    """Verify a submitted CSRF token matches the session token."""
+    expected = sess.get("csrf_token", "")
+    return secrets.compare_digest(expected, token) if expected else False
 
 
 def create_dashboard(get_engine_fn):
@@ -67,6 +86,7 @@ def create_dashboard(get_engine_fn):
         pico=False,
         before=bware,
         secret_key=secret,
+        same_site="strict",
     )
 
     # Store engine accessor on app for external use
@@ -120,7 +140,7 @@ def create_dashboard(get_engine_fn):
 
     home.register(rt, _engine)
     audit.register(rt, _engine)
-    agents.register(rt, _engine)
-    settings.register(rt, _engine)
+    agents.register(rt, _engine, csrf_field, verify_csrf)
+    settings.register(rt, _engine, csrf_field, verify_csrf)
 
     return app

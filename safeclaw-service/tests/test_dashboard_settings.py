@@ -54,9 +54,19 @@ def test_settings_shows_config_values(settings_client):
     assert "8420" in resp.text  # port
 
 
+def _extract_csrf(html: str) -> str:
+    """Extract CSRF token from a hidden input in the page HTML."""
+    import re
+
+    match = re.search(r'value="([^"]+)"\s+name="_csrf"', html)
+    return match.group(1) if match else ""
+
+
 def test_reload_ontologies(settings_client):
     """Reload button triggers engine reload."""
     client, engine = settings_client
-    resp = client.post("/settings/reload", follow_redirects=False)
+    page = client.get("/settings")
+    csrf = _extract_csrf(page.text)
+    resp = client.post("/settings/reload", data={"_csrf": csrf}, follow_redirects=False)
     assert resp.status_code in (200, 303)
     engine.reload.assert_called_once()

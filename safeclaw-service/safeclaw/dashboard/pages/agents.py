@@ -16,12 +16,14 @@ from fasthtml.common import (
     Tr,
 )
 
+from starlette.responses import Response
+
 from safeclaw.dashboard.components import AgentStatusBadge, Page
 
 
-def register(rt, get_engine):
+def register(rt, get_engine, csrf_field=None, verify_csrf=None):
     @rt("/agents")
-    def agents_page():
+    def agents_page(sess):
         engine = get_engine()
         agent_list = engine.agent_registry.list_agents()
 
@@ -45,14 +47,17 @@ def register(rt, get_engine):
             )
 
             # Kill or Revive button depending on status
+            csrf = csrf_field(sess) if csrf_field else ""
             if agent.killed:
                 action_form = Form(
+                    csrf,
                     Button("Revive", type="submit", cls="btn btn-primary btn-sm"),
                     method="post",
                     action=f"/agents/{agent.agent_id}/revive",
                 )
             else:
                 action_form = Form(
+                    csrf,
                     Button("Kill", type="submit", cls="btn btn-danger btn-sm"),
                     method="post",
                     action=f"/agents/{agent.agent_id}/kill",
@@ -87,19 +92,17 @@ def register(rt, get_engine):
         return Page("Agents", panel, active="agents")
 
     @rt("/agents/{agent_id}/kill", methods=["post"])
-    def kill_agent(agent_id: str):
+    def kill_agent(agent_id: str, sess, _csrf: str = ""):
+        if verify_csrf and not verify_csrf(sess, _csrf):
+            return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
         engine.agent_registry.kill_agent(agent_id)
         return RedirectResponse("/agents", status_code=303)
 
     @rt("/agents/{agent_id}/revive", methods=["post"])
-    def revive_agent(agent_id: str):
+    def revive_agent(agent_id: str, sess, _csrf: str = ""):
+        if verify_csrf and not verify_csrf(sess, _csrf):
+            return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
         engine.agent_registry.revive_agent(agent_id)
-        return RedirectResponse("/agents", status_code=303)
-
-    @rt("/agents/{agent_id}/grant", methods=["post"])
-    def grant_permission(agent_id: str, permission: str, duration: int = 3600):
-        engine = get_engine()
-        engine.temp_permissions.grant(agent_id, permission, duration_seconds=duration)
         return RedirectResponse("/agents", status_code=303)
