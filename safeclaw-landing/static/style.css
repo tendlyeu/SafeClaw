@@ -417,21 +417,42 @@ a:hover { opacity: 0.8; }
 }
 
 /* ── Quick Start ── */
+.quickstart-heading {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--green);
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+}
+
+.quickstart-heading-alt {
+  margin-top: 40px;
+  color: var(--text-secondary);
+}
+
+.quickstart-desc {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+  max-width: 600px;
+}
+
 .quickstart-terminal {
   background: #111111;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 28px 32px;
-  max-width: 520px;
-  margin: 0 auto;
+  max-width: 620px;
   font-family: var(--font-mono);
   font-size: 0.9rem;
   line-height: 2;
+  margin-bottom: 16px;
 }
 
 .quickstart-terminal .prompt { color: var(--green); }
 .quickstart-terminal .cmd { color: var(--text); }
 .quickstart-terminal .comment { color: #555; }
+.quickstart-terminal .allowed { color: var(--green); }
 
 /* ── Footer ── */
 .footer {

@@ -229,22 +229,60 @@ def QuickStart():
     return Section(
         Div(
             H2("Quick Start", cls="section-title"),
-            P("Clone, install, and run", cls="section-subtitle"),
+            P("Get governed in under a minute", cls="section-subtitle"),
+            # ── SaaS (primary) ──
+            H3("Use the hosted service", cls="quickstart-heading"),
+            P("Install the OpenClaw plugin and point it at our hosted service. No server setup needed.",
+              cls="quickstart-desc"),
             Div(
                 Div(
-                    Span("$ ", cls="prompt"), Span("git clone https://github.com/tendlyeu/SafeClaw.git", cls="cmd"),
+                    Span("$ ", cls="prompt"),
+                    Span("npm install openclaw-safeclaw-plugin", cls="cmd"),
+                ),
+                cls="quickstart-terminal",
+            ),
+            P("Then configure your environment:", cls="quickstart-desc"),
+            Div(
+                Div(
+                    Span("SAFECLAW_SERVICE_URL", cls="cmd"),
+                    Span("=", cls="comment"),
+                    Span("https://api.safeclaw.eu", cls="allowed"),
                 ),
                 Div(
-                    Span("$ ", cls="prompt"), Span("cd SafeClaw/safeclaw-service", cls="cmd"),
+                    Span("SAFECLAW_ENFORCEMENT", cls="cmd"),
+                    Span("=", cls="comment"),
+                    Span("enforce", cls="allowed"),
+                ),
+                cls="quickstart-terminal",
+            ),
+            # ── Self-hosted (secondary) ──
+            H3("Or self-host", cls="quickstart-heading quickstart-heading-alt"),
+            P("Run the SafeClaw engine on your own infrastructure.",
+              cls="quickstart-desc"),
+            Div(
+                Div(
+                    Span("$ ", cls="prompt"),
+                    Span("git clone https://github.com/tendlyeu/SafeClaw.git", cls="cmd"),
                 ),
                 Div(
-                    Span("$ ", cls="prompt"), Span('pip install -e ".[dev]"', cls="cmd"),
+                    Span("$ ", cls="prompt"),
+                    Span("cd SafeClaw/safeclaw-service", cls="cmd"),
                 ),
                 Div(
-                    Span("$ ", cls="prompt"), Span('safeclaw init --user-id yourname', cls="cmd"),
+                    Span("$ ", cls="prompt"),
+                    Span("python -m venv .venv && source .venv/bin/activate", cls="cmd"),
                 ),
                 Div(
-                    Span("$ ", cls="prompt"), Span("safeclaw serve", cls="cmd"),
+                    Span("$ ", cls="prompt"),
+                    Span('pip install -e ".[dev]"', cls="cmd"),
+                ),
+                Div(
+                    Span("$ ", cls="prompt"),
+                    Span("safeclaw init --user-id yourname", cls="cmd"),
+                ),
+                Div(
+                    Span("$ ", cls="prompt"),
+                    Span("safeclaw serve", cls="cmd"),
                 ),
                 Div(
                     Span("# ", cls="comment"),
