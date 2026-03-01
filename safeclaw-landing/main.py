@@ -1436,7 +1436,7 @@ async def health_check(req, sess):
 from datetime import datetime, timezone
 
 from dashboard.keys import KeysContent, KeyTable, generate_api_key, hash_key, NewKeyModal
-from dashboard.onboard import OnboardStep1, OnboardStep2
+from dashboard.onboard import OnboardStep1, OnboardStep2Mistral, OnboardStep3
 
 
 @rt("/dashboard/keys")
@@ -1504,11 +1504,20 @@ def onboard_step1(req, sess, autonomy_level: str = "moderate"):
         autonomy_level = "moderate"
     user.autonomy_level = autonomy_level
     users.update(user)
+    return OnboardStep2Mistral()
+
+
+@rt("/dashboard/onboard/step2")
+def onboard_step2(req, sess, mistral_api_key: str = ""):
+    user = req.scope.get("user")
+    if mistral_api_key.strip():
+        user.mistral_api_key = mistral_api_key.strip()
+        users.update(user)
     # Guard: don't create duplicate keys on re-submit
     existing = api_keys(where="user_id = ? AND label = ? AND is_active = 1",
                         where_args=[user.id, "Default"])
     if existing:
-        return OnboardStep2("(key already generated — check your API Keys page)")
+        return OnboardStep3("(key already generated — check your API Keys page)")
     raw_key, key_id = generate_api_key()
     api_keys.insert(
         user_id=user.id,
@@ -1519,7 +1528,7 @@ def onboard_step1(req, sess, autonomy_level: str = "moderate"):
         created_at=datetime.now(timezone.utc).isoformat(),
         is_active=True,
     )
-    return OnboardStep2(raw_key)
+    return OnboardStep3(raw_key)
 
 
 @rt("/dashboard/onboard/done")
