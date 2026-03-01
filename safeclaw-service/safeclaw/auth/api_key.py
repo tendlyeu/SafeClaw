@@ -115,6 +115,20 @@ class SQLiteAPIKeyManager:
                 "  mistral_api_key TEXT DEFAULT ''"
                 ")"
             )
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS audit_log ("
+                "  id INTEGER PRIMARY KEY,"
+                "  user_id INTEGER,"
+                "  timestamp TEXT,"
+                "  session_id TEXT,"
+                "  tool_name TEXT,"
+                "  params_summary TEXT,"
+                "  decision TEXT,"
+                "  risk_level TEXT,"
+                "  reason TEXT,"
+                "  elapsed_ms REAL"
+                ")"
+            )
         except sqlite3.OperationalError:
             pass  # Read-only — tables will exist once landing container starts
 
@@ -149,6 +163,39 @@ class SQLiteAPIKeyManager:
             created_at=created_at,
             is_active=bool(is_active),
         )
+
+    def is_audit_logging_enabled(self, user_id: str) -> bool:
+        """Check if a user has audit logging enabled. Defaults to True."""
+        import sqlite3
+        try:
+            row = self._conn.execute(
+                "SELECT audit_logging FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return True  # Default: enabled
+        if row is None:
+            return True  # Unknown user: default enabled
+        return bool(row[0])
+
+    def log_audit_decision(self, user_id: str, timestamp: str, session_id: str,
+                           tool_name: str, params_summary: str, decision: str,
+                           risk_level: str, reason: str, elapsed_ms: float) -> None:
+        """Insert an audit decision row if logging is enabled for this user."""
+        import sqlite3
+        if not self.is_audit_logging_enabled(user_id):
+            return
+        try:
+            self._conn.execute(
+                "INSERT INTO audit_log (user_id, timestamp, session_id, tool_name, "
+                "params_summary, decision, risk_level, reason, elapsed_ms) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (int(user_id), timestamp, session_id, tool_name,
+                 params_summary[:500], decision, risk_level, reason, elapsed_ms),
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # DB read-only or table missing — skip silently
 
     def get_user_mistral_key(self, user_id: str) -> str | None:
         """Look up a user's Mistral API key from the shared DB. Returns None if not set."""
