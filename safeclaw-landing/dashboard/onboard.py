@@ -149,29 +149,17 @@ def OnboardStep3(raw_key: str):
             ),
             Divider(),
             Div(
-                P(Strong("Step 2"), " — Connect (choose one option):"),
-                cls="space-y-2",
-            ),
-            Div(
-                P(Strong("Option A — CLI (recommended):")),
+                P(Strong("Step 2"), " — Connect with your key:"),
                 Pre(Code(f"safeclaw connect {raw_key}")),
-                P("Saves your key to ", Code("~/.safeclaw/config.json"),
-                  " with secure file permissions.",
+                P("This saves your key to ", Code("~/.safeclaw/config.json"),
+                  " and automatically registers the SafeClaw plugin with OpenClaw.",
                   cls=TextPresets.muted_sm),
                 cls="space-y-2",
             ),
+            Divider(),
             Div(
-                P(Strong("Option B — Manual config file:")),
-                Pre(Code(
-                    f'mkdir -p ~/.safeclaw && cat > ~/.safeclaw/config.json << \'EOF\'\n'
-                    f'{{\n'
-                    f'  "remote": {{\n'
-                    f'    "apiKey": "{raw_key}",\n'
-                    f'    "serviceUrl": "https://api.safeclaw.eu/api/v1"\n'
-                    f'  }}\n'
-                    f'}}\n'
-                    f'EOF'
-                )),
+                P(Strong("Step 3"), " — Restart OpenClaw to activate:"),
+                Pre(Code("safeclaw restart-openclaw")),
                 cls="space-y-2",
             ),
             cls="space-y-4",

@@ -64,9 +64,11 @@ def GettingStartedCard():
             P(Strong("1."), " Create an API key in the ", A("Keys", href="/dashboard/keys"), " tab"),
             P(Strong("2."), " Install the plugin:"),
             Pre(Code("npm install -g openclaw-safeclaw-plugin")),
-            P(Strong("3."), " Connect your plugin:"),
+            P(Strong("3."), " Connect (saves key + registers with OpenClaw):"),
             Pre(Code("safeclaw connect sc_your_key_here")),
-            P("After connecting, every tool call your AI agent makes will be "
+            P(Strong("4."), " Restart OpenClaw to activate:"),
+            Pre(Code("safeclaw restart-openclaw")),
+            P("After restarting, every tool call your AI agent makes will be "
               "validated against your governance rules before execution.",
               cls=TextPresets.muted_sm),
             cls="space-y-2",

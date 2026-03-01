@@ -105,7 +105,7 @@ async function checkConnection(): Promise<void> {
 }
 
 export default {
-  id: 'openclaw-safeclaw-plugin',
+  id: 'safeclaw',
   name: 'SafeClaw Neurosymbolic Governance',
   version: '0.1.2',
 
