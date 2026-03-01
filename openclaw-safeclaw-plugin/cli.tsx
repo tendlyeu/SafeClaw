@@ -2,38 +2,89 @@
 import React from 'react';
 import { render } from 'ink';
 import { execSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, copyFileSync, lstatSync, unlinkSync, rmSync } from 'fs';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { fileURLToPath } from 'url';
 import App from './tui/App.js';
 
-function registerWithOpenClaw(): boolean {
-  // Use OpenClaw's native plugin install mechanism
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function readJson(path: string): Record<string, unknown> {
   try {
-    execSync('openclaw plugins install openclaw-safeclaw-plugin', {
-      encoding: 'utf-8',
-      timeout: 30000,
-      stdio: 'pipe',
-    });
-    return true;
+    return JSON.parse(readFileSync(path, 'utf-8'));
   } catch {
-    // Fallback: try linking from the global npm install location
-    try {
-      const globalRoot = execSync('npm root -g', { encoding: 'utf-8', timeout: 5000 }).trim();
-      const pluginPath = join(globalRoot, 'openclaw-safeclaw-plugin');
-      if (existsSync(pluginPath)) {
-        execSync(`openclaw plugins install --link "${pluginPath}"`, {
-          encoding: 'utf-8',
-          timeout: 15000,
-          stdio: 'pipe',
-        });
-        return true;
-      }
-    } catch {
-      // Both methods failed
-    }
+    return {};
   }
-  return false;
+}
+
+function registerWithOpenClaw(): boolean {
+  const pluginRoot = join(__dirname, '..');  // one level up from dist/
+  const extensionDir = join(homedir(), '.openclaw', 'extensions', 'safeclaw');
+  const entryPoint = join(pluginRoot, 'dist', 'index.js');
+  const manifestSrc = join(pluginRoot, 'openclaw.plugin.json');
+
+  // Clean up stale symlink if it exists
+  try {
+    if (existsSync(extensionDir)) {
+      const stat = lstatSync(extensionDir);
+      if (stat.isSymbolicLink()) {
+        unlinkSync(extensionDir);
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Create extension directory with manifest + loader that imports from npm install
+  try {
+    mkdirSync(extensionDir, { recursive: true });
+
+    // Copy the manifest
+    if (existsSync(manifestSrc)) {
+      copyFileSync(manifestSrc, join(extensionDir, 'openclaw.plugin.json'));
+    } else {
+      // Write manifest inline if source file missing
+      writeFileSync(join(extensionDir, 'openclaw.plugin.json'), JSON.stringify({
+        id: 'safeclaw',
+        name: 'SafeClaw Neurosymbolic Governance',
+        configSchema: { type: 'object', additionalProperties: false, properties: {} },
+      }, null, 2) + '\n');
+    }
+
+    // Create index.js that loads from the actual npm install location
+    writeFileSync(join(extensionDir, 'index.js'),
+      `export { default } from '${entryPoint}';\n`);
+  } catch (e) {
+    console.warn(`Warning: Could not create extension: ${e instanceof Error ? e.message : e}`);
+    return false;
+  }
+
+  // Enable plugin in ~/.openclaw/openclaw.json
+  const openclawConfigPath = join(homedir(), '.openclaw', 'openclaw.json');
+  const ocConfig = readJson(openclawConfigPath);
+
+  if (!ocConfig.plugins || typeof ocConfig.plugins !== 'object') {
+    ocConfig.plugins = {};
+  }
+  const plugins = ocConfig.plugins as Record<string, unknown>;
+  if (!plugins.entries || typeof plugins.entries !== 'object') {
+    plugins.entries = {};
+  }
+  const entries = plugins.entries as Record<string, unknown>;
+
+  if (!entries.safeclaw || typeof entries.safeclaw !== 'object') {
+    entries.safeclaw = { enabled: true };
+  } else {
+    (entries.safeclaw as Record<string, unknown>).enabled = true;
+  }
+
+  try {
+    writeFileSync(openclawConfigPath, JSON.stringify(ocConfig, null, 2) + '\n');
+  } catch (e) {
+    console.warn(`Warning: Could not update OpenClaw config: ${e instanceof Error ? e.message : e}`);
+    return false;
+  }
+
+  return true;
 }
 
 const args = process.argv.slice(2);
@@ -185,21 +236,41 @@ if (command === 'connect') {
     allOk = false;
   }
 
-  // 5. Plugin registered with OpenClaw
-  try {
-    const pluginList = execSync('openclaw plugins list', {
-      encoding: 'utf-8',
-      timeout: 10000,
-      stdio: 'pipe',
-    });
-    if (pluginList.includes('safeclaw')) {
-      console.log('[ok] Plugin: registered with OpenClaw');
+  // 5. Plugin extension files exist
+  const extensionDir = join(homedir(), '.openclaw', 'extensions', 'safeclaw');
+  const hasManifest = existsSync(join(extensionDir, 'openclaw.plugin.json'));
+  const hasEntry = existsSync(join(extensionDir, 'index.js'));
+  if (hasManifest && hasEntry) {
+    console.log('[ok] Plugin files: ' + extensionDir);
+  } else if (existsSync(extensionDir)) {
+    const stat = lstatSync(extensionDir);
+    if (stat.isSymbolicLink()) {
+      console.log('[!!] Plugin: stale symlink (run safeclaw setup to fix)');
     } else {
-      console.log('[!!] Plugin: not registered with OpenClaw. Run: safeclaw setup');
+      console.log('[!!] Plugin: missing files in ' + extensionDir);
+    }
+    allOk = false;
+  } else {
+    console.log('[!!] Plugin: not installed. Run: safeclaw setup');
+    allOk = false;
+  }
+
+  // 6. Plugin enabled in OpenClaw config
+  const ocConfigPath = join(homedir(), '.openclaw', 'openclaw.json');
+  if (existsSync(ocConfigPath)) {
+    const ocConfig = readJson(ocConfigPath);
+    const plugins = ocConfig.plugins as Record<string, unknown> | undefined;
+    const entries = plugins?.entries as Record<string, unknown> | undefined;
+    const safeclaw = entries?.safeclaw as Record<string, unknown> | undefined;
+    if (safeclaw?.enabled) {
+      console.log('[ok] OpenClaw config: safeclaw enabled');
+    } else {
+      console.log('[!!] OpenClaw config: safeclaw not enabled');
       allOk = false;
     }
-  } catch {
-    console.log('[??] Plugin: could not check OpenClaw plugin list');
+  } else {
+    console.log('[!!] OpenClaw config: not found');
+    allOk = false;
   }
 
   // Summary
