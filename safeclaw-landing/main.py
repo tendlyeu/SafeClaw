@@ -1633,18 +1633,29 @@ async def dashboard_prefs(req, sess):
     except Exception:
         pass  # Use defaults
 
+    # Mask Mistral key for display: show last 4 chars only
+    masked_key = ""
+    if user.mistral_api_key:
+        masked_key = "••••" + user.mistral_api_key[-4:]
+
     return (
         Title("Preferences — SafeClaw"),
         *MUITheme.blue.headers(),
-        DashboardLayout("Preferences", *PrefsContent(prefs), user=user, active="prefs"),
+        DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key), user=user, active="prefs"),
     )
 
 
 @rt("/dashboard/prefs/save")
 async def save_prefs(req, sess, autonomy_level: str = "moderate",
                      confirm_before_delete: bool = True, confirm_before_push: bool = True,
-                     confirm_before_send: bool = True, max_files_per_commit: int = 10):
+                     confirm_before_send: bool = True, max_files_per_commit: int = 10,
+                     mistral_api_key: str = ""):
     user = req.scope.get("user")
+
+    # Save Mistral key if changed (not the masked placeholder)
+    if mistral_api_key and not mistral_api_key.startswith("••••"):
+        user.mistral_api_key = mistral_api_key.strip()
+        users.update(user)
     service_url = sess.get("service_url", "http://localhost:8420")
     headers = {"Content-Type": "application/json"}
     admin_pw = sess.get("admin_password", "")
