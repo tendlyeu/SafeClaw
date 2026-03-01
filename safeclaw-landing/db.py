@@ -26,6 +26,7 @@ class User:
     self_hosted: bool = False
     service_url: str = ""
     admin_password: str = ""
+    audit_logging: bool = True
 
 
 class APIKey:
@@ -41,6 +42,22 @@ class APIKey:
 
 users = db.create(User, pk="id", transform=True)
 api_keys = db.create(APIKey, pk="id", transform=True)
+
+
+class AuditLog:
+    id: int
+    user_id: int
+    timestamp: str
+    session_id: str
+    tool_name: str
+    params_summary: str
+    decision: str
+    risk_level: str
+    reason: str
+    elapsed_ms: float
+
+
+audit_log = db.create(AuditLog, pk="id", transform=True)
 
 
 def upsert_user(github_id: int, github_login: str, name: str, avatar_url: str, email: str = "") -> User:
