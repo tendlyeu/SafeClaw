@@ -4,6 +4,7 @@ from pathlib import Path
 
 import typer
 
+from safeclaw.cli.connect_cmd import connect_cmd
 from safeclaw.cli.serve import serve_cmd
 from safeclaw.cli.audit_cmd import audit_app
 from safeclaw.cli.llm_cmd import llm_app
@@ -13,6 +14,7 @@ from safeclaw.cli.status_cmd import status_app
 
 app = typer.Typer(name="safeclaw", help="SafeClaw - Neurosymbolic governance for AI agents")
 
+app.command("connect")(connect_cmd)
 app.command("serve")(serve_cmd)
 app.add_typer(audit_app, name="audit")
 app.add_typer(llm_app, name="llm")

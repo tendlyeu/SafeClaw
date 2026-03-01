@@ -3,7 +3,7 @@
 from monsterui.all import *
 
 
-def PrefsForm(prefs: dict | None = None):
+def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
     """Preference editing form."""
     if prefs is None:
         prefs = {
@@ -51,6 +51,17 @@ def PrefsForm(prefs: dict | None = None):
             min="1",
             max="100",
         ),
+        H4("LLM Integration"),
+        P("SafeClaw uses Mistral for security review, smart classification, "
+          "and plain-English decision explanations.",
+          cls=TextPresets.muted_sm),
+        LabelInput(
+            "Mistral API Key",
+            id="mistral_api_key",
+            type="password",
+            value=mistral_api_key,
+            placeholder="Enter your Mistral API key",
+        ),
         Button("Save Preferences", cls=ButtonT.primary, type="submit"),
         hx_post="/dashboard/prefs/save",
         hx_target="#prefs-status",
@@ -59,7 +70,7 @@ def PrefsForm(prefs: dict | None = None):
     )
 
 
-def PrefsContent(prefs: dict | None = None):
+def PrefsContent(prefs: dict | None = None, mistral_api_key: str = ""):
     """Full preferences page content."""
     return (
         Card(
@@ -68,7 +79,7 @@ def PrefsContent(prefs: dict | None = None):
                 "These settings control how strictly SafeClaw governs your agent's actions.",
                 cls=TextPresets.muted_sm,
             ),
-            PrefsForm(prefs),
+            PrefsForm(prefs, mistral_api_key=mistral_api_key),
         ),
         Div(id="prefs-status"),
     )
