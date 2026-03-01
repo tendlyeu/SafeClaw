@@ -1,38 +1,33 @@
 # openclaw-safeclaw-plugin
 
-Neurosymbolic governance plugin for OpenClaw AI agents. Validates every tool call, message, and action against OWL ontologies and SHACL constraints before execution.
+Neurosymbolic governance plugin for OpenClaw AI agents. Validates every tool call, message, and action against safety constraints before execution.
 
 ## Install
 
 ```bash
-openclaw plugins install openclaw-safeclaw-plugin
+npm install -g openclaw-safeclaw-plugin
 ```
 
 ## Quick Start
 
-Install and go — the plugin connects to SafeClaw's hosted service by default:
+1. Sign up at [safeclaw.eu](https://safeclaw.eu) and create an API key
+2. Install and connect:
 
 ```bash
-openclaw plugins install openclaw-safeclaw-plugin
+npm install -g openclaw-safeclaw-plugin
+safeclaw connect <your-api-key>
+safeclaw restart-openclaw
 ```
 
-No configuration needed. The default service URL is `https://api.safeclaw.eu/api/v1`.
+That's it. Every tool call your AI agent makes is now governed by SafeClaw.
 
-## Self-Hosted
+## Commands
 
-To run your own SafeClaw service, override the URL:
-
-```bash
-export SAFECLAW_URL="http://localhost:8420/api/v1"
-
-# Start the SafeClaw service
-git clone https://github.com/tendlyeu/SafeClaw.git
-cd SafeClaw/safeclaw-service
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-safeclaw init --user-id yourname
-safeclaw serve
-# Engine ready on http://localhost:8420
+```
+safeclaw connect <api-key>  Connect to SafeClaw and register with OpenClaw
+safeclaw setup              Register plugin with OpenClaw (no key needed)
+safeclaw tui                Open the interactive settings TUI
+safeclaw restart-openclaw   Restart the OpenClaw daemon
 ```
 
 ## What It Does
@@ -60,11 +55,11 @@ Set via environment variables or `~/.safeclaw/config.json`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SAFECLAW_URL` | `https://api.safeclaw.eu/api/v1` | SafeClaw service URL |
-| `SAFECLAW_API_KEY` | *(empty)* | API key for cloud mode |
+| `SAFECLAW_API_KEY` | *(empty)* | API key (set automatically by `safeclaw connect`) |
 | `SAFECLAW_TIMEOUT_MS` | `500` | Request timeout in ms |
 | `SAFECLAW_ENABLED` | `true` | Set `false` to disable |
 | `SAFECLAW_ENFORCEMENT` | `enforce` | `enforce`, `warn-only`, `audit-only`, or `disabled` |
-| `SAFECLAW_FAIL_MODE` | `closed` | `open` (allow on failure) or `closed` (block on failure) |
+| `SAFECLAW_FAIL_MODE` | `open` | `open` (allow on failure) or `closed` (block on failure) |
 
 ## Enforcement Modes
 
