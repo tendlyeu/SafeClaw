@@ -11,9 +11,9 @@ def db_with_user(tmp_path):
     """Create a writable SQLite DB with a user who has audit_logging enabled."""
     db_path = str(tmp_path / "test.db")
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, mistral_api_key TEXT DEFAULT '', audit_logging INTEGER DEFAULT 1)")
-    conn.execute("INSERT INTO users (id, audit_logging) VALUES (1, 1)")
-    conn.execute("CREATE TABLE api_keys (id INTEGER PRIMARY KEY, user_id INTEGER, key_id TEXT, key_hash TEXT, label TEXT, scope TEXT, created_at TEXT, is_active BOOLEAN)")
+    conn.execute("CREATE TABLE user (id INTEGER PRIMARY KEY, mistral_api_key TEXT DEFAULT '', audit_logging INTEGER DEFAULT 1)")
+    conn.execute("INSERT INTO user (id, audit_logging) VALUES (1, 1)")
+    conn.execute("CREATE TABLE api_key (id INTEGER PRIMARY KEY, user_id INTEGER, key_id TEXT, key_hash TEXT, label TEXT, scope TEXT, created_at TEXT, is_active BOOLEAN)")
     conn.execute("CREATE TABLE audit_log (id INTEGER PRIMARY KEY, user_id INTEGER, timestamp TEXT, session_id TEXT, tool_name TEXT, params_summary TEXT, decision TEXT, risk_level TEXT, reason TEXT, elapsed_ms REAL)")
     conn.commit()
     conn.close()
@@ -27,7 +27,7 @@ def test_is_audit_logging_enabled_returns_true(db_with_user):
 
 def test_is_audit_logging_enabled_returns_false(db_with_user):
     conn = sqlite3.connect(db_with_user)
-    conn.execute("UPDATE users SET audit_logging = 0 WHERE id = 1")
+    conn.execute("UPDATE user SET audit_logging = 0 WHERE id = 1")
     conn.commit()
     conn.close()
     mgr = SQLiteAPIKeyManager(db_with_user)
@@ -61,7 +61,7 @@ def test_log_audit_decision_inserts_row(db_with_user):
 
 def test_log_audit_decision_skips_when_disabled(db_with_user):
     conn = sqlite3.connect(db_with_user)
-    conn.execute("UPDATE users SET audit_logging = 0 WHERE id = 1")
+    conn.execute("UPDATE user SET audit_logging = 0 WHERE id = 1")
     conn.commit()
     conn.close()
     mgr = SQLiteAPIKeyManager(db_with_user)

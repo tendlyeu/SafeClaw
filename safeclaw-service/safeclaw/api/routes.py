@@ -226,13 +226,13 @@ async def debug_db():
 
         # Check keys
         try:
-            total = conn.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM api_key").fetchone()[0]
             active = conn.execute(
-                "SELECT COUNT(*) FROM api_keys WHERE is_active = 1"
+                "SELECT COUNT(*) FROM api_key WHERE is_active = 1"
             ).fetchone()[0]
             # Show key_ids (safe — these are just prefixes, not secrets)
             key_ids = conn.execute(
-                "SELECT key_id, is_active, typeof(is_active) FROM api_keys"
+                "SELECT key_id, is_active, typeof(is_active) FROM api_key"
             ).fetchall()
             result["total_keys"] = total
             result["active_keys"] = active

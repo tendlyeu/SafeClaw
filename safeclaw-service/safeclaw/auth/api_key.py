@@ -83,7 +83,7 @@ class APIKeyManager:
 class SQLiteAPIKeyManager:
     """API key manager backed by a shared SQLite database.
 
-    Reads from the same api_keys table that the landing site writes to.
+    Reads from the same api_key table that the landing site writes to.
     Used in SaaS mode when db_path is configured.
     """
 
@@ -103,7 +103,7 @@ class SQLiteAPIKeyManager:
         # If the DB is read-only (owned by another container), skip — landing will create them.
         try:
             self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS api_keys ("
+                "CREATE TABLE IF NOT EXISTS api_key ("
                 "  id INTEGER PRIMARY KEY,"
                 "  user_id INTEGER,"
                 "  key_id TEXT,"
@@ -115,7 +115,7 @@ class SQLiteAPIKeyManager:
                 ")"
             )
             self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS users ("
+                "CREATE TABLE IF NOT EXISTS user ("
                 "  id INTEGER PRIMARY KEY,"
                 "  mistral_api_key TEXT DEFAULT ''"
                 ")"
@@ -159,12 +159,12 @@ class SQLiteAPIKeyManager:
             conn = self._fresh_conn()
             try:
                 # Debug: check what's in the DB
-                total = conn.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0]
+                total = conn.execute("SELECT COUNT(*) FROM api_key").fetchone()[0]
                 active = conn.execute(
-                    "SELECT COUNT(*) FROM api_keys WHERE is_active = 1"
+                    "SELECT COUNT(*) FROM api_key WHERE is_active = 1"
                 ).fetchone()[0]
                 by_id = conn.execute(
-                    "SELECT key_id, is_active, typeof(is_active) FROM api_keys WHERE key_id = ?",
+                    "SELECT key_id, is_active, typeof(is_active) FROM api_key WHERE key_id = ?",
                     (key_id,),
                 ).fetchone()
                 logger.info(
@@ -175,7 +175,7 @@ class SQLiteAPIKeyManager:
 
                 row = conn.execute(
                     "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
-                    "FROM api_keys WHERE key_id = ? AND is_active = 1",
+                    "FROM api_key WHERE key_id = ? AND is_active = 1",
                     (key_id,),
                 ).fetchone()
             finally:
@@ -210,7 +210,7 @@ class SQLiteAPIKeyManager:
             conn = self._fresh_conn()
             try:
                 row = conn.execute(
-                    "SELECT audit_logging FROM users WHERE id = ?",
+                    "SELECT audit_logging FROM user WHERE id = ?",
                     (user_id,),
                 ).fetchone()
             finally:
@@ -248,7 +248,7 @@ class SQLiteAPIKeyManager:
             conn = self._fresh_conn()
             try:
                 row = conn.execute(
-                    "SELECT mistral_api_key FROM users WHERE id = ?",
+                    "SELECT mistral_api_key FROM user WHERE id = ?",
                     (user_id,),
                 ).fetchone()
             finally:

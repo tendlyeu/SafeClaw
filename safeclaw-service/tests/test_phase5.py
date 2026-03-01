@@ -105,7 +105,7 @@ class TestSQLiteAPIKeyManager:
         db_path = tmp_path / "safeclaw.db"
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "CREATE TABLE api_keys ("
+            "CREATE TABLE api_key ("
             "  id INTEGER PRIMARY KEY,"
             "  user_id INTEGER,"
             "  key_id TEXT,"
@@ -120,7 +120,7 @@ class TestSQLiteAPIKeyManager:
         key_id = raw_key[:12]
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
         conn.execute(
-            "INSERT INTO api_keys (user_id, key_id, key_hash, label, scope, created_at, is_active) "
+            "INSERT INTO api_key (user_id, key_id, key_hash, label, scope, created_at, is_active) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (1, key_id, key_hash, "test", "full", "2026-01-01", True),
         )
@@ -143,7 +143,7 @@ class TestSQLiteAPIKeyManager:
         db_path = tmp_path / "safeclaw.db"
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "CREATE TABLE api_keys ("
+            "CREATE TABLE api_key ("
             "  id INTEGER PRIMARY KEY,"
             "  user_id INTEGER,"
             "  key_id TEXT,"
@@ -158,7 +158,7 @@ class TestSQLiteAPIKeyManager:
         key_id = raw_key[:12]
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
         conn.execute(
-            "INSERT INTO api_keys (user_id, key_id, key_hash, label, scope, created_at, is_active) "
+            "INSERT INTO api_key (user_id, key_id, key_hash, label, scope, created_at, is_active) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (1, key_id, key_hash, "test", "full", "2026-01-01", False),
         )
@@ -177,7 +177,7 @@ class TestSQLiteAPIKeyManager:
         db_path = tmp_path / "safeclaw.db"
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "CREATE TABLE api_keys ("
+            "CREATE TABLE api_key ("
             "  id INTEGER PRIMARY KEY,"
             "  user_id INTEGER,"
             "  key_id TEXT,"
@@ -203,7 +203,7 @@ class TestSQLiteAPIKeyManager:
         db_path = tmp_path / "safeclaw.db"
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "CREATE TABLE api_keys ("
+            "CREATE TABLE api_key ("
             "  id INTEGER PRIMARY KEY,"
             "  user_id INTEGER,"
             "  key_id TEXT,"
@@ -215,12 +215,12 @@ class TestSQLiteAPIKeyManager:
             ")"
         )
         conn.execute(
-            "CREATE TABLE users ("
+            "CREATE TABLE user ("
             "  id INTEGER PRIMARY KEY,"
             "  mistral_api_key TEXT DEFAULT ''"
             ")"
         )
-        conn.execute("INSERT INTO users (id, mistral_api_key) VALUES (?, ?)", (42, "mist_test_key"))
+        conn.execute("INSERT INTO user (id, mistral_api_key) VALUES (?, ?)", (42, "mist_test_key"))
         conn.commit()
         conn.close()
 
@@ -236,7 +236,7 @@ class TestSQLiteAPIKeyManager:
         db_path = tmp_path / "safeclaw.db"
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "CREATE TABLE api_keys ("
+            "CREATE TABLE api_key ("
             "  id INTEGER PRIMARY KEY,"
             "  user_id INTEGER,"
             "  key_id TEXT,"
@@ -248,12 +248,12 @@ class TestSQLiteAPIKeyManager:
             ")"
         )
         conn.execute(
-            "CREATE TABLE users ("
+            "CREATE TABLE user ("
             "  id INTEGER PRIMARY KEY,"
             "  mistral_api_key TEXT DEFAULT ''"
             ")"
         )
-        conn.execute("INSERT INTO users (id, mistral_api_key) VALUES (?, ?)", (42, ""))
+        conn.execute("INSERT INTO user (id, mistral_api_key) VALUES (?, ?)", (42, ""))
         conn.commit()
         conn.close()
 
