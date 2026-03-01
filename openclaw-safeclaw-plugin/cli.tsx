@@ -134,7 +134,37 @@ if (command === 'connect') {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
   chmodSync(configPath, 0o600);
 
-  console.log(`Connected! API key saved to ${configPath}`);
+  console.log(`API key saved to ${configPath}`);
+
+  // Validate key via handshake
+  try {
+    const res = await fetch(`${serviceUrl}/handshake`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ pluginVersion: '0.1.3', configHash: '' }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json() as Record<string, unknown>;
+      console.log(`Connected! org=${data.orgId}, scope=${data.scope}`);
+    } else {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json() as Record<string, unknown>;
+        detail = (body.error ?? body.detail ?? detail) as string;
+      } catch { /* ignore */ }
+      console.warn(`Warning: API key saved but handshake failed — ${detail}`);
+      if (res.status === 401) {
+        console.warn('The key may be invalid or revoked. Check https://safeclaw.eu/dashboard');
+      }
+    }
+  } catch {
+    console.warn(`Warning: API key saved but could not reach ${serviceUrl}`);
+    console.warn('Run "safeclaw status" later to verify the connection.');
+  }
 
   // Register with OpenClaw
   console.log('Registering SafeClaw plugin with OpenClaw...');
