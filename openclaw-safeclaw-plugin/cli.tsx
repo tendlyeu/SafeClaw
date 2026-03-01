@@ -267,7 +267,55 @@ if (command === 'connect') {
     }
   }
 
-  // 5. OpenClaw installed
+  // 5. Handshake — validates API key actually works
+  if (serviceHealthy && cfg.apiKey) {
+    try {
+      const res = await fetch(`${cfg.serviceUrl}/handshake`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`,
+        },
+        body: JSON.stringify({ pluginVersion: '0.1.3', configHash: '' }),
+        signal: AbortSignal.timeout(cfg.timeoutMs),
+      });
+      if (res.ok) {
+        const data = await res.json() as Record<string, unknown>;
+        console.log(`[ok] Handshake: org=${data.orgId}, scope=${data.scope}, engine=${data.engineReady ? 'ready' : 'not ready'}`);
+      } else {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const body = await res.json() as Record<string, unknown>;
+          detail = (body.error ?? body.detail ?? detail) as string;
+        } catch { /* ignore parse errors */ }
+        console.log(`[!!] Handshake failed: ${detail}`);
+        if (res.status === 401) {
+          console.log('     ↳ API key is invalid or revoked. Get a new key at https://safeclaw.eu/dashboard');
+        } else if (res.status === 403) {
+          console.log('     ↳ API key lacks required scope. Check key permissions in your dashboard.');
+        } else if (res.status === 500) {
+          console.log('     ↳ Server error — check service logs for details.');
+        }
+        allOk = false;
+      }
+    } catch (e) {
+      const isTimeout = e instanceof DOMException && e.name === 'TimeoutError';
+      if (isTimeout) {
+        console.log(`[!!] Handshake failed: timeout after ${cfg.timeoutMs}ms`);
+        console.log('     ↳ Service may be overloaded. Try increasing SAFECLAW_TIMEOUT_MS.');
+      } else {
+        console.log('[!!] Handshake failed: could not connect');
+        console.log(`     ↳ Is the service running at ${cfg.serviceUrl}?`);
+      }
+      allOk = false;
+    }
+  } else if (serviceHealthy && !cfg.apiKey) {
+    console.log('[!!] Handshake: skipped — no API key configured');
+    console.log('     ↳ Run: safeclaw connect <your-api-key>');
+    allOk = false;
+  }
+
+  // 6. OpenClaw installed
   try {
     execSync('which openclaw', { encoding: 'utf-8', stdio: 'pipe' });
     console.log('[ok] OpenClaw: installed');
@@ -276,7 +324,7 @@ if (command === 'connect') {
     allOk = false;
   }
 
-  // 6. Plugin extension files exist
+  // 7. Plugin extension files exist
   const extensionDir = join(homedir(), '.openclaw', 'extensions', 'safeclaw');
   const hasManifest = existsSync(join(extensionDir, 'openclaw.plugin.json'));
   const hasEntry = existsSync(join(extensionDir, 'index.js'));
@@ -295,7 +343,7 @@ if (command === 'connect') {
     allOk = false;
   }
 
-  // 7. Plugin enabled in OpenClaw config
+  // 8. Plugin enabled in OpenClaw config
   const ocConfigPath = join(homedir(), '.openclaw', 'openclaw.json');
   if (existsSync(ocConfigPath)) {
     const ocConfig = readJson(ocConfigPath);
