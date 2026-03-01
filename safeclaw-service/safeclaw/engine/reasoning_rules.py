@@ -24,7 +24,7 @@ class DerivedConstraintChecker:
     """Derives new constraints from the ontology using Python logic.
 
     Implements rules that would typically be expressed as N3/EYE rules
-    but are implemented here since we use owlready2/pySHACL.
+    but are implemented here in Python with RDFLib/pySHACL.
     """
 
     def __init__(
