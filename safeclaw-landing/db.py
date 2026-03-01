@@ -35,7 +35,7 @@ api_keys = db.create(APIKey, pk="id", transform=True)
 def upsert_user(github_id: int, github_login: str, name: str, avatar_url: str, email: str = "") -> User:
     """Create or update a user from GitHub profile data."""
     now = datetime.now(timezone.utc).isoformat()
-    existing = users(where=f"github_id={github_id}")
+    existing = users(where="github_id = ?", where_args=[github_id])
     if existing:
         user = existing[0]
         user.github_login = github_login
