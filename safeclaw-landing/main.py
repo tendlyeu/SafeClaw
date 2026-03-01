@@ -880,7 +880,6 @@ def DocsPage():
                         Li("Config file at ", Code("~/.safeclaw/config.json")),
                         Li("Ontology ", Code(".ttl"), " files present"),
                         Li("Audit directory exists"),
-                        Li("Class hierarchy built from ontology"),
                         Li("Mistral API key set (optional)"),
                         cls="docs-list",
                     ),
@@ -891,10 +890,12 @@ def DocsPage():
                 # ── 14. Real-Time Events (SSE) ──
                 DocsSection("events", "Real-Time Events (SSE)",
                     P("SafeClaw provides a Server-Sent Events (SSE) endpoint for real-time "
-                      "visibility into governance decisions:"),
+                      "visibility into governance decisions. The endpoint requires admin "
+                      "authentication."),
                     Div(
                         Pre(
-                            "$ curl -N http://localhost:8420/api/v1/events\n"
+                            "$ curl -N -H 'X-Admin-Password: yourpass' "
+                            "http://localhost:8420/api/v1/events\n"
                             "\n"
                             'event: safeclaw\n'
                             'data: {"event_type":"blocked","severity":"warning",'
@@ -919,7 +920,7 @@ def DocsPage():
                     ),
                     H3("Event Bus Limits", cls="docs-h3"),
                     Ul(
-                        Li("Max 50 concurrent SSE subscribers"),
+                        Li("Max 100 concurrent SSE subscribers"),
                         Li("Max 100 queued events per subscriber (oldest dropped on overflow)"),
                         Li("No external dependencies — uses ", Code("asyncio.Queue"), " internally"),
                         cls="docs-list",
