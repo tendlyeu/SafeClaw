@@ -1600,3 +1600,22 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
 
 
 serve(port=5002)
+
+# ── Mount SafeClaw Service ──
+import os
+
+if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
+    import sys
+    from pathlib import Path
+
+    # Add safeclaw-service to Python path
+    service_dir = Path(__file__).parent.parent / "safeclaw-service"
+    sys.path.insert(0, str(service_dir))
+
+    # Set required env vars for the service
+    db_path = str(Path(__file__).parent / "data" / "safeclaw.db")
+    os.environ.setdefault("SAFECLAW_DB_PATH", db_path)
+    os.environ.setdefault("SAFECLAW_REQUIRE_AUTH", "true")
+
+    from safeclaw.main import app as safeclaw_api
+    app.mount("/api/v1", safeclaw_api)
