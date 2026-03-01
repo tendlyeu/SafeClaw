@@ -224,24 +224,26 @@ async def debug_db():
         ).fetchall()
         result["tables"] = [t[0] for t in tables]
 
-        # Check keys
-        try:
-            total = conn.execute("SELECT COUNT(*) FROM api_key").fetchone()[0]
-            active = conn.execute(
-                "SELECT COUNT(*) FROM api_key WHERE is_active = 1"
-            ).fetchone()[0]
-            # Show key_ids (safe — these are just prefixes, not secrets)
-            key_ids = conn.execute(
-                "SELECT key_id, is_active, typeof(is_active) FROM api_key"
-            ).fetchall()
-            result["total_keys"] = total
-            result["active_keys"] = active
-            result["keys"] = [
-                {"key_id": k[0], "is_active": k[1], "is_active_type": k[2]}
-                for k in key_ids
-            ]
-        except sqlite3.OperationalError as e:
-            result["keys_error"] = str(e)
+        # Check every table's row count
+        for tbl in result["tables"]:
+            try:
+                cnt = conn.execute(f"SELECT COUNT(*) FROM [{tbl}]").fetchone()[0]
+                result[f"count_{tbl}"] = cnt
+            except sqlite3.OperationalError:
+                result[f"count_{tbl}"] = "error"
+
+        # Check keys in both possible tables
+        for tbl in ("api_key", "api_keys"):
+            try:
+                key_ids = conn.execute(
+                    f"SELECT key_id, is_active, typeof(is_active) FROM [{tbl}]"
+                ).fetchall()
+                result[f"keys_in_{tbl}"] = [
+                    {"key_id": k[0], "is_active": k[1], "is_active_type": k[2]}
+                    for k in key_ids
+                ]
+            except sqlite3.OperationalError as e:
+                result[f"keys_in_{tbl}"] = str(e)
 
         conn.close()
     except Exception as e:
