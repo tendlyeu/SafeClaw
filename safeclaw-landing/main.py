@@ -352,6 +352,7 @@ def DocsToc():
         ("cli-diagnostics", "CLI Diagnostics"),
         ("events", "Real-Time Events (SSE)"),
         ("dashboard", "Admin Dashboard"),
+        ("user-dashboard", "User Dashboard"),
         ("config", "Configuration Reference"),
     ]
     return Div(
@@ -981,7 +982,79 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 16. Configuration Reference ──
+                # ── 16. User Dashboard ──
+                DocsSection("user-dashboard", "User Dashboard",
+                    P("The user dashboard at ", Code("/dashboard"),
+                      " provides a self-service web interface for managing your SafeClaw integration. "
+                      "Sign in with GitHub OAuth to access it."),
+                    H3("Authentication Flow", cls="docs-h3"),
+                    Ul(
+                        Li("Click ", Strong("Sign In"), " in the nav bar to start GitHub OAuth"),
+                        Li("Authorize the SafeClaw app on GitHub"),
+                        Li("You're redirected to ", Code("/dashboard"), " with a session cookie"),
+                        Li("All ", Code("/dashboard/*"), " routes are protected by Beforeware"),
+                        cls="docs-list",
+                    ),
+                    H3("Dashboard Pages", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Page"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td(Strong("Overview")), Td(Code("/dashboard")),
+                                   Td("Service health check, API key count, getting started guide")),
+                                Tr(Td(Strong("API Keys")), Td(Code("/dashboard/keys")),
+                                   Td("Generate and revoke API keys for service authentication")),
+                                Tr(Td(Strong("Agents")), Td(Code("/dashboard/agents")),
+                                   Td("View registered agents, kill/revive via service API")),
+                                Tr(Td(Strong("Preferences")), Td(Code("/dashboard/prefs")),
+                                   Td("Set autonomy level, confirmation rules, file limits")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("API Keys", cls="docs-h3"),
+                    P("API keys authenticate your agent's plugin against the SafeClaw service. "
+                      "Each key has a ", Code("sc_"), " prefix and is shown only once at creation time."),
+                    Ul(
+                        Li(Strong("Label"), " — a human-readable name for the key"),
+                        Li(Strong("Scope"), " — ", Code("full"), " (all endpoints) or ",
+                           Code("evaluate"), " (evaluation endpoints only)"),
+                        Li("Keys are stored as SHA-256 hashes; the raw key cannot be recovered"),
+                        Li("Revoked keys are immediately invalidated"),
+                        cls="docs-list",
+                    ),
+                    H3("Governance Preferences", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Setting"), Th("Options"), Th("Effect"))),
+                            Tbody(
+                                Tr(Td(Strong("Autonomy Level")), Td(Code("conservative / moderate / autonomous")),
+                                   Td("Controls how strictly SafeClaw enforces constraints")),
+                                Tr(Td(Strong("Confirm before delete")), Td("on / off"),
+                                   Td("Require user confirmation before file deletions")),
+                                Tr(Td(Strong("Confirm before push")), Td("on / off"),
+                                   Td("Require user confirmation before git push")),
+                                Tr(Td(Strong("Confirm before send")), Td("on / off"),
+                                   Td("Require confirmation before sending messages")),
+                                Tr(Td(Strong("Max files per commit")), Td("number"),
+                                   Td("Limit files changed in a single commit")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Self-Hosting", cls="docs-h3"),
+                    P("To run the landing site with user management locally:"),
+                    Pre(Code(
+                        "cd safeclaw-landing\n"
+                        "pip install -r requirements.txt\n"
+                        "export GITHUB_CLIENT_ID=your_id\n"
+                        "export GITHUB_CLIENT_SECRET=your_secret\n"
+                        "python main.py  # starts on port 5002"
+                    )),
+                    P("The SQLite database is created automatically in ", Code("data/safeclaw.db"), "."),
+                ),
+
+                # ── 17. Configuration Reference ──
                 DocsSection("config", "Configuration Reference",
                     H3("Plugin Environment Variables", cls="docs-h3"),
                     Div(
