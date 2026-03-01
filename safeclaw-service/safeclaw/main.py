@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     global engine
     logging.basicConfig(level=getattr(logging, _config.log_level, logging.INFO))
     logger.info("Starting SafeClaw engine...")
-    engine = FullEngine(_config)
+    engine = FullEngine(_config, api_key_manager=_api_key_manager)
     logger.info("SafeClaw engine ready")
     yield
     logger.info("Shutting down SafeClaw engine")

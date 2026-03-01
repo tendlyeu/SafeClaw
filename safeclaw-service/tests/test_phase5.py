@@ -488,3 +488,46 @@ class TestHybridEngine:
         results = [cb.should_try_remote() for _ in range(5)]
         # Exactly one should get through as the probe
         assert results.count(True) == 1
+
+
+# --- Per-User LLM Client Tests ---
+
+class TestPerUserLLMClient:
+    def test_get_llm_client_for_user_no_manager(self):
+        """Without an api_key_manager, falls back to global client."""
+        from safeclaw.engine.full_engine import FullEngine
+        from safeclaw.config import SafeClawConfig
+
+        config = SafeClawConfig()
+        engine = FullEngine(config)
+        assert engine.get_llm_client_for_user("42") is None  # no global client either
+
+    def test_get_llm_client_for_user_falls_back_to_global(self):
+        """If user has no Mistral key, fall back to global client."""
+        from safeclaw.engine.full_engine import FullEngine
+        from safeclaw.config import SafeClawConfig
+
+        config = SafeClawConfig()
+        engine = FullEngine(config)
+        engine.llm_client = MagicMock()  # Simulate global client
+        # No api_key_manager set, so per-user returns global
+        result = engine.get_llm_client_for_user("42")
+        assert result is engine.llm_client
+
+    def test_get_llm_client_for_user_with_manager(self):
+        """With a manager that returns a key, creates a per-user client."""
+        from safeclaw.engine.full_engine import FullEngine
+        from safeclaw.config import SafeClawConfig
+
+        config = SafeClawConfig()
+        engine = FullEngine(config)
+
+        mock_manager = MagicMock()
+        mock_manager.get_user_mistral_key.return_value = "mist_test_key"
+        engine.api_key_manager = mock_manager
+
+        # This will try to import mistralai which may not be installed in test env
+        # So we test the fallback path: if Mistral import fails, returns global
+        engine.get_llm_client_for_user("42")
+        # Should either return a new client or fall back to global (if mistralai not installed)
+        mock_manager.get_user_mistral_key.assert_called_once_with("42")

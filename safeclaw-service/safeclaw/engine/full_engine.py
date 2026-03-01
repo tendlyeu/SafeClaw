@@ -66,8 +66,9 @@ class FullEngine(SafeClawEngine):
                 return val
         return ""
 
-    def __init__(self, config: SafeClawConfig):
+    def __init__(self, config: SafeClawConfig, api_key_manager=None):
         self.config = config
+        self.api_key_manager = api_key_manager
         self.event_bus = EventBus()
         # BUG-001/075/076: Lock to prevent concurrent reloads
         self._reload_lock = asyncio.Lock()
@@ -162,6 +163,46 @@ class FullEngine(SafeClawEngine):
                 )
                 self.explainer = DecisionExplainer(self.llm_client)
                 logger.info("LLM layer initialized (security review, observer, explainer)")
+
+        # Per-user LLM client cache (keyed by Mistral API key)
+        self._user_llm_clients: dict = {}
+
+    def get_llm_client_for_user(self, user_id: str):
+        """Get LLM client for a specific user, falling back to global client.
+
+        Looks up the user's Mistral key from the shared DB, caches clients by key.
+        """
+        if self.api_key_manager is None or not hasattr(
+            self.api_key_manager, "get_user_mistral_key"
+        ):
+            return self.llm_client  # Fall back to global
+
+        user_key = self.api_key_manager.get_user_mistral_key(user_id)
+        if not user_key:
+            return self.llm_client  # Fall back to global
+
+        # Check cache
+        if user_key in self._user_llm_clients:
+            return self._user_llm_clients[user_key]
+
+        # Create new client for this key
+        from safeclaw.llm.client import SafeClawLLMClient
+
+        try:
+            from mistralai import Mistral
+
+            mistral = Mistral(api_key=user_key)
+            client = SafeClawLLMClient(
+                mistral_client=mistral,
+                model=self.config.mistral_model,
+                model_large=self.config.mistral_model_large,
+                timeout_ms=self.config.mistral_timeout_ms,
+            )
+            self._user_llm_clients[user_key] = client
+            return client
+        except Exception:
+            logger.warning("Failed to create per-user Mistral client for user %s", user_id)
+            return self.llm_client
 
     def _reload_kg_components(self) -> None:
         """Reinitialize only KG-dependent components, preserving runtime state.
