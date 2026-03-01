@@ -353,6 +353,7 @@ def DocsToc():
         ("events", "Real-Time Events (SSE)"),
         ("dashboard", "Admin Dashboard"),
         ("user-dashboard", "User Dashboard"),
+        ("demos", "Demonstration Flows"),
         ("config", "Configuration Reference"),
     ]
     return Div(
@@ -1054,7 +1055,92 @@ def DocsPage():
                     P("The SQLite database is created automatically in ", Code("data/safeclaw.db"), "."),
                 ),
 
-                # ── 17. Configuration Reference ──
+                # ── 17. Demonstration Flows ──
+                DocsSection("demos", "Demonstration Flows",
+                    P("These walkthroughs show what happens inside SafeClaw when an agent "
+                      "attempts different actions. Each flow traces the request through the "
+                      "constraint pipeline from prompt to final decision."),
+
+                    H3("Flow 1: Blocking a File Deletion", cls="docs-h3"),
+                    P(Strong("Prompt: "), "\"Delete /tmp/safeclaw-test.txt\""),
+                    P(Strong("Tool Call"), " sent by the agent:"),
+                    Pre(Code(
+                        '{\n'
+                        '  "tool": "delete",\n'
+                        '  "params": { "path": "/tmp/safeclaw-test.txt" }\n'
+                        '}'
+                    ), cls="docs-pre"),
+                    P(Strong("Classification: "), Code("DeleteFile"), " / ",
+                      Code("CriticalRisk"),
+                      " — the action classifier maps the ", Code("delete"),
+                      " tool to the ", Code("sc:DeleteFile"), " ontology class."),
+                    P(Strong("Decision: "), "The developer role does not include ",
+                      Code("DeleteFile"), " in its allowed action classes. "
+                      "Pipeline step 3 (Role-Based Access) blocks the call."),
+                    P(Strong("Response:")),
+                    Pre(Code(
+                        '{\n'
+                        '  "decision": "block",\n'
+                        '  "reason": "Role developer does not permit DeleteFile actions",\n'
+                        '  "constraintId": "role-access-check",\n'
+                        '  "riskLevel": "critical",\n'
+                        '  "pipelineStep": 3\n'
+                        '}'
+                    ), cls="docs-pre"),
+
+                    H3("Flow 2: Blocking a Force Push", cls="docs-h3"),
+                    P(Strong("Prompt: "), "\"Push my changes with --force\""),
+                    P(Strong("Tool Call"), " sent by the agent:"),
+                    Pre(Code(
+                        '{\n'
+                        '  "tool": "exec",\n'
+                        '  "params": { "command": "git push --force" }\n'
+                        '}'
+                    ), cls="docs-pre"),
+                    P(Strong("Classification: "), Code("ForcePush"), " / ",
+                      Code("CriticalRisk"),
+                      " — the shell-command pattern matcher recognises ",
+                      Code("git push --force"), " and maps it to ", Code("sc:ForcePush"), "."),
+                    P(Strong("Decision: "), "The developer role explicitly denies ",
+                      Code("ForcePush"), ". Pipeline step 3 (Role-Based Access) blocks the call."),
+                    P(Strong("Response:")),
+                    Pre(Code(
+                        '{\n'
+                        '  "decision": "block",\n'
+                        '  "reason": "Role developer does not permit ForcePush actions",\n'
+                        '  "constraintId": "role-access-check",\n'
+                        '  "riskLevel": "critical",\n'
+                        '  "pipelineStep": 3\n'
+                        '}'
+                    ), cls="docs-pre"),
+
+                    H3("Flow 3: Allowing a Safe Read", cls="docs-h3"),
+                    P(Strong("Prompt: "), "\"Read the config file\""),
+                    P(Strong("Tool Call"), " sent by the agent:"),
+                    Pre(Code(
+                        '{\n'
+                        '  "tool": "read",\n'
+                        '  "params": { "path": "./config.json" }\n'
+                        '}'
+                    ), cls="docs-pre"),
+                    P(Strong("Classification: "), Code("ReadFile"), " / ",
+                      Code("LowRisk"),
+                      " — a simple read operation classified as ", Code("sc:ReadFile"), "."),
+                    P(Strong("Decision: "), "All 9 pipeline steps pass. The developer role "
+                      "permits ", Code("ReadFile"), ", SHACL shapes validate, no policies "
+                      "or preferences restrict reading, and rate limits are within bounds."),
+                    P(Strong("Response:")),
+                    Pre(Code(
+                        '{\n'
+                        '  "decision": "allow",\n'
+                        '  "reason": "All constraints satisfied",\n'
+                        '  "riskLevel": "low",\n'
+                        '  "pipelineStep": 9\n'
+                        '}'
+                    ), cls="docs-pre"),
+                ),
+
+                # ── 18. Configuration Reference ──
                 DocsSection("config", "Configuration Reference",
                     H3("Plugin Environment Variables", cls="docs-h3"),
                     Div(
