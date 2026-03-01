@@ -18,7 +18,12 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
             "confirm_before_push": True,
             "confirm_before_send": True,
             "max_files_per_commit": 10,
+            "self_hosted": False,
+            "service_url": "",
+            "admin_password": "",
         }
+
+    self_hosted = prefs.get("self_hosted", False)
 
     return Form(
         # ── Autonomy Level ──
@@ -130,6 +135,66 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
               ". Clear this field and save to remove it.",
               cls=TextPresets.muted_sm),
         ),
+
+        Divider(),
+
+        # ── Deployment Mode ──
+        Div(
+            H4("Deployment Mode"),
+            P("By default, SafeClaw uses the hosted service at ",
+              Code("api.safeclaw.eu"),
+              ". Enable self-hosted mode if you run your own SafeClaw engine.",
+              cls=TextPresets.muted_sm),
+            cls="space-y-1",
+        ),
+
+        _field_group(
+            LabelCheckboxX(
+                "I run my own SafeClaw service (self-hosted)",
+                id="self_hosted",
+                checked=self_hosted,
+            ),
+        ),
+
+        # Self-hosted fields — hidden by default, shown via HTMX/JS
+        Div(
+            Divider(),
+            _field_group(
+                LabelInput(
+                    "Service URL",
+                    id="service_url",
+                    value=prefs.get("service_url", ""),
+                    placeholder="http://localhost:8420",
+                ),
+                P("The URL of your self-hosted SafeClaw service.",
+                  cls=TextPresets.muted_sm),
+            ),
+            _field_group(
+                LabelInput(
+                    "Admin Password",
+                    id="admin_password",
+                    type="password",
+                    value=prefs.get("admin_password", ""),
+                    placeholder="Leave empty if not set",
+                ),
+                P("Required if you set ", Code("SAFECLAW_ADMIN_PASSWORD"),
+                  " on your service.",
+                  cls=TextPresets.muted_sm),
+            ),
+            id="self-hosted-fields",
+            cls="space-y-6",
+            style="" if self_hosted else "display:none;",
+        ),
+
+        # JS to toggle self-hosted fields
+        Script("""
+            document.getElementById('self_hosted').addEventListener('change', function() {
+                document.getElementById('self-hosted-fields').style.display =
+                    this.checked ? '' : 'none';
+            });
+        """),
+
+        Divider(),
 
         Button("Save Preferences", cls=ButtonT.primary, type="submit"),
         hx_post="/dashboard/prefs/save",

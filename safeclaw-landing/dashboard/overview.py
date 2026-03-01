@@ -4,12 +4,25 @@ from fasthtml.common import *
 from monsterui.all import *
 
 
-def ServiceHealthCard():
-    """Card showing service health status, refreshes via HTMX."""
+def HostedStatusCard():
+    """Card showing hosted service status for SaaS users."""
+    return Card(
+        H3("Service Status"),
+        DivLAligned(
+            Span("●", style="color:#4ade80; font-size:20px;"),
+            Span("Connected to SafeClaw hosted service"),
+        ),
+        P("Your agents are governed by the SafeClaw cloud at ",
+          Code("api.safeclaw.eu"), ". No setup required.",
+          cls=TextPresets.muted_sm),
+    )
+
+
+def SelfHostedHealthCard():
+    """Card showing service health status for self-hosted users, refreshes via HTMX."""
     return Card(
         H3("Service Health"),
-        P("Checks whether the SafeClaw governance engine is running and reachable. "
-          "If you're using the hosted service, this should always show healthy.",
+        P("Checking your self-hosted SafeClaw service.",
           cls=TextPresets.muted_sm),
         Div(
             P("Checking...", cls=TextPresets.muted_sm),
@@ -71,15 +84,18 @@ def OverviewContent(user, key_count: int, has_mistral_key: bool = True):
                 footer=A("Manage keys ->", href="/dashboard/keys"),
             ),
             Card(
-                DivLAligned(UkIcon("bot", height=20), H4("Agents")),
-                P("View registered agents", cls=TextPresets.muted_sm),
-                footer=A("View agents ->", href="/dashboard/agents"),
+                DivLAligned(UkIcon("settings", height=20), H4("Preferences")),
+                P(f"Autonomy: {user.autonomy_level}", cls=TextPresets.muted_sm),
+                footer=A("Edit preferences ->", href="/dashboard/prefs"),
             ),
             cols=2,
         ),
     ]
     if not has_mistral_key:
         content.append(MistralNudge())
-    content.append(ServiceHealthCard())
+    if user.self_hosted:
+        content.append(SelfHostedHealthCard())
+    else:
+        content.append(HostedStatusCard())
     content.append(GettingStartedCard())
     return tuple(content)

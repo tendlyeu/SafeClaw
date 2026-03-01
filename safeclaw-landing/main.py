@@ -1464,14 +1464,16 @@ def dashboard(req, sess):
 
 @rt("/dashboard/health-check")
 async def health_check(req, sess):
-    """HTMX partial: check service health."""
+    """HTMX partial: check self-hosted service health."""
     import httpx
+    user = req.scope.get("user")
+    if not user.self_hosted:
+        return DivLAligned(
+            Span("●", style="color:#4ade80; font-size:20px;"),
+            Span("Connected to hosted service"),
+        )
     try:
-        import os
-        if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
-            service_url = f"{req.url.scheme}://{req.url.netloc}/api/v1"
-        else:
-            service_url = sess.get("service_url", "http://localhost:8420")
+        service_url = user.service_url or "http://localhost:8420"
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{service_url}/health")
             data = r.json()
@@ -1598,35 +1600,34 @@ def onboard_done(req, sess):
     return RedirectResponse("/dashboard", status_code=303)
 
 
-from dashboard.agents import AgentsContent, AgentTable
+from dashboard.agents import HostedAgentsContent, SelfHostedAgentsContent, AgentTable
 
 
 @rt("/dashboard/agents")
 def dashboard_agents(req, sess):
     user = req.scope.get("user")
+    if user.self_hosted:
+        content = SelfHostedAgentsContent(service_url=user.service_url)
+    else:
+        content = HostedAgentsContent()
     return (
         Title("Agents — SafeClaw"),
         *MUITheme.blue.headers(),
-        DashboardLayout("Agents", *AgentsContent(), user=user, active="agents"),
+        DashboardLayout("Agents", *content, user=user, active="agents"),
     )
 
 
 @rt("/dashboard/agents/load")
 async def load_agents(req, sess, service_url: str = "", admin_password: str = ""):
-    """Fetch agents from the service API."""
-    from urllib.parse import urlparse
-    parsed = urlparse(service_url or "http://localhost:8420")
-    if parsed.hostname not in ("localhost", "127.0.0.1"):
-        return P("Service URL must be localhost or 127.0.0.1", cls=TextPresets.muted_sm)
-    safe_url = f"{parsed.scheme}://{parsed.netloc}"
-    sess["service_url"] = safe_url
-    sess["admin_password"] = admin_password
+    """Fetch agents from the self-hosted service API."""
+    user = req.scope.get("user")
+    url = (service_url or user.service_url or "http://localhost:8420").rstrip("/")
     try:
         headers = {}
         if admin_password:
             headers["X-Admin-Password"] = admin_password
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f"{safe_url}/api/v1/agents", headers=headers)
+            r = await client.get(f"{url}/api/v1/agents", headers=headers)
             r.raise_for_status()
             agents = r.json().get("agents", [])
             return AgentTable(agents)
@@ -1636,16 +1637,16 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
 
 @rt("/dashboard/agents/{agent_id}/kill")
 async def kill_agent_proxy(req, sess, agent_id: str):
-    """Proxy kill request to service."""
-    service_url = sess.get("service_url", "http://localhost:8420")
+    """Proxy kill request to self-hosted service."""
+    user = req.scope.get("user")
+    url = (user.service_url or "http://localhost:8420").rstrip("/")
     headers = {}
-    admin_pw = sess.get("admin_password", "")
-    if admin_pw:
-        headers["X-Admin-Password"] = admin_pw
+    if user.admin_password:
+        headers["X-Admin-Password"] = user.admin_password
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{service_url}/api/v1/agents/{agent_id}/kill", headers=headers)
-            r = await client.get(f"{service_url}/api/v1/agents", headers=headers)
+            await client.post(f"{url}/api/v1/agents/{agent_id}/kill", headers=headers)
+            r = await client.get(f"{url}/api/v1/agents", headers=headers)
             return AgentTable(r.json().get("agents", []))
     except Exception as e:
         return P(f"Error: {e}", cls=TextPresets.muted_sm)
@@ -1653,16 +1654,16 @@ async def kill_agent_proxy(req, sess, agent_id: str):
 
 @rt("/dashboard/agents/{agent_id}/revive")
 async def revive_agent_proxy(req, sess, agent_id: str):
-    """Proxy revive request to service."""
-    service_url = sess.get("service_url", "http://localhost:8420")
+    """Proxy revive request to self-hosted service."""
+    user = req.scope.get("user")
+    url = (user.service_url or "http://localhost:8420").rstrip("/")
     headers = {}
-    admin_pw = sess.get("admin_password", "")
-    if admin_pw:
-        headers["X-Admin-Password"] = admin_pw
+    if user.admin_password:
+        headers["X-Admin-Password"] = user.admin_password
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{service_url}/api/v1/agents/{agent_id}/revive", headers=headers)
-            r = await client.get(f"{service_url}/api/v1/agents", headers=headers)
+            await client.post(f"{url}/api/v1/agents/{agent_id}/revive", headers=headers)
+            r = await client.get(f"{url}/api/v1/agents", headers=headers)
             return AgentTable(r.json().get("agents", []))
     except Exception as e:
         return P(f"Error: {e}", cls=TextPresets.muted_sm)
@@ -1680,6 +1681,9 @@ async def dashboard_prefs(req, sess):
         "confirm_before_push": user.confirm_before_push,
         "confirm_before_send": user.confirm_before_send,
         "max_files_per_commit": user.max_files_per_commit,
+        "self_hosted": user.self_hosted,
+        "service_url": user.service_url,
+        "admin_password": user.admin_password,
     }
 
     # Mask Mistral key for display: show last 4 chars only
@@ -1698,7 +1702,8 @@ async def dashboard_prefs(req, sess):
 async def save_prefs(req, sess, autonomy_level: str = "moderate",
                      confirm_before_delete: bool = False, confirm_before_push: bool = False,
                      confirm_before_send: bool = False, max_files_per_commit: int = 10,
-                     mistral_api_key: str = ""):
+                     mistral_api_key: str = "", self_hosted: bool = False,
+                     service_url: str = "", admin_password: str = ""):
     user = req.scope.get("user")
 
     user.autonomy_level = autonomy_level
@@ -1706,6 +1711,9 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
     user.confirm_before_push = confirm_before_push
     user.confirm_before_send = confirm_before_send
     user.max_files_per_commit = max_files_per_commit
+    user.self_hosted = self_hosted
+    user.service_url = service_url.strip()
+    user.admin_password = admin_password
 
     # Save Mistral key if changed (not the masked placeholder)
     if mistral_api_key and not mistral_api_key.startswith("••••"):

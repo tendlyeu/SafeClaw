@@ -23,6 +23,9 @@ class User:
     confirm_before_push: bool = True
     confirm_before_send: bool = True
     max_files_per_commit: int = 10
+    self_hosted: bool = False
+    service_url: str = ""
+    admin_password: str = ""
 
 
 class APIKey:

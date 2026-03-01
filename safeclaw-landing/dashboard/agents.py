@@ -1,4 +1,4 @@
-"""Agent management page — proxies to SafeClaw service API."""
+"""Agent management page."""
 
 from fasthtml.common import *
 from monsterui.all import *
@@ -37,46 +37,74 @@ def AgentTable(agents: list[dict]):
     )
 
 
-def ServiceConfigCard():
-    """Card for configuring service connection."""
-    return Card(
-        H3("Service Connection"),
-        P("This page connects to a running SafeClaw service instance to show "
-          "agents that have registered with it. This is for advanced users "
-          "who self-host the SafeClaw engine.",
-          cls=TextPresets.muted_sm),
-        P("If you're using the hosted service at ", Code("safeclaw.eu"),
-          ", agents are managed automatically — you don't need to configure anything here.",
-          cls=TextPresets.muted_sm),
-        Form(
-            LabelInput("Service URL", id="service_url", value="http://localhost:8420",
-                       placeholder="http://localhost:8420"),
-            P("The URL of your self-hosted SafeClaw service.",
-              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
-            LabelInput("Admin Password", id="admin_password", type="password",
-                       placeholder="Leave empty if not set"),
-            P("Required if you set ", Code("SAFECLAW_ADMIN_PASSWORD"),
-              " on your service.",
-              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
-            Button("Connect & Load Agents", cls=ButtonT.primary, type="submit"),
-            hx_post="/dashboard/agents/load",
-            hx_target="#agent-list",
-            hx_swap="innerHTML",
-            cls="space-y-4",
+def HostedAgentsContent():
+    """Agents page content for hosted users."""
+    return (
+        Card(
+            H3("Agent Governance"),
+            P("On the hosted service, agents are governed automatically when they "
+              "connect using your API key. Each agent that calls the SafeClaw API "
+              "is tracked and governed by your preferences.",
+              cls=TextPresets.muted_sm),
+            Divider(),
+            H4("How it works"),
+            Ul(
+                Li("Your AI agent's plugin sends every tool call to SafeClaw before execution"),
+                Li("SafeClaw validates it against your governance rules and preferences"),
+                Li("Blocked actions are logged and the agent receives a clear explanation"),
+                Li("All decisions are recorded in the audit trail"),
+                cls="uk-list uk-list-disc",
+                style="font-size:0.875rem; color:var(--muted-foreground, #888);",
+            ),
+            Divider(),
+            P("To manage individual agents (kill switch, role assignment), "
+              "enable ", Strong("self-hosted mode"), " in ",
+              A("Preferences", href="/dashboard/prefs"),
+              " and connect to your own SafeClaw service instance.",
+              cls=TextPresets.muted_sm),
         ),
     )
 
 
-def AgentsContent():
-    """Full agents page content."""
+def SelfHostedAgentsContent(service_url: str = ""):
+    """Agents page content for self-hosted users."""
     return (
-        ServiceConfigCard(),
+        Card(
+            H3("Service Connection"),
+            P("Connect to your self-hosted SafeClaw service to view and manage agents.",
+              cls=TextPresets.muted_sm),
+            Divider(),
+            Form(
+                Div(
+                    LabelInput("Service URL", id="service_url",
+                               value=service_url or "http://localhost:8420",
+                               placeholder="http://localhost:8420"),
+                    P("The URL of your self-hosted SafeClaw service.",
+                      cls=TextPresets.muted_sm),
+                    cls="space-y-1",
+                ),
+                Div(
+                    LabelInput("Admin Password", id="admin_password", type="password",
+                               placeholder="Leave empty if not set"),
+                    P("Required if you set ", Code("SAFECLAW_ADMIN_PASSWORD"),
+                      " on your service.",
+                      cls=TextPresets.muted_sm),
+                    cls="space-y-1",
+                ),
+                Button("Connect & Load Agents", cls=ButtonT.primary, type="submit"),
+                hx_post="/dashboard/agents/load",
+                hx_target="#agent-list",
+                hx_swap="innerHTML",
+                cls="space-y-6",
+            ),
+        ),
         Card(
             H3("Registered Agents"),
-            P("Agents register themselves when they start a session with the SafeClaw service. "
+            P("Agents register themselves when they start a session. "
               "You can ", Strong("kill"), " an agent to immediately block all its actions, "
               "or ", Strong("revive"), " it to restore access.",
               cls=TextPresets.muted_sm),
+            Divider(),
             Div(P("Connect to a service to see agents.", cls=TextPresets.muted_sm), id="agent-list"),
         ),
     )
