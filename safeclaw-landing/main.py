@@ -1296,4 +1296,64 @@ async def revive_agent_proxy(req, sess, agent_id: str):
         return P(f"Error: {e}", cls=TextPresets.muted_sm)
 
 
+from dashboard.prefs import PrefsContent
+
+
+@rt("/dashboard/prefs")
+async def dashboard_prefs(req, sess):
+    user = req.scope.get("user")
+    # Try to load prefs from service
+    prefs = None
+    service_url = sess.get("service_url", "http://localhost:8420")
+    headers = {}
+    admin_pw = sess.get("admin_password", "")
+    if admin_pw:
+        headers["X-Admin-Password"] = admin_pw
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{service_url}/api/v1/preferences/{user.github_login}",
+                headers=headers,
+            )
+            if r.status_code == 200:
+                prefs = r.json()
+    except Exception:
+        pass  # Use defaults
+
+    return (
+        Title("Preferences — SafeClaw"),
+        *MUITheme.blue.headers(),
+        DashboardLayout("Preferences", *PrefsContent(prefs), user=user, active="prefs"),
+    )
+
+
+@rt("/dashboard/prefs/save")
+async def save_prefs(req, sess, autonomy_level: str = "moderate",
+                     confirm_before_delete: bool = True, confirm_before_push: bool = True,
+                     confirm_before_send: bool = True, max_files_per_commit: int = 10):
+    user = req.scope.get("user")
+    service_url = sess.get("service_url", "http://localhost:8420")
+    headers = {"Content-Type": "application/json"}
+    admin_pw = sess.get("admin_password", "")
+    if admin_pw:
+        headers["X-Admin-Password"] = admin_pw
+    prefs_data = {
+        "autonomy_level": autonomy_level,
+        "confirm_before_delete": confirm_before_delete,
+        "confirm_before_push": confirm_before_push,
+        "confirm_before_send": confirm_before_send,
+        "max_files_per_commit": max_files_per_commit,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                f"{service_url}/api/v1/preferences/{user.github_login}",
+                json=prefs_data, headers=headers,
+            )
+            r.raise_for_status()
+            return P("Preferences saved.", style="color:#4ade80;")
+    except Exception as e:
+        return P(f"Could not save: {e}. Is the service running?", style="color:#f87171;")
+
+
 serve(port=5002)
