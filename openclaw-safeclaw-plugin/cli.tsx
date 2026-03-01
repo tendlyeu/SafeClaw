@@ -249,7 +249,12 @@ if (command === 'connect') {
       } else if (res.status === 401 || res.status === 403) {
         console.log('[ok] Service evaluate: responding (auth required)');
       } else {
-        console.log(`[!!] Service evaluate: HTTP ${res.status}`);
+        let detail = '';
+        try {
+          const body = await res.json() as Record<string, unknown>;
+          detail = ` — ${body.detail ?? body.error ?? JSON.stringify(body)}`;
+        } catch { /* ignore */ }
+        console.log(`[!!] Service evaluate: HTTP ${res.status}${detail}`);
         allOk = false;
       }
     } catch (e) {
