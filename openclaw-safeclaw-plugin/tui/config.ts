@@ -34,7 +34,7 @@ export function loadConfig(): SafeClawConfig {
   const defaults: SafeClawConfig = {
     serviceUrl: 'https://api.safeclaw.eu/api/v1',
     apiKey: '',
-    timeoutMs: 500,
+    timeoutMs: 5000,
     enabled: true,
     enforcement: 'enforce',
     failMode: 'open',

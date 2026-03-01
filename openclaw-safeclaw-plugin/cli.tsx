@@ -7,6 +7,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import App from './tui/App.js';
+import { loadConfig } from './tui/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -176,8 +177,14 @@ if (command === 'connect') {
     console.log('Try: openclaw plugins install openclaw-safeclaw-plugin');
   }
 } else if (command === 'status') {
+  const cfg = loadConfig();
   const configPath = join(homedir(), '.safeclaw', 'config.json');
   let allOk = true;
+
+  // 0. Active config summary
+  console.log(`Config: enforcement=${cfg.enforcement}, failMode=${cfg.failMode}, timeout=${cfg.timeoutMs}ms`);
+  console.log(`Service: ${cfg.serviceUrl}`);
+  console.log('');
 
   // 1. Config file
   if (existsSync(configPath)) {
@@ -188,20 +195,9 @@ if (command === 'connect') {
   }
 
   // 2. API key
-  let apiKey = '';
-  let serviceUrl = 'https://api.safeclaw.eu/api/v1';
-  if (existsSync(configPath)) {
-    try {
-      const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
-      const remote = cfg.remote as Record<string, string> | undefined;
-      apiKey = remote?.apiKey ?? '';
-      serviceUrl = remote?.serviceUrl ?? serviceUrl;
-    } catch { /* ignore */ }
-  }
-
-  if (apiKey && apiKey.startsWith('sc_')) {
+  if (cfg.apiKey && cfg.apiKey.startsWith('sc_')) {
     console.log('[ok] API key: configured (sc_...)');
-  } else if (apiKey) {
+  } else if (cfg.apiKey) {
     console.log('[!!] API key: invalid (must start with sc_)');
     allOk = false;
   } else {
@@ -209,25 +205,64 @@ if (command === 'connect') {
     allOk = false;
   }
 
-  // 3. SafeClaw service reachable
+  // 3. SafeClaw service — health check (uses same timeout as plugin)
+  let serviceHealthy = false;
   try {
-    const res = await fetch(`${serviceUrl}/health`, {
-      signal: AbortSignal.timeout(5000),
-      headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {},
+    const res = await fetch(`${cfg.serviceUrl}/health`, {
+      signal: AbortSignal.timeout(cfg.timeoutMs),
+      headers: cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {},
     });
     if (res.ok) {
       const data = await res.json() as Record<string, unknown>;
-      console.log(`[ok] SafeClaw service: ${data.status ?? 'ok'} (${serviceUrl})`);
+      console.log(`[ok] Service health: ${data.status ?? 'ok'}`);
+      serviceHealthy = true;
     } else {
-      console.log(`[!!] SafeClaw service: HTTP ${res.status} (${serviceUrl})`);
+      console.log(`[!!] Service health: HTTP ${res.status}`);
       allOk = false;
     }
-  } catch {
-    console.log(`[!!] SafeClaw service: unreachable (${serviceUrl})`);
+  } catch (e) {
+    const isTimeout = e instanceof DOMException && e.name === 'TimeoutError';
+    console.log(`[!!] Service health: ${isTimeout ? `timeout after ${cfg.timeoutMs}ms` : 'unreachable'}`);
     allOk = false;
   }
 
-  // 4. OpenClaw installed
+  // 4. SafeClaw service — evaluate endpoint (the actual gate)
+  if (serviceHealthy) {
+    try {
+      const res = await fetch(`${cfg.serviceUrl}/evaluate/tool-call`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          sessionId: 'status-check',
+          userId: 'status-check',
+          toolName: 'echo',
+          params: { message: 'status-check' },
+        }),
+        signal: AbortSignal.timeout(cfg.timeoutMs),
+      });
+      if (res.ok || res.status === 422) {
+        // 422 = validation error is fine — means the service is processing requests
+        console.log('[ok] Service evaluate: responding');
+      } else if (res.status === 401 || res.status === 403) {
+        console.log('[ok] Service evaluate: responding (auth required)');
+      } else {
+        console.log(`[!!] Service evaluate: HTTP ${res.status}`);
+        allOk = false;
+      }
+    } catch (e) {
+      const isTimeout = e instanceof DOMException && e.name === 'TimeoutError';
+      console.log(`[!!] Service evaluate: ${isTimeout ? `timeout after ${cfg.timeoutMs}ms` : 'unreachable'}`);
+      if (cfg.failMode === 'closed') {
+        console.log('     ↳ failMode=closed means ALL tool calls will be blocked!');
+      }
+      allOk = false;
+    }
+  }
+
+  // 5. OpenClaw installed
   try {
     execSync('which openclaw', { encoding: 'utf-8', stdio: 'pipe' });
     console.log('[ok] OpenClaw: installed');
@@ -236,7 +271,7 @@ if (command === 'connect') {
     allOk = false;
   }
 
-  // 5. Plugin extension files exist
+  // 6. Plugin extension files exist
   const extensionDir = join(homedir(), '.openclaw', 'extensions', 'safeclaw');
   const hasManifest = existsSync(join(extensionDir, 'openclaw.plugin.json'));
   const hasEntry = existsSync(join(extensionDir, 'index.js'));
@@ -255,7 +290,7 @@ if (command === 'connect') {
     allOk = false;
   }
 
-  // 6. Plugin enabled in OpenClaw config
+  // 7. Plugin enabled in OpenClaw config
   const ocConfigPath = join(homedir(), '.openclaw', 'openclaw.json');
   if (existsSync(ocConfigPath)) {
     const ocConfig = readJson(ocConfigPath);

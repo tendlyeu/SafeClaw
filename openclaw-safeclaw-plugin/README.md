@@ -56,7 +56,7 @@ Set via environment variables or `~/.safeclaw/config.json`:
 |----------|---------|-------------|
 | `SAFECLAW_URL` | `https://api.safeclaw.eu/api/v1` | SafeClaw service URL |
 | `SAFECLAW_API_KEY` | *(empty)* | API key (set automatically by `safeclaw connect`) |
-| `SAFECLAW_TIMEOUT_MS` | `500` | Request timeout in ms |
+| `SAFECLAW_TIMEOUT_MS` | `5000` | Request timeout in ms |
 | `SAFECLAW_ENABLED` | `true` | Set `false` to disable |
 | `SAFECLAW_ENFORCEMENT` | `enforce` | `enforce`, `warn-only`, `audit-only`, or `disabled` |
 | `SAFECLAW_FAIL_MODE` | `open` | `open` (allow on failure) or `closed` (block on failure) |
