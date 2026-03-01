@@ -91,6 +91,25 @@ class SQLiteAPIKeyManager:
         import sqlite3
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        # Ensure tables exist (service may start before landing creates them)
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS api_keys ("
+            "  id INTEGER PRIMARY KEY,"
+            "  user_id INTEGER,"
+            "  key_id TEXT,"
+            "  key_hash TEXT,"
+            "  label TEXT,"
+            "  scope TEXT,"
+            "  created_at TEXT,"
+            "  is_active BOOLEAN"
+            ")"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS users ("
+            "  id INTEGER PRIMARY KEY,"
+            "  mistral_api_key TEXT DEFAULT ''"
+            ")"
+        )
 
     def validate_key(self, raw_key: str) -> APIKey | None:
         """Validate an API key by looking it up in SQLite."""

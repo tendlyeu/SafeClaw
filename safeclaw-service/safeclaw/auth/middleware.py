@@ -16,8 +16,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     Skips auth for health endpoint and when auth is disabled.
     """
 
-    SKIP_PATHS = {"/api/v1/health", "/openapi.json"}
-    SKIP_PREFIXES = ["/docs"]
+    SKIP_PATHS = {"/api/v1/health", "/api/v1/heartbeat", "/openapi.json"}
+    SKIP_PREFIXES = ["/docs", "/admin"]
 
     def __init__(self, app, api_key_manager=None, require_auth: bool = False):
         super().__init__(app)
