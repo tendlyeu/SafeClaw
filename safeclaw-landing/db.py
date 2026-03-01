@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastlite import database
 
 db = database("data/safeclaw.db")
+db.execute("PRAGMA journal_mode=WAL")
 
 
 class User:

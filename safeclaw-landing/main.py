@@ -1494,11 +1494,21 @@ def dashboard_onboard(req, sess):
     )
 
 
+_VALID_AUTONOMY_LEVELS = {"cautious", "moderate", "autonomous"}
+
+
 @rt("/dashboard/onboard/step1")
 def onboard_step1(req, sess, autonomy_level: str = "moderate"):
     user = req.scope.get("user")
+    if autonomy_level not in _VALID_AUTONOMY_LEVELS:
+        autonomy_level = "moderate"
     user.autonomy_level = autonomy_level
     users.update(user)
+    # Guard: don't create duplicate keys on re-submit
+    existing = api_keys(where="user_id = ? AND label = ? AND is_active = 1",
+                        where_args=[user.id, "Default"])
+    if existing:
+        return OnboardStep2("(key already generated — check your API Keys page)")
     raw_key, key_id = generate_api_key()
     api_keys.insert(
         user_id=user.id,
@@ -1669,4 +1679,4 @@ if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
     os.environ.setdefault("SAFECLAW_REQUIRE_AUTH", "true")
 
     from safeclaw.main import app as safeclaw_api
-    app.mount("/api/v1", safeclaw_api)
+    app.mount("/", safeclaw_api)

@@ -88,26 +88,20 @@ class SQLiteAPIKeyManager:
     """
 
     def __init__(self, db_path: str):
-        self._db_path = db_path
-
-    def _connect(self):
         import sqlite3
-        return sqlite3.connect(self._db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
 
     def validate_key(self, raw_key: str) -> APIKey | None:
         """Validate an API key by looking it up in SQLite."""
         key_id = raw_key[:12]
         key_hash = APIKeyManager.hash_key(raw_key)
 
-        conn = self._connect()
-        try:
-            row = conn.execute(
-                "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
-                "FROM api_keys WHERE key_id = ? AND is_active = 1",
-                (key_id,),
-            ).fetchone()
-        finally:
-            conn.close()
+        row = self._conn.execute(
+            "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
+            "FROM api_keys WHERE key_id = ? AND is_active = 1",
+            (key_id,),
+        ).fetchone()
 
         if row is None:
             return None
