@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Text, Box, useInput, useApp } from 'ink';
-import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { loadConfig, type SafeClawConfig } from './config.js';
 import Status from './Status.js';
 import Settings from './Settings.js';
 import About from './About.js';
 
-const require = createRequire(import.meta.url);
-const { version: PKG_VERSION } = require('../package.json');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8')).version as string;
 
 const TABS = ['Status', 'Settings', 'About'] as const;
 type Tab = typeof TABS[number];
