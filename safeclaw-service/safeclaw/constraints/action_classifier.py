@@ -71,6 +71,12 @@ TOOL_MAPPINGS = {
     "grep": ("SearchFiles", "LowRisk", True, "LocalOnly"),
     "find": ("ListFiles", "LowRisk", True, "LocalOnly"),
     "ls": ("ListFiles", "LowRisk", True, "LocalOnly"),
+    "delete": ("DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    "delete_file": ("DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    "remove": ("DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    "remove_file": ("DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    "unlink": ("DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    "trash": ("DeleteFile", "HighRisk", False, "LocalOnly"),
 }
 
 
