@@ -37,7 +37,7 @@ export function loadConfig(): SafeClawConfig {
     timeoutMs: 500,
     enabled: true,
     enforcement: 'enforce',
-    failMode: 'closed',
+    failMode: 'open',
     agentId: '',
     agentToken: '',
   };
@@ -79,8 +79,8 @@ export function loadConfig(): SafeClawConfig {
 
   const validFailModes = ['open', 'closed'] as const;
   if (!validFailModes.includes(defaults.failMode as any)) {
-    console.warn(`[SafeClaw] Invalid fail mode "${defaults.failMode}", defaulting to "closed"`);
-    defaults.failMode = 'closed';
+    console.warn(`[SafeClaw] Invalid fail mode "${defaults.failMode}", defaulting to "open"`);
+    defaults.failMode = 'open';
   }
 
   return defaults;
