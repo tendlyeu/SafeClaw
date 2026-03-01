@@ -43,6 +43,7 @@ from safeclaw.engine.reasoning_rules import DerivedConstraintChecker
 from safeclaw.engine.roles import RoleManager
 from safeclaw.engine.session_tracker import SessionTracker
 from safeclaw.engine.shacl_validator import SHACLValidator
+from safeclaw.engine.heartbeat_monitor import HeartbeatMonitor
 from safeclaw.engine.temp_permissions import TempPermissionManager
 
 logger = logging.getLogger("safeclaw.engine")
@@ -114,6 +115,7 @@ class FullEngine(SafeClawEngine):
             else "configurable"
         )
         self.temp_permissions = TempPermissionManager(hierarchy=self.hierarchy)
+        self.heartbeat_monitor = HeartbeatMonitor(self.event_bus)
         self._require_token_auth = (
             raw.get("agents", {}).get("requireTokenAuth", False) if raw else False
         )

@@ -13,6 +13,7 @@ from safeclaw.api.models import (
     AgentStartRequest,
     ContextResponse,
     DecisionResponse,
+    HeartbeatRequest,
     LlmIORequest,
     MessageRequest,
     PolicyCompileRequest,
@@ -364,6 +365,25 @@ async def complete_task(task_id: str):
     engine = _get_engine()
     count = engine.temp_permissions.complete_task(task_id)
     return {"ok": True, "taskId": task_id, "grantsRevoked": count}
+
+
+@router.post("/heartbeat")
+async def heartbeat(request: HeartbeatRequest):
+    """Receive plugin heartbeat. No admin auth required -- plugins call this."""
+    engine = _get_engine()
+    if request.status == "shutdown":
+        engine.heartbeat_monitor.remove(request.agentId)
+        return {"ok": True, "action": "removed"}
+
+    engine.heartbeat_monitor.record(request.agentId, request.configHash)
+
+    # Piggyback: check for stale agents and config drift
+    stale = engine.heartbeat_monitor.check_stale()
+    drifted = engine.heartbeat_monitor.check_config_drift(
+        request.agentId, request.configHash
+    )
+
+    return {"ok": True, "stale": stale, "configDrift": drifted}
 
 
 # ── LLM Layer Routes ──

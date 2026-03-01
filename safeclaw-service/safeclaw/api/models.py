@@ -144,5 +144,11 @@ class PolicyCompileResponse(BaseModel):
     validationErrors: list[str] = []
 
 
+class HeartbeatRequest(BaseModel):
+    agentId: str = ""
+    configHash: str = ""
+    status: str = "alive"  # "alive" or "shutdown"
+
+
 class PolicyApplyRequest(BaseModel):
     turtle: str
