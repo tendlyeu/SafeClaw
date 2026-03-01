@@ -48,8 +48,39 @@ def OnboardStep1():
     )
 
 
-def OnboardStep2(raw_key: str):
-    """Step 2: Show generated API key + install instructions."""
+def OnboardStep2Mistral():
+    """Step 2: Optional Mistral API key for LLM features."""
+    return Div(
+        H2("Enable LLM Features"),
+        P("SafeClaw uses Mistral for security review, smart classification, "
+          "and plain-English decision explanations.",
+          cls=TextPresets.muted_sm),
+        P("You can add this later from Preferences.",
+          cls=TextPresets.muted_sm),
+        Form(
+            LabelInput(
+                "Mistral API Key",
+                id="mistral_api_key",
+                type="password",
+                placeholder="Enter your Mistral API key",
+            ),
+            DivLAligned(
+                Button("Next", cls=ButtonT.primary, type="submit"),
+                A("Skip for now", hx_post="/dashboard/onboard/step2",
+                  hx_target="#onboard-content", hx_swap="innerHTML",
+                  cls="uk-link-muted", style="margin-left:1rem;"),
+            ),
+            hx_post="/dashboard/onboard/step2",
+            hx_target="#onboard-content",
+            hx_swap="innerHTML",
+            cls="space-y-4",
+        ),
+        id="onboard-content",
+    )
+
+
+def OnboardStep3(raw_key: str):
+    """Step 3: Show generated API key + connection instructions."""
     return Div(
         H2("Your API Key"),
         P("Copy this key now — it won't be shown again.",
@@ -62,8 +93,20 @@ def OnboardStep2(raw_key: str):
         Div(
             P("1. Install the SafeClaw plugin:"),
             Pre(Code("openclaw plugins install openclaw-safeclaw-plugin")),
-            P("2. Set your API key:"),
-            Pre(Code(f"export SAFECLAW_API_KEY={raw_key}")),
+            P("2. Connect your plugin (choose one):"),
+            P(Strong("Option A — CLI (recommended):")),
+            Pre(Code(f"safeclaw connect {raw_key}")),
+            P(Strong("Option B — Manual config file:")),
+            Pre(Code(
+                f'mkdir -p ~/.safeclaw && cat > ~/.safeclaw/config.json << \'EOF\'\n'
+                f'{{\n'
+                f'  "remote": {{\n'
+                f'    "apiKey": "{raw_key}",\n'
+                f'    "serviceUrl": "https://api.safeclaw.eu/api/v1"\n'
+                f'  }}\n'
+                f'}}\n'
+                f'EOF'
+            )),
             P("That's it — SafeClaw will govern your agent's actions automatically.",
               cls=TextPresets.muted_sm),
             cls="space-y-2",
