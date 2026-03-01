@@ -78,3 +78,49 @@ class APIKeyManager:
     def list_keys(self, org_id: str) -> list[APIKey]:
         """List all API keys for an organization."""
         return [k for k in self._keys.values() if k.org_id == org_id]
+
+
+class SQLiteAPIKeyManager:
+    """API key manager backed by a shared SQLite database.
+
+    Reads from the same api_keys table that the landing site writes to.
+    Used in SaaS mode when db_path is configured.
+    """
+
+    def __init__(self, db_path: str):
+        self._db_path = db_path
+
+    def _connect(self):
+        import sqlite3
+        return sqlite3.connect(self._db_path)
+
+    def validate_key(self, raw_key: str) -> APIKey | None:
+        """Validate an API key by looking it up in SQLite."""
+        key_id = raw_key[:12]
+        key_hash = APIKeyManager.hash_key(raw_key)
+
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
+                "FROM api_keys WHERE key_id = ? AND is_active = 1",
+                (key_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            return None
+
+        db_key_id, db_key_hash, scope, created_at, is_active, user_id = row
+        if not hmac.compare_digest(key_hash, db_key_hash):
+            return None
+
+        return APIKey(
+            key_id=db_key_id,
+            key_hash=db_key_hash,
+            org_id=str(user_id),
+            scope=scope,
+            created_at=created_at,
+            is_active=bool(is_active),
+        )
