@@ -194,8 +194,8 @@ class SQLiteAPIKeyManager:
                  params_summary[:500], decision, risk_level, reason, elapsed_ms),
             )
             self._conn.commit()
-        except sqlite3.OperationalError:
-            pass  # DB read-only or table missing — skip silently
+        except (sqlite3.OperationalError, ValueError):
+            pass  # DB read-only, table missing, or non-numeric user_id — skip
 
     def get_user_mistral_key(self, user_id: str) -> str | None:
         """Look up a user's Mistral API key from the shared DB. Returns None if not set."""

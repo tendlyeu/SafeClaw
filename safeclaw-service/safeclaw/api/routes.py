@@ -84,11 +84,14 @@ def _verify_agent_token(engine, agent_id: str | None, agent_token: str | None):
 
 
 @router.post("/evaluate/tool-call", response_model=DecisionResponse)
-async def evaluate_tool_call(request: ToolCallRequest) -> DecisionResponse:
+async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
+    # Use org_id from API key auth (numeric DB user ID) if available,
+    # otherwise fall back to client-supplied userId
+    user_id = getattr(req.state, "org_id", None) or request.userId
     event = ToolCallEvent(
         session_id=request.sessionId,
-        user_id=request.userId,
+        user_id=user_id,
         tool_name=request.toolName,
         params=request.params,
         session_history=request.sessionHistory,
@@ -105,11 +108,12 @@ async def evaluate_tool_call(request: ToolCallRequest) -> DecisionResponse:
 
 
 @router.post("/evaluate/message", response_model=DecisionResponse)
-async def evaluate_message(request: MessageRequest) -> DecisionResponse:
+async def evaluate_message(request: MessageRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
+    user_id = getattr(req.state, "org_id", None) or request.userId
     event = MessageEvent(
         session_id=request.sessionId,
-        user_id=request.userId,
+        user_id=user_id,
         to=request.to,
         content=request.content,
         agent_id=request.agentId,
