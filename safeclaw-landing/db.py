@@ -15,6 +15,8 @@ class User:
     email: str
     created_at: str
     last_login: str
+    onboarded: bool = False
+    autonomy_level: str = "moderate"
 
 
 class APIKey:
