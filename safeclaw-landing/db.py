@@ -19,6 +19,10 @@ class User:
     onboarded: bool = False
     autonomy_level: str = "moderate"
     mistral_api_key: str = ""
+    confirm_before_delete: bool = True
+    confirm_before_push: bool = True
+    confirm_before_send: bool = True
+    max_files_per_commit: int = 10
 
 
 class APIKey:
