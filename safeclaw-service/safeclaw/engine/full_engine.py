@@ -48,9 +48,23 @@ from safeclaw.engine.temp_permissions import TempPermissionManager
 
 logger = logging.getLogger("safeclaw.engine")
 
+_PATH_PARAM_KEYS = (
+    "file_path", "path", "filepath", "filename", "dest", "destination",
+    "target", "source", "src", "dir", "directory", "folder",
+)
+
 
 class FullEngine(SafeClawEngine):
     """Complete engine with pySHACL + RDFLib + ClassHierarchy."""
+
+    @staticmethod
+    def _extract_resource_path(params: dict) -> str:
+        """Extract resource path from params, checking common key variants."""
+        for key in _PATH_PARAM_KEYS:
+            val = params.get(key, "")
+            if val and isinstance(val, str):
+                return val
+        return ""
 
     def __init__(self, config: SafeClawConfig):
         self.config = config
@@ -345,7 +359,7 @@ class FullEngine(SafeClawEngine):
                         return decision
 
                     # Check resource access if params have a path
-                    resource_path = event.params.get("file_path") or event.params.get("path", "")
+                    resource_path = self._extract_resource_path(event.params)
                     if resource_path and not self.role_manager.is_resource_allowed(
                         role, resource_path
                     ):

@@ -544,3 +544,36 @@ class TestEngineMultiAgentIntegration:
         assert len(records) >= 1
         found = [r for r in records if r.agent_id == "agent-audit"]
         assert len(found) >= 1
+
+    @pytest.mark.asyncio
+    async def test_resource_deny_secrets_via_pipeline(self, engine):
+        from safeclaw.engine.core import ToolCallEvent
+
+        token = engine.agent_registry.register_agent("agent-sd", "developer", "sess-1")
+        event = ToolCallEvent(
+            session_id="sess-1",
+            user_id="user-1",
+            tool_name="read",
+            params={"path": "/secrets/api-key.txt"},
+            agent_id="agent-sd",
+            agent_token=token,
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is True
+
+    @pytest.mark.asyncio
+    async def test_resource_deny_with_alternate_param_key(self, engine):
+        from safeclaw.engine.core import ToolCallEvent
+
+        token = engine.agent_registry.register_agent("agent-fp", "developer", "sess-1")
+        event = ToolCallEvent(
+            session_id="sess-1",
+            user_id="user-1",
+            tool_name="read",
+            params={"filepath": "/secrets/api-key.txt"},
+            agent_id="agent-fp",
+            agent_token=token,
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is True
+        assert "denied" in decision.reason.lower() or "secrets" in decision.reason.lower()

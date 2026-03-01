@@ -25,8 +25,23 @@ class PolicyCheckResult:
     all_violations: list[dict] = field(default_factory=list)
 
 
+_PATH_PARAM_KEYS = (
+    "file_path", "path", "filepath", "filename", "dest", "destination",
+    "target", "source", "src", "dir", "directory", "folder",
+)
+
+
 class PolicyChecker:
     """Checks actions against policy prohibitions and obligations."""
+
+    @staticmethod
+    def _extract_resource_path(params: dict) -> str:
+        """Extract resource path from params, checking common key variants."""
+        for key in _PATH_PARAM_KEYS:
+            val = params.get(key, "")
+            if val and isinstance(val, str):
+                return val
+        return ""
 
     def __init__(
         self, knowledge_graph: KnowledgeGraph, hierarchy: ClassHierarchy | None = None
@@ -98,7 +113,7 @@ class PolicyChecker:
         all_violations: list[dict] = []
 
         # Check path constraints
-        file_path = action.params.get("file_path", "") or action.params.get("path", "")
+        file_path = self._extract_resource_path(action.params)
         if file_path:
             normalized_path = file_path.strip("/")
             for policy_uri, pattern, reason in self._forbidden_paths:
