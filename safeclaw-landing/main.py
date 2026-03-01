@@ -1,14 +1,25 @@
+import os
 from datetime import date
 
 from fasthtml.common import *
 from fasthtml.components import Footer as FooterTag
+from fasthtml.oauth import redir_url
+
+from auth import github_client, user_auth_before, get_current_user
+from db import users, upsert_user
 
 GITHUB_URL = "https://github.com/tendlyeu/SafeClaw"
 DOCS_URL = "/docs"
 
+bware = Beforeware(
+    user_auth_before,
+    skip=[r'/favicon\.ico', r'/static/.*', r'.*\.css', r'.*\.js', '/login', '/auth/callback', '/logout', '/', '/docs'],
+)
+
 app, rt = fast_app(
     pico=False,
     static_path="static",
+    before=bware,
     hdrs=(
         Link(rel="stylesheet", href="/style.css"),
         Link(rel="icon", href="/favicon.ico", type="image/x-icon"),
@@ -20,7 +31,11 @@ app, rt = fast_app(
 
 # ── Components ──
 
-def Nav():
+def Nav(user=None):
+    auth_link = (
+        Li(A("Dashboard", href="/dashboard")) if user
+        else Li(A("Sign In", href="/login", cls="btn btn-primary btn-sm"))
+    )
     return Header(
         Div(
             Div(
@@ -34,6 +49,7 @@ def Nav():
                 Li(A("Architecture", href="/#architecture")),
                 Li(A("Docs", href="/docs")),
                 Li(A("GitHub", href=GITHUB_URL, target="_blank", rel="noopener noreferrer")),
+                auth_link,
                 cls="nav-links", id="nav-links",
             ),
             Button("☰", cls="nav-mobile-toggle",
@@ -1052,10 +1068,11 @@ def _pipeline_step(num, title, description, *example_blocks):
 # ── Routes ──
 
 @rt
-def index():
+def index(sess):
+    user = get_current_user(sess)
     return (
         Title("SafeClaw — Neurosymbolic Governance for AI Agents"),
-        Nav(),
+        Nav(user),
         Hero(),
         Features(),
         HowItWorks(),
@@ -1067,13 +1084,49 @@ def index():
 
 
 @rt("/docs")
-def docs():
+def docs(sess):
+    user = get_current_user(sess)
     return (
         Title("Documentation — SafeClaw"),
-        Nav(),
+        Nav(user),
         DocsPage(),
         Footer(),
     )
+
+
+# ── Auth Routes ──
+
+@rt("/login")
+def login(req):
+    if not github_client:
+        return Titled("Login",
+            P("GitHub OAuth not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."))
+    redir = redir_url(req, "/auth/callback")
+    return RedirectResponse(github_client.login_link(redir), status_code=303)
+
+
+@rt("/auth/callback")
+async def auth_callback(req, sess, code: str = ""):
+    if not github_client or not code:
+        return RedirectResponse("/", status_code=303)
+    redir = redir_url(req, "/auth/callback")
+    info = await github_client.retr_info(code, redir)
+    github_id = info.get("id") or int(info.get("sub", 0))
+    user = upsert_user(
+        github_id=github_id,
+        github_login=info.get("login", ""),
+        name=info.get("name", info.get("login", "")),
+        avatar_url=info.get("avatar_url", ""),
+        email=info.get("email", ""),
+    )
+    sess["auth"] = user.id
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+@rt("/logout")
+def logout(sess):
+    sess.pop("auth", None)
+    return RedirectResponse("/", status_code=303)
 
 
 serve(port=5002)
