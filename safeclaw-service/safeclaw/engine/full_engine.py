@@ -164,8 +164,9 @@ class FullEngine(SafeClawEngine):
                 self.explainer = DecisionExplainer(self.llm_client)
                 logger.info("LLM layer initialized (security review, observer, explainer)")
 
-        # Per-user LLM client cache (keyed by Mistral API key)
-        self._user_llm_clients: dict = {}
+        # Per-user LLM client cache (bounded LRU, keyed by Mistral API key)
+        self._user_llm_clients: OrderedDict = OrderedDict()
+        self._max_user_llm_clients = 500
 
     def get_llm_client_for_user(self, user_id: str):
         """Get LLM client for a specific user, falling back to global client.
@@ -181,8 +182,9 @@ class FullEngine(SafeClawEngine):
         if not user_key:
             return self.llm_client  # Fall back to global
 
-        # Check cache
+        # Check cache (move to end for LRU)
         if user_key in self._user_llm_clients:
+            self._user_llm_clients.move_to_end(user_key)
             return self._user_llm_clients[user_key]
 
         # Create new client for this key
@@ -199,6 +201,9 @@ class FullEngine(SafeClawEngine):
                 timeout_ms=self.config.mistral_timeout_ms,
             )
             self._user_llm_clients[user_key] = client
+            # Evict oldest if over limit
+            while len(self._user_llm_clients) > self._max_user_llm_clients:
+                self._user_llm_clients.popitem(last=False)
             return client
         except Exception:
             logger.warning("Failed to create per-user Mistral client for user %s", user_id)

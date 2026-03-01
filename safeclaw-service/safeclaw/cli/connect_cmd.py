@@ -1,6 +1,7 @@
 """safeclaw connect — write API key to ~/.safeclaw/config.json."""
 
 import json
+import os
 from pathlib import Path
 
 import typer
@@ -35,8 +36,9 @@ def connect_cmd(
     config["remote"]["apiKey"] = api_key
     config["remote"]["serviceUrl"] = service_url
 
-    # Write config
+    # Write config with owner-only permissions (contains API key)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n")
+    os.chmod(config_path, 0o600)
 
     typer.echo(f"Connected! Your API key has been saved to {config_path}")
