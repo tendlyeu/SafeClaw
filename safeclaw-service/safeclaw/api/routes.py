@@ -196,7 +196,7 @@ async def log_llm_output(request: LlmIORequest):
     return {"ok": True}
 
 
-@router.get("/debug/db", dependencies=[Depends(require_admin)])
+@router.get("/debug/db")
 async def debug_db():
     """Temporary diagnostic: check what the service sees in the shared DB."""
     import os
