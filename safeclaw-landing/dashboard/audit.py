@@ -2,6 +2,7 @@
 
 from fasthtml.common import *
 from monsterui.all import *
+from fasthtml.components import Select as RawSelect
 
 
 def _decision_badge(decision: str):
@@ -57,12 +58,15 @@ def AuditFilters(current_filter="all", session_id=""):
     """Filter bar for the audit log."""
     return Form(
         DivLAligned(
-            LabelSelect(
-                Option("All decisions", value="all", selected=current_filter == "all"),
-                Option("Blocked only", value="blocked", selected=current_filter == "blocked"),
-                Option("Allowed only", value="allowed", selected=current_filter == "allowed"),
-                label="Filter",
-                id="filter",
+            Div(
+                FormLabel("Filter", _for="filter"),
+                RawSelect(
+                    Option("All decisions", value="all", selected=current_filter == "all"),
+                    Option("Blocked only", value="blocked", selected=current_filter == "blocked"),
+                    Option("Allowed only", value="allowed", selected=current_filter == "allowed"),
+                    name="filter", id="filter", cls="uk-select",
+                ),
+                cls="space-y-2",
             ),
             LabelInput(
                 "Session ID",
@@ -71,11 +75,13 @@ def AuditFilters(current_filter="all", session_id=""):
                 placeholder="Optional",
             ),
             Button("Apply", cls=ButtonT.primary, type="submit"),
-            cls="gap-4",
+            Span(Loading(cls=LoadingT.spinner), cls="htmx-indicator", id="audit-spinner"),
+            cls="gap-4 items-end",
         ),
         hx_get="/dashboard/audit/results",
         hx_target="#audit-results",
         hx_swap="innerHTML",
+        hx_indicator="#audit-spinner",
         cls="space-y-4",
     )
 
