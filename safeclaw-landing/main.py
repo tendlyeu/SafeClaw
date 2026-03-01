@@ -266,11 +266,13 @@ def QuickStart():
                 ),
                 Div(
                     Span("$ ", cls="prompt"),
-                    Span("export SAFECLAW_API_KEY=sc_your_key_here", cls="cmd"),
+                    Span("safeclaw connect sc_your_key_here", cls="cmd"),
                 ),
                 cls="quickstart-terminal",
             ),
-            P("That's it. The plugin connects to the hosted service by default.", cls="quickstart-desc"),
+            P("That's it. ", Code("safeclaw connect"),
+              " writes your key to ", Code("~/.safeclaw/config.json"),
+              " and verifies the connection.", cls="quickstart-desc"),
             Div(
                 Div(
                     Span("# ", cls="comment"),
@@ -278,7 +280,7 @@ def QuickStart():
                 ),
                 Div(
                     Span("# ", cls="comment"),
-                    Span("No configuration needed", cls="comment"),
+                    Span("No URL configuration needed", cls="comment"),
                 ),
                 cls="quickstart-terminal",
             ),
@@ -1255,25 +1257,32 @@ def DocsPage():
                     P("Click ", Strong("Get Started"), " on the landing page. "
                       "Sign in with your GitHub account."),
                     H3("2. Onboarding wizard", cls="docs-h3"),
-                    P("First-time users are guided through a two-step wizard:"),
+                    P("First-time users are guided through a three-step wizard:"),
                     Ul(
-                        Li(Strong("Autonomy level"), " — choose how much control SafeClaw has "
-                           "(cautious, moderate, or autonomous)"),
-                        Li(Strong("API key"), " — a key is generated automatically. "
-                           "Copy it immediately; it is shown only once."),
+                        Li(Strong("Step 1 — Autonomy level"), " — choose how much control "
+                           "SafeClaw has (cautious, moderate, or autonomous)"),
+                        Li(Strong("Step 2 — Mistral API key"), " (optional) — provide your own "
+                           "Mistral API key to enable LLM-powered features such as semantic "
+                           "action classification. You can skip this step and add it later from "
+                           "the dashboard."),
+                        Li(Strong("Step 3 — API key & connection"), " — a SafeClaw API key is "
+                           "generated automatically. The wizard shows the ",
+                           Code("safeclaw connect"), " command to run in your terminal."),
                         cls="docs-list",
                     ),
                     H3("3. Connect your agent", cls="docs-h3"),
-                    P("Install the plugin and set your key:"),
+                    P("Install the plugin and connect using the command shown in the wizard:"),
                     Div(
                         Pre(
                             "$ openclaw plugins install openclaw-safeclaw-plugin\n"
-                            "$ export SAFECLAW_API_KEY=sc_your_key_here",
+                            "$ safeclaw connect sc_your_key_here",
                             cls="docs-pre",
                         ),
                     ),
-                    P("The plugin connects to ", Code("https://api.safeclaw.eu/api/v1"),
-                      " by default. No URL configuration needed."),
+                    P(Code("safeclaw connect"), " writes the key to ",
+                      Code("~/.safeclaw/config.json"), " and verifies the connection to ",
+                      Code("https://api.safeclaw.eu/api/v1"), ". No manual environment "
+                      "variables needed."),
                     H3("4. Manage from the dashboard", cls="docs-h3"),
                     P("After onboarding, the dashboard at ", Code("safeclaw.eu/dashboard"),
                       " lets you:"),
@@ -1281,6 +1290,7 @@ def DocsPage():
                         Li("Create and revoke API keys"),
                         Li("Set preferences (confirm before delete, max files per commit)"),
                         Li("View connected agents"),
+                        Li("Add or update your Mistral API key"),
                         cls="docs-list",
                     ),
                 ),
