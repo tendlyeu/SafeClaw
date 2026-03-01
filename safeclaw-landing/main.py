@@ -1446,7 +1446,8 @@ def logout(sess):
 from monsterui.all import Theme as MUITheme, DivLAligned
 from dashboard.layout import DashboardLayout
 from dashboard.overview import OverviewContent
-from db import api_keys
+from dashboard.audit import AuditContent, AuditTable
+from db import api_keys, audit_log
 
 
 @rt("/dashboard")
@@ -1725,6 +1726,37 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
 
     users.update(user)
     return P("Preferences saved.", style="color:#4ade80;")
+
+
+@rt("/dashboard/audit")
+def dashboard_audit(req, sess):
+    user = req.scope.get("user")
+    rows = audit_log(where="user_id = ?", where_args=[user.id], order_by="-id", limit=50)
+    return (
+        Title("Audit Log — SafeClaw"),
+        *MUITheme.blue.headers(),
+        DashboardLayout("Audit Log", *AuditContent(rows), user=user, active="audit"),
+    )
+
+
+@rt("/dashboard/audit/results")
+def audit_results(req, sess, filter: str = "all", session_id: str = ""):
+    """HTMX partial: filtered audit log results."""
+    user = req.scope.get("user")
+    conditions = ["user_id = ?"]
+    args = [user.id]
+    if filter == "blocked":
+        conditions.append("decision = ?")
+        args.append("blocked")
+    elif filter == "allowed":
+        conditions.append("decision = ?")
+        args.append("allowed")
+    if session_id.strip():
+        conditions.append("session_id = ?")
+        args.append(session_id.strip())
+    where = " AND ".join(conditions)
+    rows = audit_log(where=where, where_args=args, order_by="-id", limit=50)
+    return AuditTable(rows)
 
 
 serve(port=5002)

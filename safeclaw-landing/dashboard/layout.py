@@ -10,6 +10,7 @@ def DashboardNav(user, active="overview"):
         ("overview", "Overview", "/dashboard", "layout-dashboard"),
         ("keys", "API Keys", "/dashboard/keys", "key"),
         ("agents", "Agents", "/dashboard/agents", "bot"),
+        ("audit", "Audit Log", "/dashboard/audit", "scroll-text"),
         ("prefs", "Preferences", "/dashboard/prefs", "settings"),
     ]
     nav_items = []
