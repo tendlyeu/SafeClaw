@@ -5,7 +5,7 @@ import os
 from fasthtml.common import *
 from fasthtml.oauth import GitHubAppClient
 
-from db import upsert_user, users
+from db import users
 
 # GitHub OAuth config — set these env vars
 GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")

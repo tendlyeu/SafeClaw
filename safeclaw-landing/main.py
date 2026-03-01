@@ -1,4 +1,4 @@
-import os
+import secrets
 from datetime import date
 
 from fasthtml.common import *
@@ -1097,21 +1097,30 @@ def docs(sess):
 # ── Auth Routes ──
 
 @rt("/login")
-def login(req):
+def login(req, sess):
     if not github_client:
         return Titled("Login",
             P("GitHub OAuth not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."))
+    state = secrets.token_urlsafe(32)
+    sess["oauth_state"] = state
     redir = redir_url(req, "/auth/callback")
-    return RedirectResponse(github_client.login_link(redir), status_code=303)
+    return RedirectResponse(github_client.login_link(redir, state=state), status_code=303)
 
 
 @rt("/auth/callback")
-async def auth_callback(req, sess, code: str = ""):
+def auth_callback(req, sess, code: str = "", state: str = ""):
     if not github_client or not code:
         return RedirectResponse("/", status_code=303)
+    if state != sess.pop("oauth_state", ""):
+        return RedirectResponse("/login", status_code=303)
     redir = redir_url(req, "/auth/callback")
-    info = await github_client.retr_info(code, redir)
-    github_id = info.get("id") or int(info.get("sub", 0))
+    try:
+        info = github_client.retr_info(code, redir)
+    except Exception:
+        return RedirectResponse("/login", status_code=303)
+    github_id = info.get("id")
+    if not github_id:
+        return RedirectResponse("/login", status_code=303)
     user = upsert_user(
         github_id=github_id,
         github_login=info.get("login", ""),
