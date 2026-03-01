@@ -7,7 +7,7 @@
  * to the SafeClaw service and acts on the responses.
  */
 
-import { loadConfig } from './tui/config.js';
+import { loadConfig, configHash } from './tui/config.js';
 
 // --- Configuration ---
 
@@ -115,8 +115,44 @@ export default {
       return;
     }
 
-    // Fire-and-forget startup health check
-    checkConnection().catch(() => {});
+    // Heartbeat watchdog — send config hash to service every 30s
+    const sendHeartbeat = async () => {
+      try {
+        await fetch(`${config.serviceUrl}/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: config.agentId || 'default',
+            configHash: configHash(config),
+            status: 'alive',
+          }),
+          signal: AbortSignal.timeout(config.timeoutMs),
+        });
+      } catch {
+        // Heartbeat failure is non-fatal
+      }
+    };
+
+    // Start heartbeat after connection check
+    checkConnection().then(() => sendHeartbeat()).catch(() => {});
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
+
+    // Clean shutdown: send shutdown heartbeat and clear interval
+    const shutdown = () => {
+      clearInterval(heartbeatInterval);
+      fetch(`${config.serviceUrl}/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: config.agentId || 'default',
+          configHash: configHash(config),
+          status: 'shutdown',
+        }),
+      }).catch(() => {});
+    };
+    process.on('exit', shutdown);
+    process.on('SIGINT', () => { shutdown(); process.exit(0); });
+    process.on('SIGTERM', () => { shutdown(); process.exit(0); });
 
     // THE GATE — constraint checking on every tool call
     api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
