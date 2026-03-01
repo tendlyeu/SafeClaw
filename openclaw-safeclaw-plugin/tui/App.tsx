@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import { Text, Box, useInput, useApp } from 'ink';
+import { createRequire } from 'module';
 import { loadConfig, type SafeClawConfig } from './config.js';
 import Status from './Status.js';
 import Settings from './Settings.js';
 import About from './About.js';
+
+const require = createRequire(import.meta.url);
+const { version: PKG_VERSION } = require('../package.json');
 
 const TABS = ['Status', 'Settings', 'About'] as const;
 type Tab = typeof TABS[number];
@@ -34,7 +38,7 @@ export default function App() {
       {/* Header */}
       <Box borderStyle="single" borderColor="green" paddingX={1}>
         <Text bold color="green">SafeClaw </Text>
-        <Text dimColor>v0.2.0</Text>
+        <Text dimColor>v{PKG_VERSION}</Text>
       </Box>
 
       {/* Tab bar */}
