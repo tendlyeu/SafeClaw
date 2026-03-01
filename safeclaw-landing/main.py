@@ -1684,6 +1684,7 @@ async def dashboard_prefs(req, sess):
         "self_hosted": bool(user.self_hosted),
         "service_url": user.service_url,
         "admin_password": user.admin_password,
+        "audit_logging": bool(user.audit_logging),
     }
 
     # Mask Mistral key for display: show last 4 chars only
@@ -1703,7 +1704,8 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
                      confirm_before_delete: str = "", confirm_before_push: str = "",
                      confirm_before_send: str = "", max_files_per_commit: int = 10,
                      mistral_api_key: str = "", self_hosted: str = "",
-                     service_url: str = "", admin_password: str = ""):
+                     service_url: str = "", admin_password: str = "",
+                     audit_logging: str = ""):
     user = req.scope.get("user")
 
     user.autonomy_level = autonomy_level
@@ -1713,6 +1715,7 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
     user.confirm_before_send = confirm_before_send == "on"
     user.max_files_per_commit = max_files_per_commit
     user.self_hosted = self_hosted == "on"
+    user.audit_logging = audit_logging == "on"
     user.service_url = service_url.strip()
     user.admin_password = admin_password
 

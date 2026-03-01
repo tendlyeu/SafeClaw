@@ -21,6 +21,7 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
             "self_hosted": False,
             "service_url": "",
             "admin_password": "",
+            "audit_logging": True,
         }
 
     self_hosted = prefs.get("self_hosted", False)
@@ -102,6 +103,27 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
             ),
             P("Blocks commits touching more files than this. Set to 100 to disable.",
               cls=TextPresets.muted_sm),
+        ),
+
+        Divider(),
+
+        # ── Audit Logging ──
+        Div(
+            H4("Audit Logging"),
+            P("When enabled, SafeClaw logs every governance decision "
+              "(allowed and blocked) to your dashboard for review.",
+              cls=TextPresets.muted_sm),
+            cls="space-y-1",
+        ),
+
+        _field_group(
+            LabelCheckboxX(
+                "Log governance decisions to dashboard",
+                id="audit_logging",
+                checked=prefs.get("audit_logging", True),
+            ),
+            P("Disable to stop recording decisions. Existing logs are preserved.",
+              cls=TextPresets.muted_sm, style="padding-left:1.75rem;"),
         ),
 
         Divider(),
