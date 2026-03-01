@@ -1,6 +1,7 @@
 import secrets
 from datetime import date
 
+import httpx
 from fasthtml.common import *
 from fasthtml.components import Footer as FooterTag
 from fasthtml.oauth import redir_url
@@ -1228,6 +1229,71 @@ def revoke_key(req, sess, key_pk: int):
     key.is_active = False
     api_keys.update(key)
     return KeyTable(user.id)
+
+
+from dashboard.agents import AgentsContent, AgentTable
+
+
+@rt("/dashboard/agents")
+def dashboard_agents(req, sess):
+    user = req.scope.get("user")
+    return (
+        Title("Agents — SafeClaw"),
+        *MUITheme.blue.headers(),
+        DashboardLayout("Agents", *AgentsContent(), user=user, active="agents"),
+    )
+
+
+@rt("/dashboard/agents/load")
+async def load_agents(req, sess, service_url: str = "", admin_password: str = ""):
+    """Fetch agents from the service API."""
+    sess["service_url"] = service_url or "http://localhost:8420"
+    sess["admin_password"] = admin_password
+    try:
+        headers = {}
+        if admin_password:
+            headers["X-Admin-Password"] = admin_password
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{service_url}/api/v1/agents", headers=headers)
+            r.raise_for_status()
+            agents = r.json().get("agents", [])
+            return AgentTable(agents)
+    except Exception as e:
+        return P(f"Could not connect: {e}", cls=TextPresets.muted_sm)
+
+
+@rt("/dashboard/agents/{agent_id}/kill")
+async def kill_agent_proxy(req, sess, agent_id: str):
+    """Proxy kill request to service."""
+    service_url = sess.get("service_url", "http://localhost:8420")
+    headers = {}
+    admin_pw = sess.get("admin_password", "")
+    if admin_pw:
+        headers["X-Admin-Password"] = admin_pw
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"{service_url}/api/v1/agents/{agent_id}/kill", headers=headers)
+            r = await client.get(f"{service_url}/api/v1/agents", headers=headers)
+            return AgentTable(r.json().get("agents", []))
+    except Exception as e:
+        return P(f"Error: {e}", cls=TextPresets.muted_sm)
+
+
+@rt("/dashboard/agents/{agent_id}/revive")
+async def revive_agent_proxy(req, sess, agent_id: str):
+    """Proxy revive request to service."""
+    service_url = sess.get("service_url", "http://localhost:8420")
+    headers = {}
+    admin_pw = sess.get("admin_password", "")
+    if admin_pw:
+        headers["X-Admin-Password"] = admin_pw
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"{service_url}/api/v1/agents/{agent_id}/revive", headers=headers)
+            r = await client.get(f"{service_url}/api/v1/agents", headers=headers)
+            return AgentTable(r.json().get("agents", []))
+    except Exception as e:
+        return P(f"Error: {e}", cls=TextPresets.muted_sm)
 
 
 serve(port=5002)
