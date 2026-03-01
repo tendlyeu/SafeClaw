@@ -692,6 +692,19 @@ class FullEngine(SafeClawEngine):
         )
         decision.audit_id = record.id
         self.audit.log(record)
+        if self.api_key_manager and hasattr(self.api_key_manager, 'log_audit_decision'):
+            import json
+            self.api_key_manager.log_audit_decision(
+                user_id=event.user_id,
+                timestamp=record.timestamp,
+                session_id=event.session_id,
+                tool_name="message",
+                params_summary=json.dumps({"to": event.to}, default=str)[:500],
+                decision="blocked" if decision.block else "allowed",
+                risk_level=risk_level,
+                reason=decision.reason or "passed all checks",
+                elapsed_ms=elapsed_ms,
+            )
 
     async def build_context(self, event: AgentStartEvent) -> ContextResult:
         # Get session summary from tracker
@@ -893,3 +906,18 @@ class FullEngine(SafeClawEngine):
         )
         decision.audit_id = record.id
         self.audit.log(record)
+        # Write to shared DB for user dashboard (if enabled)
+        if self.api_key_manager and hasattr(self.api_key_manager, 'log_audit_decision'):
+            import json
+            params_summary = json.dumps(event.params, default=str)[:500]
+            self.api_key_manager.log_audit_decision(
+                user_id=event.user_id,
+                timestamp=record.timestamp,
+                session_id=event.session_id,
+                tool_name=event.tool_name,
+                params_summary=params_summary,
+                decision="blocked" if decision.block else "allowed",
+                risk_level=action.risk_level,
+                reason=decision.reason or "passed all checks",
+                elapsed_ms=elapsed_ms,
+            )
