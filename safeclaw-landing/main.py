@@ -257,8 +257,16 @@ def QuickStart():
               cls="quickstart-desc"),
             Div(
                 Div(
+                    Span("# ", cls="prompt"),
+                    Span("Sign up at safeclaw.eu and get your API key", cls="comment"),
+                ),
+                Div(
                     Span("$ ", cls="prompt"),
                     Span("openclaw plugins install openclaw-safeclaw-plugin", cls="cmd"),
+                ),
+                Div(
+                    Span("$ ", cls="prompt"),
+                    Span("export SAFECLAW_API_KEY=sc_your_key_here", cls="cmd"),
                 ),
                 cls="quickstart-terminal",
             ),
@@ -355,6 +363,7 @@ def DocsToc():
         ("user-dashboard", "User Dashboard"),
         ("demos", "Demonstration Flows"),
         ("config", "Configuration Reference"),
+        ("saas", "SaaS Onboarding"),
     ]
     return Div(
         H3("Contents"),
@@ -1361,8 +1370,12 @@ async def health_check(req, sess):
     """HTMX partial: check service health."""
     import httpx
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        import os
+        if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
+            service_url = f"{req.url.scheme}://{req.url.netloc}/api/v1"
+        else:
             service_url = sess.get("service_url", "http://localhost:8420")
+        async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{service_url}/health")
             data = r.json()
             status = data.get("status", "unknown")
