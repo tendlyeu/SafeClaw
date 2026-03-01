@@ -1699,20 +1699,22 @@ async def dashboard_prefs(req, sess):
 
 
 @rt("/dashboard/prefs/save")
-async def save_prefs(req, sess):
+async def save_prefs(req, sess, autonomy_level: str = "moderate",
+                     confirm_before_delete: str = "", confirm_before_push: str = "",
+                     confirm_before_send: str = "", max_files_per_commit: int = 10,
+                     mistral_api_key: str = "", self_hosted: str = "",
+                     service_url: str = "", admin_password: str = ""):
     user = req.scope.get("user")
-    form = await req.form()
 
-    user.autonomy_level = form.get("autonomy_level", "moderate")
+    user.autonomy_level = autonomy_level
     # HTML checkboxes send "on" when checked, nothing when unchecked
-    user.confirm_before_delete = "confirm_before_delete" in form
-    user.confirm_before_push = "confirm_before_push" in form
-    user.confirm_before_send = "confirm_before_send" in form
-    user.max_files_per_commit = int(form.get("max_files_per_commit", 10))
-    user.self_hosted = "self_hosted" in form
-    user.service_url = form.get("service_url", "").strip()
-    user.admin_password = form.get("admin_password", "")
-    mistral_api_key = form.get("mistral_api_key", "")
+    user.confirm_before_delete = confirm_before_delete == "on"
+    user.confirm_before_push = confirm_before_push == "on"
+    user.confirm_before_send = confirm_before_send == "on"
+    user.max_files_per_commit = max_files_per_commit
+    user.self_hosted = self_hosted == "on"
+    user.service_url = service_url.strip()
+    user.admin_password = admin_password
 
     # Save Mistral key if changed (not the masked placeholder)
     if mistral_api_key and not mistral_api_key.startswith("••••"):
