@@ -1138,4 +1138,48 @@ def logout(sess):
     return RedirectResponse("/", status_code=303)
 
 
+# ── Dashboard Routes ──
+
+from monsterui.all import Theme as MUITheme, DivLAligned
+from dashboard.layout import DashboardLayout
+from dashboard.overview import OverviewContent
+from db import api_keys
+
+
+@rt("/dashboard")
+def dashboard(req, sess):
+    user = req.scope.get("user")
+    key_count = len(api_keys(where="user_id = ? AND is_active = 1", where_args=[user.id]))
+    return (
+        Title("Dashboard — SafeClaw"),
+        *MUITheme.blue.headers(),
+        DashboardLayout("Overview", *OverviewContent(user, key_count), user=user, active="overview"),
+    )
+
+
+@rt("/dashboard/health-check")
+async def health_check(req, sess):
+    """HTMX partial: check service health."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get("http://localhost:8420/health")
+            data = r.json()
+            status = data.get("status", "unknown")
+            if status == "ok":
+                return DivLAligned(
+                    Span("●", style="color:#4ade80; font-size:20px;"),
+                    Span("Service healthy"),
+                )
+            return DivLAligned(
+                Span("●", style="color:#fb923c; font-size:20px;"),
+                Span(f"Status: {status}"),
+            )
+    except Exception:
+        return DivLAligned(
+            Span("●", style="color:#f87171; font-size:20px;"),
+            Span("Service unreachable"),
+        )
+
+
 serve(port=5002)
