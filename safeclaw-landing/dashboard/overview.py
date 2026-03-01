@@ -17,6 +17,23 @@ def ServiceHealthCard():
     )
 
 
+def MistralNudge():
+    """Banner shown when user has no Mistral API key configured."""
+    return Card(
+        DivLAligned(
+            UkIcon("alert-triangle", height=20),
+            Div(
+                P(Strong("LLM features disabled")),
+                P("Add your Mistral API key in ",
+                  A("Preferences", href="/dashboard/prefs"),
+                  " to enable security review and smart classification.",
+                  cls=TextPresets.muted_sm),
+            ),
+        ),
+        cls="uk-alert-warning",
+    )
+
+
 def GettingStartedCard():
     """Setup instructions for new users."""
     return Card(
@@ -25,16 +42,16 @@ def GettingStartedCard():
             P("1. Create an API key in the ", A("Keys", href="/dashboard/keys"), " tab"),
             P("2. Install the OpenClaw plugin:"),
             Pre(Code("openclaw plugins install openclaw-safeclaw-plugin")),
-            P("3. Set your API key:"),
-            Pre(Code("export SAFECLAW_API_KEY=sc_your_key_here")),
+            P("3. Connect your plugin:"),
+            Pre(Code("safeclaw connect sc_your_key_here")),
             cls="space-y-2",
         ),
     )
 
 
-def OverviewContent(user, key_count: int):
+def OverviewContent(user, key_count: int, has_mistral_key: bool = True):
     """Main overview page content."""
-    return (
+    content = [
         Grid(
             Card(
                 DivLAligned(UkIcon("key", height=20), H4("API Keys")),
@@ -48,6 +65,9 @@ def OverviewContent(user, key_count: int):
             ),
             cols=2,
         ),
-        ServiceHealthCard(),
-        GettingStartedCard(),
-    )
+    ]
+    if not has_mistral_key:
+        content.append(MistralNudge())
+    content.append(ServiceHealthCard())
+    content.append(GettingStartedCard())
+    return tuple(content)

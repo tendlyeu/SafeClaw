@@ -1399,7 +1399,9 @@ def dashboard(req, sess):
     return (
         Title("Dashboard — SafeClaw"),
         *MUITheme.blue.headers(),
-        DashboardLayout("Overview", *OverviewContent(user, key_count), user=user, active="overview"),
+        DashboardLayout("Overview",
+                        *OverviewContent(user, key_count, has_mistral_key=bool(user.mistral_api_key)),
+                        user=user, active="overview"),
     )
 
 
