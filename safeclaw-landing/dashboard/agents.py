@@ -1,5 +1,6 @@
 """Agent management page — proxies to SafeClaw service API."""
 
+from fasthtml.common import *
 from monsterui.all import *
 
 

@@ -1,5 +1,6 @@
 """Shared dashboard layout with sidebar navigation."""
 
+from fasthtml.common import *
 from monsterui.all import *
 
 

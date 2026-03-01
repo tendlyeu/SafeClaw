@@ -4,6 +4,7 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 
+from fasthtml.common import *
 from monsterui.all import *
 
 from db import api_keys

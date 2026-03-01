@@ -1,5 +1,6 @@
 """Onboarding wizard — shown to first-time users after GitHub OAuth."""
 
+from fasthtml.common import *
 from monsterui.all import *
 
 
