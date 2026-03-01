@@ -54,8 +54,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Auth middleware — uses the same _config instance (R3-30, R3-32, R4-30)
-app.add_middleware(APIKeyAuthMiddleware, require_auth=_config.require_auth)
+# Auth middleware — uses SQLite key manager when db_path is configured
+_api_key_manager = None
+if _config.require_auth and _config.db_path:
+    from safeclaw.auth.api_key import SQLiteAPIKeyManager
+    _api_key_manager = SQLiteAPIKeyManager(_config.db_path)
+app.add_middleware(
+    APIKeyAuthMiddleware,
+    api_key_manager=_api_key_manager,
+    require_auth=_config.require_auth,
+)
 
 # Request timing
 app.add_middleware(TimingMiddleware)

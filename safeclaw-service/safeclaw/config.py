@@ -25,6 +25,8 @@ class SafeClawConfig(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    db_path: str = ""  # Path to shared SQLite DB (SaaS mode)
+
     # Admin dashboard
     admin_password: str = ""
 
