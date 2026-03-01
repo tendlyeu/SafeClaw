@@ -807,3 +807,10 @@ a:hover { opacity: 0.8; }
   .btn { width: 100%; max-width: 280px; justify-content: center; }
   .section { padding: 60px 0; }
 }
+
+/* ── Nav Auth Button ── */
+.btn-sm {
+  font-size: 0.85rem;
+  padding: 6px 16px;
+  border-radius: 6px;
+}
