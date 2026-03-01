@@ -5,7 +5,7 @@ Neurosymbolic governance plugin for OpenClaw AI agents. Validates every tool cal
 ## Install
 
 ```bash
-npm install openclaw-safeclaw-plugin
+openclaw plugins install openclaw-safeclaw-plugin
 ```
 
 ## Quick Start
@@ -13,7 +13,7 @@ npm install openclaw-safeclaw-plugin
 Install and go — the plugin connects to SafeClaw's hosted service by default:
 
 ```bash
-npm install openclaw-safeclaw-plugin
+openclaw plugins install openclaw-safeclaw-plugin
 ```
 
 No configuration needed. The default service URL is `https://api.safeclaw.eu/api/v1`.

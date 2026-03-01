@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Text, Box } from 'ink';
+import { Text, Box, useInput } from 'ink';
+import { exec } from 'child_process';
 import { type SafeClawConfig } from './config.js';
 
 interface StatusProps {
@@ -12,10 +13,14 @@ interface HealthData {
   engine_ready?: boolean;
 }
 
+type OpenClawStatus = 'checking' | 'running' | 'not running' | 'error';
+
 export default function Status({ config }: StatusProps) {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const [openclawStatus, setOpenclawStatus] = useState<OpenClawStatus>('checking');
+  const [restartMsg, setRestartMsg] = useState<string | null>(null);
 
   const checkHealth = async () => {
     try {
@@ -37,18 +42,57 @@ export default function Status({ config }: StatusProps) {
     setLastCheck(new Date());
   };
 
+  const checkOpenClaw = () => {
+    exec('openclaw daemon status', { timeout: 10000 }, (err, stdout) => {
+      if (err) {
+        setOpenclawStatus('not running');
+      } else {
+        const output = stdout.toLowerCase();
+        setOpenclawStatus(output.includes('running') ? 'running' : 'not running');
+      }
+    });
+  };
+
+  const restartOpenClaw = () => {
+    setRestartMsg('Restarting...');
+    exec('openclaw daemon restart', { timeout: 15000 }, (err) => {
+      if (err) {
+        setRestartMsg('Restart failed');
+      } else {
+        setRestartMsg('Restarted');
+        checkOpenClaw();
+      }
+      setTimeout(() => setRestartMsg(null), 3000);
+    });
+  };
+
   useEffect(() => {
     checkHealth();
-    const interval = setInterval(checkHealth, 10000);
+    checkOpenClaw();
+    const interval = setInterval(() => {
+      checkHealth();
+      checkOpenClaw();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
+  useInput((input) => {
+    if (input === 'r') {
+      restartOpenClaw();
+    }
+  });
+
   const connected = health !== null;
   const dot = '●';
-  const dotColor = connected ? 'green' : 'red';
-  const statusText = connected
+  const serviceDotColor = connected ? 'green' : 'red';
+  const serviceText = connected
     ? `Connected (${config.serviceUrl.replace(/^https?:\/\//, '').replace(/\/api\/v1$/, '')})`
     : error ?? 'Disconnected';
+
+  const openclawDotColor = openclawStatus === 'running' ? 'green' : openclawStatus === 'checking' ? 'yellow' : 'red';
+  const openclawText = openclawStatus === 'checking' ? 'Checking...'
+    : openclawStatus === 'running' ? 'Running'
+    : 'Not running';
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -58,8 +102,15 @@ export default function Status({ config }: StatusProps) {
 
       <Box>
         <Text dimColor>{'  Service     '}</Text>
-        <Text color={dotColor}>{dot} </Text>
-        <Text>{statusText}</Text>
+        <Text color={serviceDotColor}>{dot} </Text>
+        <Text>{serviceText}</Text>
+      </Box>
+
+      <Box>
+        <Text dimColor>{'  OpenClaw    '}</Text>
+        <Text color={openclawDotColor}>{dot} </Text>
+        <Text>{openclawText}</Text>
+        {restartMsg && <Text dimColor>{`  (${restartMsg})`}</Text>}
       </Box>
 
       <Box>
@@ -94,6 +145,12 @@ export default function Status({ config }: StatusProps) {
           </Text>
         </Box>
       )}
+
+      <Box marginTop={1}>
+        <Text dimColor>{'  Press '}</Text>
+        <Text bold>r</Text>
+        <Text dimColor>{' to restart OpenClaw daemon'}</Text>
+      </Box>
     </Box>
   );
 }

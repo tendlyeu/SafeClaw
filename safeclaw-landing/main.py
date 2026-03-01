@@ -258,7 +258,7 @@ def QuickStart():
             Div(
                 Div(
                     Span("$ ", cls="prompt"),
-                    Span("npm install openclaw-safeclaw-plugin", cls="cmd"),
+                    Span("openclaw plugins install openclaw-safeclaw-plugin", cls="cmd"),
                 ),
                 cls="quickstart-terminal",
             ),
