@@ -908,6 +908,32 @@ def DocsPage():
                     P("The status auto-refreshes every 10 seconds. Press ",
                       Code("r"), " to restart the OpenClaw daemon directly from the TUI."),
 
+                    H3("safeclaw connect", cls="docs-h3"),
+                    P("Links your local agent to the SafeClaw service by writing "
+                      "your API key to ", Code("~/.safeclaw/config.json"), ":"),
+                    Div(
+                        Pre(
+                            "$ safeclaw connect sc_abc123...\n"
+                            "Connected! Your API key has been saved to ~/.safeclaw/config.json",
+                            cls="docs-pre",
+                        ),
+                    ),
+                    P("The config file is created with ", Code("0600"),
+                      " permissions (owner read/write only). "
+                      "If a config file already exists, only the ",
+                      Code("remote.apiKey"), " and ", Code("remote.serviceUrl"),
+                      " fields are updated — other settings are preserved."),
+                    P("By default the service URL is set to ",
+                      Code("https://api.safeclaw.eu/api/v1"),
+                      ". To connect to a self-hosted instance:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw connect sc_abc123... "
+                            "--service-url http://localhost:8420/api/v1",
+                            cls="docs-pre",
+                        ),
+                    ),
+
                     H3("safeclaw restart-openclaw", cls="docs-h3"),
                     P("Restarts the OpenClaw daemon from the command line without opening the TUI:"),
                     Div(
@@ -1040,7 +1066,10 @@ def DocsPage():
                     Ul(
                         Li("Click ", Strong("Sign In"), " in the nav bar to start GitHub OAuth"),
                         Li("Authorize the SafeClaw app on GitHub"),
-                        Li("You're redirected to ", Code("/dashboard"), " with a session cookie"),
+                        Li("First-time users are redirected to the ",
+                           A("onboarding wizard", href="#doc-saas"),
+                           " to set preferences and get their API key"),
+                        Li("Returning users go straight to ", Code("/dashboard")),
                         Li("All ", Code("/dashboard/*"), " routes are protected by Beforeware"),
                         cls="docs-list",
                     ),
@@ -1056,7 +1085,7 @@ def DocsPage():
                                 Tr(Td(Strong("Agents")), Td(Code("/dashboard/agents")),
                                    Td("View registered agents, kill/revive via service API")),
                                 Tr(Td(Strong("Preferences")), Td(Code("/dashboard/prefs")),
-                                   Td("Set autonomy level, confirmation rules, file limits")),
+                                   Td("Set autonomy level, confirmation rules, file limits, Mistral API key")),
                             ),
                         ),
                         cls="docs-table-wrap",
@@ -1087,6 +1116,8 @@ def DocsPage():
                                    Td("Require confirmation before sending messages")),
                                 Tr(Td(Strong("Max files per commit")), Td("number"),
                                    Td("Limit files changed in a single commit")),
+                                Tr(Td(Strong("Mistral API key")), Td("password"),
+                                   Td("Your personal Mistral key for LLM-powered features")),
                             ),
                         ),
                         cls="docs-table-wrap",
@@ -1247,6 +1278,22 @@ def DocsPage():
                         ),
                         cls="docs-table-wrap",
                     ),
+                    H3("Config File (~/.safeclaw/config.json)", cls="docs-h3"),
+                    P("The ", Code("safeclaw connect"), " command writes a JSON config file "
+                      "that the plugin reads at startup. Example:"),
+                    Div(
+                        Pre(Code(
+                            '{\n'
+                            '  "remote": {\n'
+                            '    "apiKey": "sc_abc123...",\n'
+                            '    "serviceUrl": "https://api.safeclaw.eu/api/v1"\n'
+                            '  }\n'
+                            '}'
+                        ), cls="docs-pre"),
+                    ),
+                    P("This file takes precedence over environment variables for ",
+                      Code("SAFECLAW_API_KEY"), " and ", Code("SAFECLAW_URL"),
+                      ". The file is created with ", Code("0600"), " permissions."),
                 ),
 
                 # ── 19. SaaS Onboarding ──

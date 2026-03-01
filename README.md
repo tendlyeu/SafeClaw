@@ -17,15 +17,30 @@ SafeClaw/
 │   │   ├── api/                   # FastAPI routes
 │   │   ├── audit/                 # Append-only JSONL logging
 │   │   └── cli/                   # CLI commands
-│   └── tests/                     # 157 tests
-└── openclaw-safeclaw-plugin/      # TypeScript bridge for OpenClaw
-    ├── index.ts                   # Plugin hooks (~80 lines)
-    └── SKILL.md                   # ClawHub distribution docs
+│   └── tests/                     # 330 tests
+├── openclaw-safeclaw-plugin/      # TypeScript bridge for OpenClaw
+│   ├── index.ts                   # Plugin hooks (~80 lines)
+│   └── SKILL.md                   # ClawHub distribution docs
+└── safeclaw-landing/              # FastHTML landing site + user dashboard
+    ├── main.py                    # Routes, docs page, landing page
+    ├── db.py                      # SQLite user/key models
+    └── dashboard/                 # Dashboard pages (onboard, keys, prefs, agents)
 ```
 
 ## Quick Start
 
-### 1. Start the SafeClaw service
+### Hosted (recommended)
+
+Sign up at [safeclaw.eu](https://safeclaw.eu), get your API key from the onboarding wizard, then:
+
+```bash
+openclaw plugins install openclaw-safeclaw-plugin
+safeclaw connect sc_your_key_here
+```
+
+`safeclaw connect` writes your key to `~/.safeclaw/config.json` — no environment variables needed.
+
+### Self-hosted
 
 ```bash
 cd safeclaw-service
@@ -33,25 +48,17 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Initialize config
 safeclaw init --user-id yourname
-
-# Run the service
 safeclaw serve
 # → http://localhost:8420
 ```
 
-### 2. Install the OpenClaw plugin
-
-The TypeScript plugin connects your OpenClaw agent to the SafeClaw service:
+Then install and connect the plugin:
 
 ```bash
-cd openclaw-safeclaw-plugin
-npm install
-npm run build
+openclaw plugins install openclaw-safeclaw-plugin
+safeclaw connect sc_your_key --service-url http://localhost:8420/api/v1
 ```
-
-Or install via ClawHub (when available).
 
 ## What it does
 
@@ -65,15 +72,15 @@ Or install via ClawHub (when available).
 
 Every action passes through a 9-step validation:
 
-1. Action Classification (OWL reasoning)
-2. SHACL Shape Validation
-3. Policy Check
-4. Preference Check
-5. Dependency Check
-6. Temporal Check
-7. Rate Limit
-8. Derived Rules
-9. Decision + Audit
+1. Agent Governance (token auth, kill switch, delegation detection)
+2. Action Classification (OWL reasoning + LLM)
+3. Role-Based Access (allowed/denied actions and resources)
+4. SHACL Shape Validation
+5. Policy Check
+6. Preference Check
+7. Dependency Check
+8. Temporal + Rate Limit
+9. Derived Rules
 
 ## Running Tests
 
