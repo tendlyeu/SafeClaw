@@ -349,7 +349,7 @@ def DocsToc():
         ("audit", "Audit Trail"),
         ("messages", "Message Governance"),
         ("errors", "Error Handling"),
-        ("cli-diagnostics", "CLI Diagnostics"),
+        ("cli-diagnostics", "CLI & TUI"),
         ("events", "Real-Time Events (SSE)"),
         ("dashboard", "Admin Dashboard"),
         ("user-dashboard", "User Dashboard"),
@@ -537,10 +537,14 @@ def DocsPage():
                             "Token invalid", "Agent killed", "Delegation bypass detected"),
                         _pipeline_step("2", "Action Classification",
                             "Maps tool name + parameters to an ontology class. "
-                            "Assigns risk level, reversibility, and scope.",
+                            "Assigns risk level, reversibility, and scope. "
+                            "Covers all common tool variants: read, write, edit, delete, "
+                            "remove, unlink, trash, shell, and more.",
                             "Unknown tool type", "Unclassifiable action"),
                         _pipeline_step("3", "Role-Based Access Control",
                             "Checks if the agent's role allows the classified action and resource path. "
+                            "Resource paths are extracted from multiple param key variants "
+                            "(file_path, path, filepath, dest, target, source, and more). "
                             "Uses ontology hierarchy: denying a parent class denies all subclasses. "
                             "Temporary permissions are checked first.",
                             "Role 'researcher' does not allow action 'WriteFile'",
@@ -867,10 +871,42 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 13. CLI Diagnostics ──
-                DocsSection("cli-diagnostics", "CLI Diagnostics",
-                    P("SafeClaw includes two CLI commands for diagnosing service health "
-                      "and configuration issues."),
+                # ── 13. CLI & TUI ──
+                DocsSection("cli-diagnostics", "CLI & TUI",
+                    P("SafeClaw provides CLI commands and an interactive terminal UI "
+                      "for managing the service, diagnosing issues, and controlling OpenClaw."),
+
+                    H3("safeclaw tui", cls="docs-h3"),
+                    P("Opens the interactive settings TUI. The ", Strong("Status"),
+                      " tab shows live health for both SafeClaw and the OpenClaw daemon:"),
+                    Div(
+                        Pre(
+                            "  Service      ● Connected (localhost:8420)\n"
+                            "  OpenClaw     ● Running\n"
+                            "  Enforcement  enforce\n"
+                            "  Fail Mode    closed\n"
+                            "  Enabled      ON\n"
+                            "\n"
+                            "  Service v0.1.0\n"
+                            "  Last check: 14:32:05\n"
+                            "\n"
+                            "  Press r to restart OpenClaw daemon",
+                            cls="docs-pre",
+                        ),
+                    ),
+                    P("The status auto-refreshes every 10 seconds. Press ",
+                      Code("r"), " to restart the OpenClaw daemon directly from the TUI."),
+
+                    H3("safeclaw restart-openclaw", cls="docs-h3"),
+                    P("Restarts the OpenClaw daemon from the command line without opening the TUI:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw restart-openclaw\n"
+                            "OpenClaw daemon restarted successfully.",
+                            cls="docs-pre",
+                        ),
+                    ),
+
                     H3("safeclaw status check", cls="docs-h3"),
                     P("Pings the running service and displays component-level health:"),
                     Div(
@@ -893,6 +929,7 @@ def DocsPage():
                         ),
                     ),
                     P("If the service is not running, it shows a clear error with the suggested fix."),
+
                     H3("safeclaw status diagnose", cls="docs-h3"),
                     P("Runs offline checks without requiring the service to be running:"),
                     Ul(
