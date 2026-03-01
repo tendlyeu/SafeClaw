@@ -18,6 +18,7 @@ class User:
     last_login: str
     onboarded: bool = False
     autonomy_level: str = "moderate"
+    mistral_api_key: str = ""
 
 
 class APIKey:
