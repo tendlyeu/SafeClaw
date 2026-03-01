@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 MAX_PARAMS_DEPTH = 5
@@ -152,3 +152,13 @@ class HeartbeatRequest(BaseModel):
 
 class PolicyApplyRequest(BaseModel):
     turtle: str
+
+
+class PreferencesRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    autonomy_level: str = Field("moderate", alias="autonomy_level")
+    confirm_before_delete: bool = Field(True, alias="confirm_before_delete")
+    confirm_before_push: bool = Field(True, alias="confirm_before_push")
+    confirm_before_send: bool = Field(True, alias="confirm_before_send")
+    max_files_per_commit: int = Field(10, alias="max_files_per_commit")

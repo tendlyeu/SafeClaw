@@ -18,6 +18,7 @@ from safeclaw.api.models import (
     MessageRequest,
     PolicyCompileRequest,
     PolicyCompileResponse,
+    PreferencesRequest,
     SessionEndRequest,
     TempGrantRequest,
     TempGrantResponse,
@@ -211,6 +212,55 @@ async def reload_ontologies():
     engine = _get_engine()
     await engine.reload()
     return {"ok": True, "triples": len(engine.kg)}
+
+
+@router.get("/preferences/{user_id}", dependencies=[Depends(require_admin)])
+async def get_preferences(user_id: str):
+    """Get user preferences as JSON."""
+    engine = _get_engine()
+    prefs = engine.preference_checker.get_preferences(user_id)
+    return {
+        "autonomy_level": prefs.autonomy_level,
+        "confirm_before_delete": prefs.confirm_before_delete,
+        "confirm_before_push": prefs.confirm_before_push,
+        "confirm_before_send": prefs.confirm_before_send,
+        "max_files_per_commit": prefs.max_files_per_commit,
+    }
+
+
+@router.post("/preferences/{user_id}", dependencies=[Depends(require_admin)])
+async def update_preferences(user_id: str, request: PreferencesRequest):
+    """Update user preferences — writes Turtle file."""
+    import re
+    from pathlib import Path
+
+    engine = _get_engine()
+    safe_user_id = re.sub(r'[^a-zA-Z0-9_@.-]', '', user_id)
+
+    users_dir = engine.config.data_dir / "ontologies" / "users"
+    users_dir.mkdir(parents=True, exist_ok=True)
+    ttl_path = users_dir / f"user-{safe_user_id}.ttl"
+
+    su = "http://safeclaw.uku.ai/ontology/user#"
+
+    turtle = f"""@prefix su: <{su}> .
+
+su:user-{safe_user_id} a su:User ;
+    su:hasPreference su:pref-{safe_user_id} .
+
+su:pref-{safe_user_id} a su:UserPreferences ;
+    su:autonomyLevel "{request.autonomy_level}" ;
+    su:confirmBeforeDelete "{str(request.confirm_before_delete).lower()}"^^<http://www.w3.org/2001/XMLSchema#boolean> ;
+    su:confirmBeforePush "{str(request.confirm_before_push).lower()}"^^<http://www.w3.org/2001/XMLSchema#boolean> ;
+    su:confirmBeforeSend "{str(request.confirm_before_send).lower()}"^^<http://www.w3.org/2001/XMLSchema#boolean> ;
+    su:maxFilesPerCommit "{request.max_files_per_commit}"^^<http://www.w3.org/2001/XMLSchema#integer> .
+"""
+    ttl_path.write_text(turtle)
+
+    # Reload ontologies so the new preferences take effect
+    await engine.reload()
+
+    return {"ok": True, "userId": safe_user_id}
 
 
 @router.get("/audit/statistics", dependencies=[Depends(require_admin)])
