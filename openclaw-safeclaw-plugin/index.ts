@@ -7,79 +7,9 @@
  * to the SafeClaw service and acts on the responses.
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { loadConfig } from './tui/config.js';
 
 // --- Configuration ---
-
-interface SafeClawPluginConfig {
-  serviceUrl: string;
-  apiKey: string;
-  timeoutMs: number;
-  enabled: boolean;
-  enforcement: 'enforce' | 'warn-only' | 'audit-only' | 'disabled';
-  failMode: 'open' | 'closed';
-  agentId: string;
-  agentToken: string;
-}
-
-function loadConfig(): SafeClawPluginConfig {
-  const defaults: SafeClawPluginConfig = {
-    serviceUrl: 'https://api.safeclaw.eu/api/v1',
-    apiKey: '',
-    timeoutMs: 500,
-    enabled: true,
-    enforcement: 'enforce',
-    failMode: 'closed',
-    agentId: '',
-    agentToken: '',
-  };
-
-  // Load from config file first
-  const configPath = join(homedir(), '.safeclaw', 'config.json');
-  if (existsSync(configPath)) {
-    try {
-      const raw = JSON.parse(readFileSync(configPath, 'utf-8'));
-      if (raw.enabled === false) defaults.enabled = false;
-      if (raw.remote?.serviceUrl) defaults.serviceUrl = raw.remote.serviceUrl;
-      if (raw.remote?.apiKey) defaults.apiKey = raw.remote.apiKey;
-      if (raw.remote?.timeoutMs) defaults.timeoutMs = raw.remote.timeoutMs;
-      if (raw.enforcement?.mode) defaults.enforcement = raw.enforcement.mode;
-      if (raw.enforcement?.failMode) defaults.failMode = raw.enforcement.failMode;
-      if (raw.agentId) defaults.agentId = raw.agentId;
-      if (raw.agentToken) defaults.agentToken = raw.agentToken;
-    } catch {
-      // Config file unreadable — use defaults
-    }
-  }
-
-  // Env vars override config file
-  if (process.env.SAFECLAW_URL) defaults.serviceUrl = process.env.SAFECLAW_URL;
-  if (process.env.SAFECLAW_API_KEY) defaults.apiKey = process.env.SAFECLAW_API_KEY;
-  if (process.env.SAFECLAW_TIMEOUT_MS) defaults.timeoutMs = parseInt(process.env.SAFECLAW_TIMEOUT_MS, 10);
-  if (process.env.SAFECLAW_ENABLED === 'false') defaults.enabled = false;
-  if (process.env.SAFECLAW_ENFORCEMENT) defaults.enforcement = process.env.SAFECLAW_ENFORCEMENT as SafeClawPluginConfig['enforcement'];
-  if (process.env.SAFECLAW_FAIL_MODE) defaults.failMode = process.env.SAFECLAW_FAIL_MODE as SafeClawPluginConfig['failMode'];
-  if (process.env.SAFECLAW_AGENT_ID) defaults.agentId = process.env.SAFECLAW_AGENT_ID;
-  if (process.env.SAFECLAW_AGENT_TOKEN) defaults.agentToken = process.env.SAFECLAW_AGENT_TOKEN;
-
-  defaults.serviceUrl = defaults.serviceUrl.replace(/\/+$/, '');
-
-  const validModes = ['enforce', 'warn-only', 'audit-only', 'disabled'] as const;
-  if (!validModes.includes(defaults.enforcement as any)) {
-    console.warn(`[SafeClaw] Invalid enforcement mode "${defaults.enforcement}", defaulting to "enforce"`);
-    defaults.enforcement = 'enforce';
-  }
-
-  const validFailModes = ['open', 'closed'] as const;
-  if (!validFailModes.includes(defaults.failMode as any)) {
-    console.warn(`[SafeClaw] Invalid fail mode "${defaults.failMode}", defaulting to "closed"`);
-    defaults.failMode = 'closed';
-  }
-
-  return defaults;
-}
 
 const config = loadConfig();
 

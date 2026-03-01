@@ -12,6 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2022"]
   },
-  "include": ["index.ts"],
+  "include": ["index.ts", "tui/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
