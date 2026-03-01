@@ -89,7 +89,7 @@ class SQLiteAPIKeyManager:
 
     def __init__(self, db_path: str):
         import sqlite3
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError:
