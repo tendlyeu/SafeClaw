@@ -90,37 +90,49 @@ class SQLiteAPIKeyManager:
     def __init__(self, db_path: str):
         import sqlite3
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        # Ensure tables exist (service may start before landing creates them)
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS api_keys ("
-            "  id INTEGER PRIMARY KEY,"
-            "  user_id INTEGER,"
-            "  key_id TEXT,"
-            "  key_hash TEXT,"
-            "  label TEXT,"
-            "  scope TEXT,"
-            "  created_at TEXT,"
-            "  is_active BOOLEAN"
-            ")"
-        )
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS users ("
-            "  id INTEGER PRIMARY KEY,"
-            "  mistral_api_key TEXT DEFAULT ''"
-            ")"
-        )
+        try:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass  # Read-only DB — WAL not required for reads
+        # Try to ensure tables exist (service may start before landing creates them).
+        # If the DB is read-only (owned by another container), skip — landing will create them.
+        try:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS api_keys ("
+                "  id INTEGER PRIMARY KEY,"
+                "  user_id INTEGER,"
+                "  key_id TEXT,"
+                "  key_hash TEXT,"
+                "  label TEXT,"
+                "  scope TEXT,"
+                "  created_at TEXT,"
+                "  is_active BOOLEAN"
+                ")"
+            )
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS users ("
+                "  id INTEGER PRIMARY KEY,"
+                "  mistral_api_key TEXT DEFAULT ''"
+                ")"
+            )
+        except sqlite3.OperationalError:
+            pass  # Read-only — tables will exist once landing container starts
 
     def validate_key(self, raw_key: str) -> APIKey | None:
         """Validate an API key by looking it up in SQLite."""
+        import sqlite3
+
         key_id = raw_key[:12]
         key_hash = APIKeyManager.hash_key(raw_key)
 
-        row = self._conn.execute(
-            "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
-            "FROM api_keys WHERE key_id = ? AND is_active = 1",
-            (key_id,),
-        ).fetchone()
+        try:
+            row = self._conn.execute(
+                "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
+                "FROM api_keys WHERE key_id = ? AND is_active = 1",
+                (key_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None  # Table doesn't exist yet
 
         if row is None:
             return None
@@ -140,10 +152,15 @@ class SQLiteAPIKeyManager:
 
     def get_user_mistral_key(self, user_id: str) -> str | None:
         """Look up a user's Mistral API key from the shared DB. Returns None if not set."""
-        row = self._conn.execute(
-            "SELECT mistral_api_key FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        import sqlite3
+
+        try:
+            row = self._conn.execute(
+                "SELECT mistral_api_key FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None  # Table doesn't exist yet
         if row is None or not row[0]:
             return None
         return row[0]
