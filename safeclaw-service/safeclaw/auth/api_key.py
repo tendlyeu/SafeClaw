@@ -89,6 +89,11 @@ class SQLiteAPIKeyManager:
 
     def __init__(self, db_path: str):
         import sqlite3
+
+        self._db_path = db_path
+        # Keep a connection for writes (audit logging) but read operations
+        # open fresh connections to always see the latest data from the
+        # landing site's WAL writes.
         self._conn = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -132,6 +137,14 @@ class SQLiteAPIKeyManager:
         except sqlite3.OperationalError:
             pass  # Read-only — tables will exist once landing container starts
 
+    def _fresh_conn(self):
+        """Open a short-lived connection that sees the latest WAL data."""
+        import sqlite3
+
+        conn = sqlite3.connect(self._db_path, isolation_level=None)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
     def validate_key(self, raw_key: str) -> APIKey | None:
         """Validate an API key by looking it up in SQLite."""
         import sqlite3
@@ -140,11 +153,15 @@ class SQLiteAPIKeyManager:
         key_hash = APIKeyManager.hash_key(raw_key)
 
         try:
-            row = self._conn.execute(
-                "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
-                "FROM api_keys WHERE key_id = ? AND is_active = 1",
-                (key_id,),
-            ).fetchone()
+            conn = self._fresh_conn()
+            try:
+                row = conn.execute(
+                    "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
+                    "FROM api_keys WHERE key_id = ? AND is_active = 1",
+                    (key_id,),
+                ).fetchone()
+            finally:
+                conn.close()
         except sqlite3.OperationalError:
             return None  # Table doesn't exist yet
 
@@ -167,11 +184,16 @@ class SQLiteAPIKeyManager:
     def is_audit_logging_enabled(self, user_id: str) -> bool:
         """Check if a user has audit logging enabled. Defaults to True."""
         import sqlite3
+
         try:
-            row = self._conn.execute(
-                "SELECT audit_logging FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
+            conn = self._fresh_conn()
+            try:
+                row = conn.execute(
+                    "SELECT audit_logging FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+            finally:
+                conn.close()
         except sqlite3.OperationalError:
             return True  # Default: enabled
         if row is None:
@@ -202,10 +224,14 @@ class SQLiteAPIKeyManager:
         import sqlite3
 
         try:
-            row = self._conn.execute(
-                "SELECT mistral_api_key FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
+            conn = self._fresh_conn()
+            try:
+                row = conn.execute(
+                    "SELECT mistral_api_key FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+            finally:
+                conn.close()
         except sqlite3.OperationalError:
             return None  # Table doesn't exist yet
         if row is None or not row[0]:
