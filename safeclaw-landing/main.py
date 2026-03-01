@@ -1247,6 +1247,44 @@ def DocsPage():
                     ),
                 ),
 
+                # ── 19. SaaS Onboarding ──
+                DocsSection("saas", "SaaS Onboarding",
+                    P("SafeClaw is available as a hosted service at ",
+                      Code("safeclaw.eu"), ". No server setup required."),
+                    H3("1. Create an account", cls="docs-h3"),
+                    P("Click ", Strong("Get Started"), " on the landing page. "
+                      "Sign in with your GitHub account."),
+                    H3("2. Onboarding wizard", cls="docs-h3"),
+                    P("First-time users are guided through a two-step wizard:"),
+                    Ul(
+                        Li(Strong("Autonomy level"), " — choose how much control SafeClaw has "
+                           "(cautious, moderate, or autonomous)"),
+                        Li(Strong("API key"), " — a key is generated automatically. "
+                           "Copy it immediately; it is shown only once."),
+                        cls="docs-list",
+                    ),
+                    H3("3. Connect your agent", cls="docs-h3"),
+                    P("Install the plugin and set your key:"),
+                    Div(
+                        Pre(
+                            "$ openclaw plugins install openclaw-safeclaw-plugin\n"
+                            "$ export SAFECLAW_API_KEY=sc_your_key_here",
+                            cls="docs-pre",
+                        ),
+                    ),
+                    P("The plugin connects to ", Code("https://api.safeclaw.eu/api/v1"),
+                      " by default. No URL configuration needed."),
+                    H3("4. Manage from the dashboard", cls="docs-h3"),
+                    P("After onboarding, the dashboard at ", Code("safeclaw.eu/dashboard"),
+                      " lets you:"),
+                    Ul(
+                        Li("Create and revoke API keys"),
+                        Li("Set preferences (confirm before delete, max files per commit)"),
+                        Li("View connected agents"),
+                        cls="docs-list",
+                    ),
+                ),
+
                 cls="docs-content",
             ),
             cls="docs-layout container",
