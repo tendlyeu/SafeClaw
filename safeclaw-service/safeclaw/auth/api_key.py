@@ -147,7 +147,10 @@ class SQLiteAPIKeyManager:
 
     def validate_key(self, raw_key: str) -> APIKey | None:
         """Validate an API key by looking it up in SQLite."""
+        import logging
         import sqlite3
+
+        logger = logging.getLogger("safeclaw.auth")
 
         key_id = raw_key[:12]
         key_hash = APIKeyManager.hash_key(raw_key)
@@ -155,6 +158,21 @@ class SQLiteAPIKeyManager:
         try:
             conn = self._fresh_conn()
             try:
+                # Debug: check what's in the DB
+                total = conn.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0]
+                active = conn.execute(
+                    "SELECT COUNT(*) FROM api_keys WHERE is_active = 1"
+                ).fetchone()[0]
+                by_id = conn.execute(
+                    "SELECT key_id, is_active, typeof(is_active) FROM api_keys WHERE key_id = ?",
+                    (key_id,),
+                ).fetchone()
+                logger.info(
+                    "validate_key: db=%s, total_keys=%d, active_keys=%d, "
+                    "lookup_key_id=%s, found=%s",
+                    self._db_path, total, active, key_id, by_id,
+                )
+
                 row = conn.execute(
                     "SELECT key_id, key_hash, scope, created_at, is_active, user_id "
                     "FROM api_keys WHERE key_id = ? AND is_active = 1",
@@ -162,14 +180,17 @@ class SQLiteAPIKeyManager:
                 ).fetchone()
             finally:
                 conn.close()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            logger.warning("validate_key: OperationalError: %s", e)
             return None  # Table doesn't exist yet
 
         if row is None:
+            logger.warning("validate_key: no matching row for key_id=%s", key_id)
             return None
 
         db_key_id, db_key_hash, scope, created_at, is_active, user_id = row
         if not hmac.compare_digest(key_hash, db_key_hash):
+            logger.warning("validate_key: hash mismatch for key_id=%s", key_id)
             return None
 
         return APIKey(
