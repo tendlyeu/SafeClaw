@@ -59,27 +59,32 @@ def CreateKeyForm():
     return Card(
         H3("Create New Key"),
         P("API keys authenticate your agent's plugin against SafeClaw. "
-          "Each key is shown only once at creation — we store a SHA-256 hash, "
-          "so we cannot recover a lost key. Create a new one if needed.",
+          "Each key is shown only once — we store a hash, so lost keys cannot be recovered.",
           cls=TextPresets.muted_sm),
+        Divider(),
         Form(
-            LabelInput("Label", id="label", placeholder="e.g. My dev key", required=True),
-            P("A name to help you remember what this key is used for.",
-              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
-            LabelSelect(
-                Option("Full access", value="full"),
-                Option("Evaluate only", value="evaluate_only"),
-                label="Scope", id="scope",
+            Div(
+                LabelInput("Label", id="label", placeholder="e.g. My dev key", required=True),
+                P("A name to help you identify this key later.",
+                  cls=TextPresets.muted_sm),
+                cls="space-y-1",
             ),
-            P(Strong("Full access"), " allows all API operations (evaluate, record, context). ",
-              Strong("Evaluate only"), " restricts the key to evaluation endpoints — "
-              "it can check whether actions are allowed but cannot record results or manage agents.",
-              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
+            Div(
+                LabelSelect(
+                    Option("Full access", value="full"),
+                    Option("Evaluate only", value="evaluate_only"),
+                    label="Scope", id="scope",
+                ),
+                P(Strong("Full access"), " = all API operations. ",
+                  Strong("Evaluate only"), " = can check actions but cannot record results or manage agents.",
+                  cls=TextPresets.muted_sm),
+                cls="space-y-1",
+            ),
             Button("Create Key", cls=ButtonT.primary, type="submit"),
             hx_post="/dashboard/keys/create",
             hx_target="#key-list",
             hx_swap="innerHTML",
-            cls="space-y-4",
+            cls="space-y-6",
         ),
     )
 
@@ -93,8 +98,8 @@ def NewKeyModal(raw_key: str):
             Pre(Code(raw_key), style="word-break:break-all;"),
             cls="space-y-2",
         ),
-        P("Use ", Code("safeclaw connect " + raw_key[:12] + "..."),
-          " in your terminal to link this key to your machine, or set it as ",
+        P("Run ", Code(f"safeclaw connect {raw_key[:12]}..."),
+          " in your terminal to link it, or set it as ",
           Code("SAFECLAW_API_KEY"), " in your environment.",
           cls=TextPresets.muted_sm),
         id="new-key-alert",
@@ -112,6 +117,7 @@ def KeysContent(user_id: int):
             P("These keys are used by the SafeClaw plugin running alongside your AI agent. "
               "Revoking a key immediately disconnects any agent using it.",
               cls=TextPresets.muted_sm),
+            Divider(),
             Div(KeyTable(user_id), id="key-list"),
         ),
     )
