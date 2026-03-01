@@ -42,7 +42,7 @@ def GettingStartedCard():
         Div(
             P("1. Create an API key in the ", A("Keys", href="/dashboard/keys"), " tab"),
             P("2. Install the OpenClaw plugin:"),
-            Pre(Code("openclaw plugins install openclaw-safeclaw-plugin")),
+            Pre(Code("npm install -g openclaw-safeclaw-plugin")),
             P("3. Connect your plugin:"),
             Pre(Code("safeclaw connect sc_your_key_here")),
             cls="space-y-2",

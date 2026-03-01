@@ -34,7 +34,7 @@ SafeClaw/
 Sign up at [safeclaw.eu](https://safeclaw.eu), get your API key from the onboarding wizard, then:
 
 ```bash
-openclaw plugins install openclaw-safeclaw-plugin
+npm install -g openclaw-safeclaw-plugin
 safeclaw connect sc_your_key_here
 ```
 
@@ -56,7 +56,7 @@ safeclaw serve
 Then install and connect the plugin:
 
 ```bash
-openclaw plugins install openclaw-safeclaw-plugin
+npm install -g openclaw-safeclaw-plugin
 safeclaw connect sc_your_key --service-url http://localhost:8420/api/v1
 ```
 

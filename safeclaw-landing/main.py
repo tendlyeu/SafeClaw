@@ -262,7 +262,7 @@ def QuickStart():
                 ),
                 Div(
                     Span("$ ", cls="prompt"),
-                    Span("openclaw plugins install openclaw-safeclaw-plugin", cls="cmd"),
+                    Span("npm install -g openclaw-safeclaw-plugin", cls="cmd"),
                 ),
                 Div(
                     Span("$ ", cls="prompt"),
@@ -1321,7 +1321,7 @@ def DocsPage():
                     P("Install the plugin and connect using the command shown in the wizard:"),
                     Div(
                         Pre(
-                            "$ openclaw plugins install openclaw-safeclaw-plugin\n"
+                            "$ npm install -g openclaw-safeclaw-plugin\n"
                             "$ safeclaw connect sc_your_key_here",
                             cls="docs-pre",
                         ),

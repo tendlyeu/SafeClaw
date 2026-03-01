@@ -93,7 +93,7 @@ def OnboardStep3(raw_key: str):
         H3("Connect your OpenClaw agent"),
         Div(
             P("1. Install the SafeClaw plugin:"),
-            Pre(Code("openclaw plugins install openclaw-safeclaw-plugin")),
+            Pre(Code("npm install -g openclaw-safeclaw-plugin")),
             P("2. Connect your plugin (choose one):"),
             P(Strong("Option A — CLI (recommended):")),
             Pre(Code(f"safeclaw connect {raw_key}")),
