@@ -150,6 +150,20 @@ class HeartbeatRequest(BaseModel):
     status: str = "alive"  # "alive" or "shutdown"
 
 
+class HandshakeRequest(BaseModel):
+    pluginVersion: str = ""
+    configHash: str = ""
+
+
+class HandshakeResponse(BaseModel):
+    ok: bool
+    orgId: str = ""
+    scope: str = ""
+    engineReady: bool = False
+    serviceVersion: str = ""
+    message: str = ""
+
+
 class PolicyApplyRequest(BaseModel):
     turtle: str
 

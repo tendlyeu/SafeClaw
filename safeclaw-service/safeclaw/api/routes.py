@@ -13,6 +13,8 @@ from safeclaw.api.models import (
     AgentStartRequest,
     ContextResponse,
     DecisionResponse,
+    HandshakeRequest,
+    HandshakeResponse,
     HeartbeatRequest,
     LlmIORequest,
     MessageRequest,
@@ -437,6 +439,43 @@ async def heartbeat(request: HeartbeatRequest):
     )
 
     return {"ok": True, "stale": stale, "configDrift": drifted}
+
+
+@router.post("/handshake", response_model=HandshakeResponse)
+async def handshake(req: HandshakeRequest, request: Request):
+    """Validate API key and log a connection event to the audit dashboard."""
+    org_id = getattr(request.state, "org_id", None)
+    scope = getattr(request.state, "api_key_scope", "full")
+    engine = _get_engine()
+
+    # Log to audit dashboard
+    key_mgr = getattr(engine, "_key_manager", None)
+    if key_mgr and hasattr(key_mgr, "log_audit_decision") and org_id:
+        from datetime import datetime, timezone
+
+        key_mgr.log_audit_decision(
+            user_id=org_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            session_id="",
+            tool_name="__handshake__",
+            params_summary=f"plugin_version={req.pluginVersion}",
+            decision="allowed",
+            risk_level="none",
+            reason="Plugin connected successfully",
+            elapsed_ms=0.0,
+        )
+
+    engine_ready = getattr(engine, "is_ready", lambda: True)()
+    version = getattr(engine, "version", "unknown")
+
+    return HandshakeResponse(
+        ok=True,
+        orgId=org_id or "",
+        scope=scope,
+        engineReady=engine_ready,
+        serviceVersion=version,
+        message="Handshake successful",
+    )
 
 
 # ── LLM Layer Routes ──

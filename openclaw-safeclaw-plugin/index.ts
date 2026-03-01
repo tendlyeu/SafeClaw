@@ -79,6 +79,29 @@ interface PluginApi {
   ): void;
 }
 
+let handshakeCompleted = false;
+
+async function performHandshake(): Promise<boolean> {
+  if (!config.apiKey) {
+    console.warn('[SafeClaw] No API key configured — skipping handshake');
+    return false;
+  }
+
+  const r = await post('/handshake', {
+    pluginVersion: '0.1.3',
+    configHash: configHash(config),
+  });
+
+  if (r === null) {
+    console.warn('[SafeClaw] ✗ Handshake failed — API key may be invalid or service unreachable');
+    return false;
+  }
+
+  console.log(`[SafeClaw] ✓ Handshake OK — org=${r.orgId}, scope=${r.scope}, engine=${r.engineReady ? 'ready' : 'not ready'}`);
+  handshakeCompleted = true;
+  return true;
+}
+
 async function checkConnection(): Promise<void> {
   const label = `[SafeClaw]`;
   console.log(`${label} Connecting to ${config.serviceUrl} ...`);
@@ -107,7 +130,7 @@ async function checkConnection(): Promise<void> {
 export default {
   id: 'safeclaw',
   name: 'SafeClaw Neurosymbolic Governance',
-  version: '0.1.2',
+  version: '0.1.3',
 
   register(api: PluginApi) {
     if (!config.enabled) {
@@ -133,8 +156,16 @@ export default {
       }
     };
 
-    // Start heartbeat after connection check
-    checkConnection().then(() => sendHeartbeat()).catch(() => {});
+    // Start heartbeat after connection check + handshake
+    checkConnection()
+      .then(() => performHandshake())
+      .then((ok) => {
+        if (!ok && config.failMode === 'closed') {
+          console.warn('[SafeClaw] ⚠ Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
+        }
+        return sendHeartbeat();
+      })
+      .catch(() => {});
     const heartbeatInterval = setInterval(sendHeartbeat, 30000);
 
     // Clean shutdown: send shutdown heartbeat and clear interval
@@ -156,6 +187,10 @@ export default {
 
     // THE GATE — constraint checking on every tool call
     api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
+      if (!handshakeCompleted && config.failMode === 'closed' && config.enforcement === 'enforce') {
+        return { block: true, blockReason: 'SafeClaw handshake not completed (fail-closed)' };
+      }
+
       const r = await post('/evaluate/tool-call', {
         sessionId: ctx.sessionId ?? event.sessionId,
         userId: ctx.userId ?? event.userId,
