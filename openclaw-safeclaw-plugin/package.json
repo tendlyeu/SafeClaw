@@ -5,6 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "safeclaw": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -13,6 +16,8 @@
   "files": [
     "dist/",
     "index.ts",
+    "cli.tsx",
+    "tui/",
     "SKILL.md",
     "README.md"
   ],
@@ -40,10 +45,17 @@
   },
   "author": "Tendly EU",
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.2.14",
+    "typescript": "^5.4.0"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "ink": "^6.8.0",
+    "ink-select-input": "^6.2.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.4"
   }
 }

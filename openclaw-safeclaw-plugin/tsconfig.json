@@ -10,8 +10,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    "jsx": "react-jsx"
   },
-  "include": ["index.ts", "tui/**/*.ts"],
+  "include": ["index.ts", "cli.tsx", "tui/**/*.ts", "tui/**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }
