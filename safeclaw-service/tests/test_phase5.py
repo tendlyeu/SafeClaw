@@ -195,6 +195,71 @@ class TestSQLiteAPIKeyManager:
         result = mgr.validate_key("sc_nonexistent12345678901234567890")
         assert result is None
 
+    def test_get_user_mistral_key(self, tmp_path):
+        import sqlite3
+
+        from safeclaw.auth.api_key import SQLiteAPIKeyManager
+
+        db_path = tmp_path / "safeclaw.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE api_keys ("
+            "  id INTEGER PRIMARY KEY,"
+            "  user_id INTEGER,"
+            "  key_id TEXT,"
+            "  key_hash TEXT,"
+            "  label TEXT,"
+            "  scope TEXT,"
+            "  created_at TEXT,"
+            "  is_active BOOLEAN"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE users ("
+            "  id INTEGER PRIMARY KEY,"
+            "  mistral_api_key TEXT DEFAULT ''"
+            ")"
+        )
+        conn.execute("INSERT INTO users (id, mistral_api_key) VALUES (?, ?)", (42, "mist_test_key"))
+        conn.commit()
+        conn.close()
+
+        mgr = SQLiteAPIKeyManager(str(db_path))
+        assert mgr.get_user_mistral_key("42") == "mist_test_key"
+        assert mgr.get_user_mistral_key("999") is None
+
+    def test_get_user_mistral_key_empty(self, tmp_path):
+        import sqlite3
+
+        from safeclaw.auth.api_key import SQLiteAPIKeyManager
+
+        db_path = tmp_path / "safeclaw.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE api_keys ("
+            "  id INTEGER PRIMARY KEY,"
+            "  user_id INTEGER,"
+            "  key_id TEXT,"
+            "  key_hash TEXT,"
+            "  label TEXT,"
+            "  scope TEXT,"
+            "  created_at TEXT,"
+            "  is_active BOOLEAN"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE users ("
+            "  id INTEGER PRIMARY KEY,"
+            "  mistral_api_key TEXT DEFAULT ''"
+            ")"
+        )
+        conn.execute("INSERT INTO users (id, mistral_api_key) VALUES (?, ?)", (42, ""))
+        conn.commit()
+        conn.close()
+
+        mgr = SQLiteAPIKeyManager(str(db_path))
+        assert mgr.get_user_mistral_key("42") is None  # empty string = no key
+
 
 # --- APIKeyAuthMiddleware Tests ---
 

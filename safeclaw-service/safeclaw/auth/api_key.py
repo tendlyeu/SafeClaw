@@ -118,3 +118,13 @@ class SQLiteAPIKeyManager:
             created_at=created_at,
             is_active=bool(is_active),
         )
+
+    def get_user_mistral_key(self, user_id: str) -> str | None:
+        """Look up a user's Mistral API key from the shared DB. Returns None if not set."""
+        row = self._conn.execute(
+            "SELECT mistral_api_key FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if row is None or not row[0]:
+            return None
+        return row[0]
