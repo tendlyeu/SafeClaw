@@ -1,10 +1,9 @@
 """Dashboard overview page."""
 
-import httpx
 from monsterui.all import *
 
 
-def ServiceHealthCard(service_url: str):
+def ServiceHealthCard():
     """Card showing service health status, refreshes via HTMX."""
     return Card(
         H3("Service Health"),
@@ -49,6 +48,6 @@ def OverviewContent(user, key_count: int):
             ),
             cols=2,
         ),
-        ServiceHealthCard(service_url=""),
+        ServiceHealthCard(),
         GettingStartedCard(),
     )

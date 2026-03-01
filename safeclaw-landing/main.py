@@ -1237,7 +1237,8 @@ async def health_check(req, sess):
     import httpx
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get("http://localhost:8420/health")
+            service_url = sess.get("service_url", "http://localhost:8420")
+            r = await client.get(f"{service_url}/health")
             data = r.json()
             status = data.get("status", "unknown")
             if status == "ok":
@@ -1320,14 +1321,19 @@ def dashboard_agents(req, sess):
 @rt("/dashboard/agents/load")
 async def load_agents(req, sess, service_url: str = "", admin_password: str = ""):
     """Fetch agents from the service API."""
-    sess["service_url"] = service_url or "http://localhost:8420"
+    from urllib.parse import urlparse
+    parsed = urlparse(service_url or "http://localhost:8420")
+    if parsed.hostname not in ("localhost", "127.0.0.1"):
+        return P("Service URL must be localhost or 127.0.0.1", cls=TextPresets.muted_sm)
+    safe_url = f"{parsed.scheme}://{parsed.netloc}"
+    sess["service_url"] = safe_url
     sess["admin_password"] = admin_password
     try:
         headers = {}
         if admin_password:
             headers["X-Admin-Password"] = admin_password
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f"{service_url}/api/v1/agents", headers=headers)
+            r = await client.get(f"{safe_url}/api/v1/agents", headers=headers)
             r.raise_for_status()
             agents = r.json().get("agents", [])
             return AgentTable(agents)
@@ -1411,11 +1417,11 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
     if admin_pw:
         headers["X-Admin-Password"] = admin_pw
     prefs_data = {
-        "autonomy_level": autonomy_level,
-        "confirm_before_delete": confirm_before_delete,
-        "confirm_before_push": confirm_before_push,
-        "confirm_before_send": confirm_before_send,
-        "max_files_per_commit": max_files_per_commit,
+        "autonomyLevel": autonomy_level,
+        "confirmBeforeDelete": confirm_before_delete,
+        "confirmBeforePush": confirm_before_push,
+        "confirmBeforeSend": confirm_before_send,
+        "maxFilesPerCommit": max_files_per_commit,
     }
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:

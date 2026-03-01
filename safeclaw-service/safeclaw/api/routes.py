@@ -232,7 +232,6 @@ async def get_preferences(user_id: str):
 async def update_preferences(user_id: str, request: PreferencesRequest):
     """Update user preferences — writes Turtle file."""
     import re
-    from pathlib import Path
 
     engine = _get_engine()
     safe_user_id = re.sub(r'[^a-zA-Z0-9_@.-]', '', user_id)

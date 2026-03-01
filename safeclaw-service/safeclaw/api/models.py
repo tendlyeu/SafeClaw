@@ -1,6 +1,6 @@
 """API request/response Pydantic models."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -157,8 +157,10 @@ class PolicyApplyRequest(BaseModel):
 class PreferencesRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    autonomy_level: str = Field("moderate", alias="autonomy_level")
-    confirm_before_delete: bool = Field(True, alias="confirm_before_delete")
-    confirm_before_push: bool = Field(True, alias="confirm_before_push")
-    confirm_before_send: bool = Field(True, alias="confirm_before_send")
-    max_files_per_commit: int = Field(10, alias="max_files_per_commit")
+    autonomy_level: Literal["cautious", "moderate", "autonomous"] = Field(
+        "moderate", alias="autonomyLevel"
+    )
+    confirm_before_delete: bool = Field(True, alias="confirmBeforeDelete")
+    confirm_before_push: bool = Field(True, alias="confirmBeforePush")
+    confirm_before_send: bool = Field(True, alias="confirmBeforeSend")
+    max_files_per_commit: int = Field(10, ge=1, le=100, alias="maxFilesPerCommit")
