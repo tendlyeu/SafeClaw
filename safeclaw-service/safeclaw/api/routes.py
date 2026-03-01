@@ -196,62 +196,6 @@ async def log_llm_output(request: LlmIORequest):
     return {"ok": True}
 
 
-@router.get("/debug/db")
-async def debug_db():
-    """Temporary diagnostic: check what the service sees in the shared DB."""
-    import os
-    import sqlite3
-
-    engine = _get_engine()
-    db_path = engine.config.db_path
-    result = {"db_path": db_path, "require_auth": engine.config.require_auth}
-
-    if not db_path:
-        result["error"] = "db_path not configured"
-        return result
-
-    result["file_exists"] = os.path.exists(db_path)
-    if not result["file_exists"]:
-        return result
-
-    result["file_size"] = os.path.getsize(db_path)
-
-    try:
-        conn = sqlite3.connect(db_path, isolation_level=None)
-        # Check tables
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-        result["tables"] = [t[0] for t in tables]
-
-        # Check every table's row count
-        for tbl in result["tables"]:
-            try:
-                cnt = conn.execute(f"SELECT COUNT(*) FROM [{tbl}]").fetchone()[0]
-                result[f"count_{tbl}"] = cnt
-            except sqlite3.OperationalError:
-                result[f"count_{tbl}"] = "error"
-
-        # Check keys in both possible tables
-        for tbl in ("api_key", "api_keys"):
-            try:
-                key_ids = conn.execute(
-                    f"SELECT key_id, is_active, typeof(is_active) FROM [{tbl}]"
-                ).fetchall()
-                result[f"keys_in_{tbl}"] = [
-                    {"key_id": k[0], "is_active": k[1], "is_active_type": k[2]}
-                    for k in key_ids
-                ]
-            except sqlite3.OperationalError as e:
-                result[f"keys_in_{tbl}"] = str(e)
-
-        conn.close()
-    except Exception as e:
-        result["error"] = str(e)
-
-    return result
-
-
 @router.get("/audit", dependencies=[Depends(require_admin)])
 async def query_audit(
     session_id: str | None = Query(None, alias="sessionId"),
