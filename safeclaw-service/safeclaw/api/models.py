@@ -1,9 +1,8 @@
 """API request/response Pydantic models."""
 
-import sys
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 MAX_PARAMS_DEPTH = 5
@@ -29,7 +28,7 @@ def _validate_params(v: dict) -> dict:
     """Reject params dicts that are too deeply nested or too large."""
     if _check_depth(v) > MAX_PARAMS_DEPTH:
         raise ValueError(f"params nesting exceeds max depth of {MAX_PARAMS_DEPTH}")
-    if sys.getsizeof(str(v)) > MAX_PARAMS_SIZE:
+    if len(str(v).encode("utf-8")) > MAX_PARAMS_SIZE:
         raise ValueError(f"params serialized size exceeds {MAX_PARAMS_SIZE} bytes")
     return v
 
@@ -42,6 +41,7 @@ class ToolCallRequest(BaseModel):
     sessionHistory: list[str] = []
     agentId: str = ""
     agentToken: str = ""
+    enforcementMode: str = "enforce"  # "enforce", "warn-only", "audit-only", "disabled"
 
     @field_validator("params")
     @classmethod
@@ -118,6 +118,12 @@ class TempGrantRequest(BaseModel):
     permission: str
     durationSeconds: int | None = None
     taskId: str | None = None
+
+    @model_validator(mode='after')
+    def check_scope(self):
+        if self.durationSeconds is None and self.taskId is None:
+            raise ValueError("Either durationSeconds or taskId must be provided")
+        return self
 
 
 class TempGrantResponse(BaseModel):

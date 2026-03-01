@@ -55,11 +55,6 @@ app.add_middleware(
 )
 
 # Auth middleware — uses the same _config instance (R3-30, R3-32, R4-30)
-if _config.require_auth:
-    raise RuntimeError(
-        "require_auth=True but no api_key_manager is configured. "
-        "Either set SAFECLAW_REQUIRE_AUTH=false or configure a key manager."
-    )
 app.add_middleware(APIKeyAuthMiddleware, require_auth=_config.require_auth)
 
 # Request timing

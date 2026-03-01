@@ -1,6 +1,7 @@
 """FastAPI route definitions for SafeClaw API."""
 
 import logging
+import secrets
 
 from typing import Literal
 
@@ -38,18 +39,46 @@ router = APIRouter()
 async def require_admin(request: Request):
     """Require admin auth for sensitive endpoints.
 
-    When auth is disabled (local mode), scope is None and check passes
-    intentionally — all users are treated as admin in local dev.
+    Two-layer check:
+    1. If API-key auth is active (scope is set), require "admin" in scope.
+    2. If admin_password is configured, require X-Admin-Password header to match.
+       If admin_password is NOT configured (empty string), allow access for
+       backwards compatibility (local dev mode).
     """
+    # Layer 1: API-key scope check (when middleware sets it)
     scope = getattr(request.state, "api_key_scope", None)
     if scope is not None and "admin" not in scope:
         raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Layer 2: X-Admin-Password header check
+    engine = _get_engine()
+    configured_password = engine.config.admin_password
+    if configured_password:  # only enforce when a password is actually set
+        provided = request.headers.get("X-Admin-Password", "")
+        if not provided or not secrets.compare_digest(provided, configured_password):
+            raise HTTPException(status_code=403, detail="Admin access required")
 
 
 def _get_engine():
     from safeclaw.main import get_engine
 
     return get_engine()  # raises SafeClawError("ENGINE_NOT_READY") if engine is None
+
+
+def _verify_agent_token(engine, agent_id: str | None, agent_token: str | None):
+    """Verify agent token if the agent is registered.
+
+    If the agent is NOT registered, allow the request for backwards
+    compatibility (unregistered agents are not subject to token auth here).
+    If the agent IS registered and the token doesn't match, raise 403.
+    """
+    if not agent_id:
+        return  # No agent context — allow
+    record = engine.agent_registry.get_agent(agent_id)
+    if record is None:
+        return  # Agent not registered — backwards compat, allow
+    if not agent_token or not engine.agent_registry.verify_token(agent_id, agent_token):
+        raise HTTPException(status_code=403, detail="Invalid agent token")
 
 
 @router.post("/evaluate/tool-call", response_model=DecisionResponse)
@@ -63,6 +92,7 @@ async def evaluate_tool_call(request: ToolCallRequest) -> DecisionResponse:
         session_history=request.sessionHistory,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        enforcement_mode=request.enforcementMode,
     )
     decision = await engine.evaluate_tool_call(event)
     return DecisionResponse(
@@ -94,6 +124,7 @@ async def evaluate_message(request: MessageRequest) -> DecisionResponse:
 @router.post("/context/build", response_model=ContextResponse)
 async def build_context(request: AgentStartRequest) -> ContextResponse:
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     event = AgentStartEvent(
         session_id=request.sessionId,
         user_id=request.userId,
@@ -108,13 +139,14 @@ async def build_context(request: AgentStartRequest) -> ContextResponse:
 async def end_session(request: SessionEndRequest):
     """Clean up all per-session state when a session ends."""
     engine = _get_engine()
-    engine.clear_session(request.sessionId)
+    await engine.clear_session(request.sessionId)
     return {"ok": True, "sessionId": request.sessionId}
 
 
 @router.post("/record/tool-result")
 async def record_tool_result(request: ToolResultRequest):
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     event = ToolResultEvent(
         session_id=request.sessionId,
         tool_name=request.toolName,
@@ -176,7 +208,7 @@ async def query_audit(
 async def reload_ontologies():
     """Hot-reload ontologies and reinitialize constraint checkers."""
     engine = _get_engine()
-    engine.reload()
+    await engine.reload()
     return {"ok": True, "triples": len(engine.kg)}
 
 
@@ -222,7 +254,7 @@ async def compliance_report(limit: int = Query(100, ge=1, le=1000)):
     return PlainTextResponse(content, media_type="text/markdown")
 
 
-@router.get("/ontology/graph")
+@router.get("/ontology/graph", dependencies=[Depends(require_admin)])
 async def ontology_graph():
     """Get D3-compatible graph of the knowledge graph."""
     from safeclaw.engine.graph_builder import GraphBuilder
@@ -232,7 +264,7 @@ async def ontology_graph():
     return builder.build_graph()
 
 
-@router.get("/ontology/search")
+@router.get("/ontology/search", dependencies=[Depends(require_admin)])
 async def ontology_search(q: str = Query(..., max_length=200)):
     """Fuzzy search for ontology nodes by name or label."""
     from safeclaw.engine.graph_builder import GraphBuilder
@@ -247,12 +279,15 @@ async def ontology_search(q: str = Query(..., max_length=200)):
 )
 async def register_agent(request: AgentRegisterRequest) -> AgentRegisterResponse:
     engine = _get_engine()
-    token = engine.agent_registry.register_agent(
-        agent_id=request.agentId,
-        role=request.role,
-        session_id=request.sessionId,
-        parent_id=request.parentId,
-    )
+    try:
+        token = engine.agent_registry.register_agent(
+            agent_id=request.agentId,
+            role=request.role,
+            session_id=request.sessionId,
+            parent_id=request.parentId,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return AgentRegisterResponse(agentId=request.agentId, token=token, role=request.role)
 
 
@@ -356,7 +391,7 @@ async def compile_policy(request: PolicyCompileRequest) -> PolicyCompileResponse
     )
 
 
-@router.get("/audit/{audit_id}/explain")
+@router.get("/audit/{audit_id}/explain", dependencies=[Depends(require_admin)])
 async def explain_decision(audit_id: str):
     engine = _get_engine()
     if not hasattr(engine, "explainer") or engine.explainer is None:
@@ -365,8 +400,7 @@ async def explain_decision(audit_id: str):
         )
 
     # Try to find the audit record
-    records = engine.audit.get_recent_records(limit=200)
-    record = next((r for r in records if r.id == audit_id), None)
+    record = engine.audit.get_record_by_id(audit_id)
     if not record:
         raise HTTPException(status_code=404, detail="Audit record not found")
 
@@ -374,7 +408,7 @@ async def explain_decision(audit_id: str):
     return {"auditId": audit_id, "explanation": explanation}
 
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(require_admin)])
 async def event_stream():
     """SSE endpoint — streams real-time SafeClaw events."""
     from starlette.responses import StreamingResponse
@@ -382,8 +416,19 @@ async def event_stream():
     engine = _get_engine()
 
     async def generate():
-        async for event in engine.event_bus.subscribe():
-            yield f"event: safeclaw\ndata: {event.to_json()}\n\n"
+        try:
+            sub = engine.event_bus.subscribe(keepalive_timeout=15.0)
+        except ValueError:
+            yield "event: error\ndata: {\"error\": \"Max subscribers limit reached\"}\n\n"
+            return
+        try:
+            async for event in sub:
+                if event is None:
+                    yield ":keepalive\n\n"
+                else:
+                    yield f"event: safeclaw\ndata: {event.to_json()}\n\n"
+        finally:
+            await sub.aclose()
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -397,9 +442,9 @@ async def get_findings():
 @router.get("/llm/suggestions")
 async def get_suggestions():
     import json
-    from safeclaw.config import SafeClawConfig
 
-    config = SafeClawConfig()
+    engine = _get_engine()
+    config = engine.config
     suggestions_file = config.data_dir / "llm" / "classification_suggestions.jsonl"
 
     if not suggestions_file.exists():

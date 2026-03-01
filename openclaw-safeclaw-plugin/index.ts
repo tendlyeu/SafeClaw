@@ -26,17 +26,17 @@ interface SafeClawPluginConfig {
 
 function loadConfig(): SafeClawPluginConfig {
   const defaults: SafeClawPluginConfig = {
-    serviceUrl: process.env.SAFECLAW_URL ?? 'https://api.safeclaw.eu/api/v1',
-    apiKey: process.env.SAFECLAW_API_KEY ?? '',
-    timeoutMs: parseInt(process.env.SAFECLAW_TIMEOUT_MS ?? '500', 10),
-    enabled: process.env.SAFECLAW_ENABLED !== 'false',
-    enforcement: (process.env.SAFECLAW_ENFORCEMENT as SafeClawPluginConfig['enforcement']) ?? 'enforce',
-    failMode: (process.env.SAFECLAW_FAIL_MODE as SafeClawPluginConfig['failMode']) ?? 'closed',
-    agentId: process.env.SAFECLAW_AGENT_ID ?? '',
-    agentToken: process.env.SAFECLAW_AGENT_TOKEN ?? '',
+    serviceUrl: 'https://api.safeclaw.eu/api/v1',
+    apiKey: '',
+    timeoutMs: 500,
+    enabled: true,
+    enforcement: 'enforce',
+    failMode: 'closed',
+    agentId: '',
+    agentToken: '',
   };
 
-  // Try loading from config file
+  // Load from config file first
   const configPath = join(homedir(), '.safeclaw', 'config.json');
   if (existsSync(configPath)) {
     try {
@@ -53,6 +53,16 @@ function loadConfig(): SafeClawPluginConfig {
       // Config file unreadable — use defaults
     }
   }
+
+  // Env vars override config file
+  if (process.env.SAFECLAW_URL) defaults.serviceUrl = process.env.SAFECLAW_URL;
+  if (process.env.SAFECLAW_API_KEY) defaults.apiKey = process.env.SAFECLAW_API_KEY;
+  if (process.env.SAFECLAW_TIMEOUT_MS) defaults.timeoutMs = parseInt(process.env.SAFECLAW_TIMEOUT_MS, 10);
+  if (process.env.SAFECLAW_ENABLED === 'false') defaults.enabled = false;
+  if (process.env.SAFECLAW_ENFORCEMENT) defaults.enforcement = process.env.SAFECLAW_ENFORCEMENT as SafeClawPluginConfig['enforcement'];
+  if (process.env.SAFECLAW_FAIL_MODE) defaults.failMode = process.env.SAFECLAW_FAIL_MODE as SafeClawPluginConfig['failMode'];
+  if (process.env.SAFECLAW_AGENT_ID) defaults.agentId = process.env.SAFECLAW_AGENT_ID;
+  if (process.env.SAFECLAW_AGENT_TOKEN) defaults.agentToken = process.env.SAFECLAW_AGENT_TOKEN;
 
   defaults.serviceUrl = defaults.serviceUrl.replace(/\/+$/, '');
 
@@ -192,6 +202,8 @@ export default {
         return { block: true, blockReason: `SafeClaw service unavailable at ${config.serviceUrl} (fail-closed)` };
       } else if (r === null && config.failMode === 'closed' && config.enforcement === 'warn-only') {
         console.warn(`[SafeClaw] Service unavailable at ${config.serviceUrl} (fail-closed mode, warn-only)`);
+      } else if (r === null && config.failMode === 'closed' && config.enforcement === 'audit-only') {
+        console.warn(`[SafeClaw] Service unavailable at ${config.serviceUrl} (fail-closed mode, audit-only)`);
       }
       if (r?.block) {
         if (config.enforcement === 'enforce') {
@@ -230,8 +242,14 @@ export default {
       } else if (r === null && config.failMode === 'closed' && config.enforcement === 'warn-only') {
         console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
       }
-      if (r?.block && config.enforcement === 'enforce') {
-        return { cancel: true };
+      if (r?.block) {
+        if (config.enforcement === 'enforce') {
+          return { cancel: true };
+        }
+        if (config.enforcement === 'warn-only') {
+          console.warn(`[SafeClaw] Warning: ${r.reason}`);
+        }
+        // audit-only: logged server-side, no action here
       }
     }, { priority: 100 });
 
@@ -256,8 +274,8 @@ export default {
         toolName: event.toolName ?? event.tool_name,
         params: event.params ?? {},
         result: event.result ?? '',
-        success: event.success ?? true,
-      }).catch(() => {});
+        success: event.success ?? false,
+      }).catch((e) => console.warn('[SafeClaw] Failed to record tool result:', e));
     });
   },
 };

@@ -117,9 +117,10 @@ async def test_record_action_result_updates_trackers(engine):
 
 # --- reload ---
 
-def test_reload_reinitializes(engine):
+@pytest.mark.asyncio
+async def test_reload_reinitializes(engine):
     original_triple_count = len(engine.kg)
-    engine.reload()
+    await engine.reload()
     # Engine should still work with the same number of triples
     assert len(engine.kg) == original_triple_count
     assert engine.policy_checker is not None
@@ -151,7 +152,7 @@ async def test_clear_session_removes_state(engine):
     assert engine.session_tracker.get_state(session_id) is not None
 
     # Clear session
-    engine.clear_session(session_id)
+    await engine.clear_session(session_id)
 
     # Verify all per-component state is cleared
     assert engine.session_tracker.get_state(session_id) is None
@@ -171,7 +172,7 @@ async def test_clear_session_removes_state(engine):
     assert dep_result.unmet is True
 
     # Verify clear_session doesn't raise (covers session lock cleanup)
-    engine.clear_session(session_id)
+    await engine.clear_session(session_id)
 
 
 def test_dependency_checker_loads_from_kg():

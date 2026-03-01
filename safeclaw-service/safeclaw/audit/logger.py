@@ -34,7 +34,7 @@ class AuditLogger:
         line = record.model_dump_json() + "\n"
 
         with self._lock:
-            with open(filepath, "a") as f:
+            with open(filepath, "a", encoding="utf-8") as f:
                 f.write(line)
 
         log_msg = f"[{record.decision}] {record.action.tool_name} → {record.action.ontology_class}"
@@ -68,7 +68,7 @@ class AuditLogger:
                 continue
             session_file = day_dir / f"session-{safe_id}.jsonl"
             if session_file.exists():
-                with open(session_file) as f:
+                with open(session_file, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line:
@@ -90,7 +90,7 @@ class AuditLogger:
             except ValueError:
                 continue
             for session_file in day_dir.glob("session-*.jsonl"):
-                with open(session_file) as f:
+                with open(session_file, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -124,7 +124,7 @@ class AuditLogger:
                 continue
             day_records: list[DecisionRecord] = []
             for session_file in day_dir.glob("session-*.jsonl"):
-                with open(session_file) as f:
+                with open(session_file, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line:
@@ -151,7 +151,7 @@ class AuditLogger:
             except ValueError:
                 continue
             for session_file in day_dir.glob("session-*.jsonl"):
-                with open(session_file) as f:
+                with open(session_file, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:

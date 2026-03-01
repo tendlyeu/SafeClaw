@@ -1,5 +1,6 @@
 """Preference checker - validates actions against user preferences."""
 
+import fnmatch
 from dataclasses import dataclass
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
@@ -39,10 +40,9 @@ class PreferenceChecker:
         results = self.kg.query(f"""
             PREFIX su: <{SU}>
             SELECT ?property ?value WHERE {{
-                ?user a su:User ;
+                su:user-{safe_user_id} a su:User ;
                       su:hasPreference ?pref .
                 ?pref ?property ?value .
-                FILTER(STRENDS(STR(?user), "/{safe_user_id}"))
             }}
         """)
 
@@ -58,6 +58,10 @@ class PreferenceChecker:
                 prefs.confirm_before_push = val.lower() == "true"
             elif prop == "confirmBeforeSend":
                 prefs.confirm_before_send = val.lower() == "true"
+            elif prop == "neverModifyPath":
+                if prefs.never_modify_paths is None:
+                    prefs.never_modify_paths = []
+                prefs.never_modify_paths.append(val)
 
         return prefs
 
@@ -89,6 +93,18 @@ class PreferenceChecker:
                     preference_uri=f"{SU}confirmBeforeSend",
                     reason="User preference requires confirmation before sending messages",
                 )
+
+        # Check never_modify_paths
+        if prefs.never_modify_paths:
+            file_path = action.params.get("file_path", "") or action.params.get("path", "")
+            if file_path:
+                for pattern in prefs.never_modify_paths:
+                    if fnmatch.fnmatch(file_path, pattern):
+                        return PreferenceCheckResult(
+                            violated=True,
+                            preference_uri=f"{SU}neverModifyPaths",
+                            reason=f"Path '{file_path}' matches never-modify pattern '{pattern}'",
+                        )
 
         # Check autonomy level
         if prefs.autonomy_level in ("cautious", "supervised"):

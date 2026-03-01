@@ -2,9 +2,12 @@
 
 import hashlib
 import json
+import logging
 from collections import deque
 from dataclasses import dataclass
 from time import monotonic
+
+logger = logging.getLogger(__name__)
 
 DETECTION_WINDOW = 300  # 5 minutes in seconds
 MAX_BLOCKS = 10000
@@ -33,12 +36,18 @@ class DelegationResult:
 class DelegationDetector:
     """Detects when an agent delegates a blocked action to another agent."""
 
-    def __init__(self, mode: str = "configurable"):
+    def __init__(self, mode: str = "strict"):
         """Initialize with detection mode.
 
         Args:
             mode: "strict", "permissive", or "disabled".
         """
+        valid_modes = {"strict", "permissive", "disabled"}
+        if mode not in valid_modes:
+            logger.warning(
+                f"Invalid delegation detection mode '{mode}', defaulting to 'strict'"
+            )
+            mode = "strict"
         self.mode = mode
         self._blocks: deque[BlockRecord] = deque(maxlen=MAX_BLOCKS)
 
@@ -93,6 +102,13 @@ class DelegationDetector:
                 )
 
         return DelegationResult(is_delegation=False)
+
+    def clear_session(self, session_id: str) -> None:
+        """Remove all block records for a given session."""
+        self._blocks = deque(
+            (r for r in self._blocks if r.session_id != session_id),
+            maxlen=MAX_BLOCKS,
+        )
 
     def _prune_expired(self) -> None:
         """Remove block records older than DETECTION_WINDOW."""

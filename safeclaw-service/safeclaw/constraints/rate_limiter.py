@@ -57,10 +57,13 @@ class RateLimiter:
         cutoff = now - window_seconds
 
         records = self._sessions.get(session_id, [])
+        records = [r for r in records if r.timestamp >= cutoff]
+        if session_id in self._sessions:
+            self._sessions[session_id] = records
         count = sum(
             1
             for r in records
-            if r.risk_level == action.risk_level and r.timestamp >= cutoff
+            if r.risk_level == action.risk_level
         )
 
         if count >= max_count:
@@ -137,3 +140,7 @@ class RateLimiter:
     def clear_session(self, session_id: str) -> None:
         """Remove session data when session ends."""
         self._sessions.pop(session_id, None)
+
+    def clear_agent(self, agent_id: str) -> None:
+        """Remove agent rate-limit records."""
+        self._agent_records.pop(agent_id, None)

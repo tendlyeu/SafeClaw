@@ -128,4 +128,4 @@ def test_shacl_validation_error_returns_non_conforming():
     with patch("pyshacl.validate", side_effect=RuntimeError("mock error")):
         result = validator.validate(action.as_rdf_graph())
         assert result.conforms is False
-        assert any("mock error" in v["message"] for v in result.violations)
+        assert any("SHACL validation failed" in v["message"] for v in result.violations)

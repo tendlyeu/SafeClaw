@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -23,6 +23,7 @@ class ClassifiedAction:
     affects_scope: str
     tool_name: str
     params: dict
+    chain_classes: list[str] = field(default_factory=list)
 
     def as_rdf_graph(self) -> Graph:
         """Create an RDF graph representing this action for SHACL validation."""
@@ -35,14 +36,16 @@ class ClassifiedAction:
         g.add((action_node, SC.affectsScope, SC[self.affects_scope]))
         if "command" in self.params:
             g.add((action_node, SC.commandText, Literal(self.params["command"])))
-        if "file_path" in self.params:
-            g.add((action_node, SC.filePath, Literal(self.params["file_path"])))
+        file_path = self.params.get("file_path") or self.params.get("path")
+        if file_path:
+            g.add((action_node, SC.filePath, Literal(file_path)))
         return g
 
 
 # Shell command patterns for subclass detection
 SHELL_PATTERNS = [
     (r"\brm\s+(-[rRf]+\s+|.*--force)", "DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    (r"\brm\s+", "DeleteFile", "HighRisk", False, "LocalOnly"),
     (r"\bgit\s+push\b.*--force", "ForcePush", "CriticalRisk", False, "SharedState"),
     (r"\bgit\s+push\b", "GitPush", "HighRisk", False, "SharedState"),
     (r"\bgit\s+commit\b", "GitCommit", "MediumRisk", True, "LocalOnly"),
@@ -105,18 +108,67 @@ class ActionClassifier:
         )
         return self._enrich_from_ontology(action)
 
+    @staticmethod
+    def _split_chain(command: str) -> list[str]:
+        """Split command on chain operators (&&, ||, ;, |) respecting quotes."""
+        parts: list[str] = []
+        current: list[str] = []
+        i = 0
+        n = len(command)
+        while i < n:
+            ch = command[i]
+            # Skip over quoted strings
+            if ch in ('"', "'"):
+                quote = ch
+                current.append(ch)
+                i += 1
+                while i < n and command[i] != quote:
+                    if command[i] == "\\" and i + 1 < n:
+                        current.append(command[i])
+                        i += 1
+                    current.append(command[i])
+                    i += 1
+                if i < n:
+                    current.append(command[i])  # closing quote
+                    i += 1
+                continue
+            # Check for chain operators
+            if ch == "&" and i + 1 < n and command[i + 1] == "&":
+                parts.append("".join(current))
+                current = []
+                i += 2
+                continue
+            if ch == "|" and i + 1 < n and command[i + 1] == "|":
+                parts.append("".join(current))
+                current = []
+                i += 2
+                continue
+            if ch in (";", "|"):
+                parts.append("".join(current))
+                current = []
+                i += 1
+                continue
+            current.append(ch)
+            i += 1
+        parts.append("".join(current))
+        return [p.strip() for p in parts if p.strip()]
+
     def _classify_shell(self, params: dict) -> ClassifiedAction:
         command = params.get("command", "")
 
-        # Strip quoted strings before splitting to avoid splitting inside quotes
-        stripped = re.sub(r'''(["'])(?:\\.|(?!\1).)*\1''', '', command)
-        # Split on command chaining operators
-        sub_commands = re.split(r'\s*(?:&&|\|\||;|\|)\s*', stripped)
+        # Split on command chaining operators, respecting quoted strings
+        sub_commands = self._split_chain(command)
         highest_risk = None
+        chain_classes: list[str] = []
 
         for sub_cmd in sub_commands:
+            # Strip quoted strings from each sub-command before pattern matching
+            # so that content inside quotes does not trigger false positives
+            unquoted = re.sub(r'''(["'])(?:\\.|(?!\1).)*\1''', "", sub_cmd)
+            matched_cls: str | None = None
             for pattern, cls, risk, reversible, scope in SHELL_PATTERNS:
-                if re.search(pattern, sub_cmd, re.IGNORECASE):
+                if re.search(pattern, unquoted, re.IGNORECASE):
+                    matched_cls = cls
                     candidate = ClassifiedAction(
                         ontology_class=cls,
                         risk_level=risk,
@@ -125,11 +177,18 @@ class ActionClassifier:
                         tool_name="exec",
                         params=params,
                     )
-                    if highest_risk is None or RISK_ORDER.get(risk, 0) > RISK_ORDER.get(highest_risk.risk_level, 0):
+                    if highest_risk is None or RISK_ORDER.get(
+                        risk, 0
+                    ) > RISK_ORDER.get(highest_risk.risk_level, 0):
                         highest_risk = candidate
                     break
+            if matched_cls:
+                chain_classes.append(matched_cls)
+            else:
+                chain_classes.append("ExecuteCommand")
 
         if highest_risk:
+            highest_risk.chain_classes = chain_classes
             return highest_risk
 
         # Default shell command classification
@@ -140,6 +199,7 @@ class ActionClassifier:
             affects_scope="LocalOnly",
             tool_name="exec",
             params=params,
+            chain_classes=chain_classes,
         )
 
     def _enrich_from_ontology(self, action: ClassifiedAction) -> ClassifiedAction:
@@ -148,7 +208,10 @@ class ActionClassifier:
             return action
         defaults = self._hierarchy.get_defaults(action.ontology_class)
         if defaults:
-            action.risk_level = defaults["risk_level"]
-            action.is_reversible = defaults["is_reversible"]
-            action.affects_scope = defaults["affects_scope"]
+            return replace(
+                action,
+                risk_level=defaults["risk_level"],
+                is_reversible=defaults["is_reversible"],
+                affects_scope=defaults["affects_scope"],
+            )
         return action

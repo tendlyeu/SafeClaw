@@ -204,8 +204,8 @@ class TestHierarchyAwareRoleChecking:
 
 
 class TestHierarchyAwareDerivedConstraints:
-    def test_transitive_prohibition_uses_hierarchy(self, kg, hierarchy):
-        """ForcePush should inherit prohibition from sp:appliesTo sc:ForcePush."""
+    def test_transitive_prohibition_removed(self, kg, hierarchy):
+        """TransitiveProhibitionRule was removed (BUG-038); only CriticalIrreversibleRule fires."""
         checker = DerivedConstraintChecker(kg, hierarchy=hierarchy)
         prefs = UserPreferences()
         from safeclaw.constraints.action_classifier import ClassifiedAction
@@ -219,9 +219,10 @@ class TestHierarchyAwareDerivedConstraints:
             params={"command": "git push --force"},
         )
         result = checker.check(action, prefs, [])
-        # Should trigger at least TransitiveProhibitionRule and CriticalIrreversibleRule
+        # Should still trigger CriticalIrreversibleRule but NOT TransitiveProhibitionRule
         assert result.requires_confirmation
-        assert "TransitiveProhibitionRule" in result.derived_rules
+        assert "TransitiveProhibitionRule" not in result.derived_rules
+        assert "CriticalIrreversibleRule" in result.derived_rules
 
 
 # ── Ontology Validator Tests ──

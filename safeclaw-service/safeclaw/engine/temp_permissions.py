@@ -1,8 +1,14 @@
 """Time and task-bound temporary permission grants."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from time import monotonic
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from safeclaw.engine.class_hierarchy import ClassHierarchy
 
 
 @dataclass
@@ -23,8 +29,9 @@ MAX_GRANTS = 10000
 class TempPermissionManager:
     """Manages temporary, scoped permission grants."""
 
-    def __init__(self):
+    def __init__(self, hierarchy: ClassHierarchy | None = None):
         self._grants: dict[str, TempGrant] = {}
+        self._hierarchy = hierarchy
 
     def grant(
         self,
@@ -67,11 +74,26 @@ class TempPermissionManager:
         self._grants.pop(grant_id, None)
 
     def check(self, agent_id: str, permission: str) -> bool:
-        """Check if an agent has an active grant for a permission."""
+        """Check if an agent has an active grant for a permission.
+
+        When a ClassHierarchy is available, also checks if any parent
+        class of ``permission`` has an active grant (i.e. a grant on a
+        superclass covers all its subclasses).
+        """
         self.cleanup_expired()
         now = monotonic()
+
+        # Build the set of classes that would satisfy this permission check:
+        # the permission itself plus all of its superclasses.
+        if self._hierarchy:
+            acceptable = self._hierarchy.get_superclasses(permission)
+        else:
+            acceptable = {permission}
+
         for g in self._grants.values():
-            if g.agent_id != agent_id or g.permission != permission:
+            if g.agent_id != agent_id:
+                continue
+            if g.permission not in acceptable:
                 continue
             if g.expires_at is not None and now > g.expires_at:
                 continue

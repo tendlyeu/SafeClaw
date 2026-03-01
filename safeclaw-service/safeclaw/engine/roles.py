@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import fnmatch
 import logging
 import os
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from safeclaw.engine.class_hierarchy import ClassHierarchy
+    from safeclaw.engine.knowledge_graph import KnowledgeGraph
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +78,12 @@ BUILTIN_ROLES = {
 class RoleManager:
     """Manages roles and checks action/resource permissions."""
 
-    def __init__(self, config: dict | None = None, hierarchy: ClassHierarchy | None = None):
+    def __init__(
+        self,
+        config: dict | None = None,
+        hierarchy: ClassHierarchy | None = None,
+        knowledge_graph: KnowledgeGraph | None = None,
+    ):
         self._roles: dict[str, Role] = {}
         self._hierarchy = hierarchy
         self._default_role_name = "developer"
@@ -88,20 +95,116 @@ class RoleManager:
                     if not isinstance(rp.get("allow"), list) or not isinstance(rp.get("deny"), list):
                         logger.warning(f"Invalid resource_patterns for role {name}, using defaults")
                         rp = {"allow": ["**"], "deny": []}
+                    raw_allowed = rdef.get("allowed_action_classes", [])
+                    if not isinstance(raw_allowed, list):
+                        logger.warning(
+                            f"allowed_action_classes for role {name} is not a list, using empty list"
+                        )
+                        raw_allowed = []
+                    raw_denied = rdef.get("denied_action_classes", [])
+                    if not isinstance(raw_denied, list):
+                        logger.warning(
+                            f"denied_action_classes for role {name} is not a list, using empty list"
+                        )
+                        raw_denied = []
                     self._roles[name] = Role(
                         name=name,
                         enforcement_mode=rdef.get("enforcement_mode", "enforce"),
                         autonomy_level=rdef.get("autonomy_level", "supervised"),
-                        allowed_action_classes=set(
-                            rdef.get("allowed_action_classes", [])
-                        ),
-                        denied_action_classes=set(
-                            rdef.get("denied_action_classes", [])
-                        ),
+                        allowed_action_classes=set(raw_allowed),
+                        denied_action_classes=set(raw_denied),
                         resource_patterns=rp,
                     )
         else:
-            self._roles = dict(BUILTIN_ROLES)
+            self._roles = {k: copy.deepcopy(v) for k, v in BUILTIN_ROLES.items()}
+
+        # Load roles from knowledge graph TTL files (merge, don't override builtins)
+        if knowledge_graph is not None:
+            self._load_roles_from_kg(knowledge_graph)
+
+    def _load_roles_from_kg(self, kg: KnowledgeGraph) -> None:
+        """Load role definitions from the knowledge graph and merge into _roles.
+
+        Only adds roles that are not already present (builtins and config roles
+        take precedence).
+        """
+        from safeclaw.engine.knowledge_graph import SP, SC
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            PREFIX sc: <{SC}>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            SELECT ?role ?label ?enforcement ?autonomy WHERE {{
+                ?role a sp:Role .
+                ?role rdfs:label ?label .
+                OPTIONAL {{ ?role sp:enforcementMode ?enforcement }}
+                OPTIONAL {{ ?role sp:autonomyLevel ?autonomy }}
+            }}
+        """)
+
+        for row in results:
+            label = str(row["label"])
+            role_name = label.lower()
+
+            # Don't override builtins or already-loaded roles
+            if role_name in self._roles:
+                continue
+
+            role_uri = row["role"]
+            enforcement = str(row.get("enforcement") or "enforce")
+            autonomy = str(row.get("autonomy") or "supervised")
+
+            # Query allowed actions
+            allowed_results = kg.query(f"""
+                PREFIX sp: <{SP}>
+                SELECT ?action WHERE {{
+                    <{role_uri}> sp:allowsAction ?action .
+                }}
+            """)
+            allowed = set()
+            for ar in allowed_results:
+                action_str = str(ar["action"])
+                local_name = action_str.rsplit("#", 1)[-1] if "#" in action_str else action_str
+                if local_name == "AllActions":
+                    allowed = set()  # empty means all allowed
+                    break
+                allowed.add(local_name)
+
+            # Query denied actions
+            denied_results = kg.query(f"""
+                PREFIX sp: <{SP}>
+                SELECT ?action WHERE {{
+                    <{role_uri}> sp:deniesAction ?action .
+                }}
+            """)
+            denied = set()
+            for dr in denied_results:
+                action_str = str(dr["action"])
+                local_name = action_str.rsplit("#", 1)[-1] if "#" in action_str else action_str
+                denied.add(local_name)
+
+            # Query denied write paths for resource patterns
+            deny_paths = []
+            path_results = kg.query(f"""
+                PREFIX sp: <{SP}>
+                SELECT ?path WHERE {{
+                    <{role_uri}> sp:deniesWritePath ?path .
+                }}
+            """)
+            for pr in path_results:
+                deny_paths.append(str(pr["path"]))
+
+            resource_patterns = {"allow": ["**"], "deny": deny_paths}
+
+            self._roles[role_name] = Role(
+                name=role_name,
+                enforcement_mode=enforcement,
+                autonomy_level=autonomy,
+                allowed_action_classes=allowed,
+                denied_action_classes=denied,
+                resource_patterns=resource_patterns,
+            )
+            logger.info("Loaded role '%s' from knowledge graph", role_name)
 
     def get_role(self, name: str) -> Role | None:
         return self._roles.get(name)
@@ -110,6 +213,15 @@ class RoleManager:
         return self._roles.get(self._default_role_name, BUILTIN_ROLES["developer"])
 
     def is_action_allowed(self, role: Role, action_class: str) -> bool:
+        # Unknown/generic actions ("Action") are denied for restricted roles.
+        # Only unrestricted roles (no denied classes and no allowed-list) pass.
+        if action_class == "Action":
+            is_unrestricted = (
+                not role.denied_action_classes and not role.allowed_action_classes
+            )
+            if not is_unrestricted:
+                return False
+
         if self._hierarchy:
             superclasses = self._hierarchy.get_superclasses(action_class)
             # Denied if action_class or any ancestor is denied
@@ -128,6 +240,8 @@ class RoleManager:
 
     def is_resource_allowed(self, role: Role, resource_path: str) -> bool:
         resource_path = os.path.normpath(resource_path)
+        if ".." in resource_path.split(os.sep):
+            return False
         # Strip leading / for consistent fnmatch matching
         norm = resource_path.lstrip("/")
         patterns = role.resource_patterns

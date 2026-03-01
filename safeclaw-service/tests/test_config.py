@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 
 from safeclaw.config_template import (
     DEFAULT_CONFIG,

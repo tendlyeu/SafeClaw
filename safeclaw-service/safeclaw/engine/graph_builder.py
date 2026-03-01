@@ -1,6 +1,6 @@
 """Graph builder - generates D3-compatible JSON from the knowledge graph."""
 
-from safeclaw.engine.knowledge_graph import KnowledgeGraph, SC, SP, SU
+from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP, SU
 
 
 class GraphBuilder:
@@ -8,9 +8,16 @@ class GraphBuilder:
 
     def __init__(self, knowledge_graph: KnowledgeGraph):
         self.kg = knowledge_graph
+        self._cached_graph: dict | None = None
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the cached graph so it will be rebuilt on next access."""
+        self._cached_graph = None
 
     def build_graph(self) -> dict:
         """Build a D3-compatible graph from the knowledge graph."""
+        if self._cached_graph is not None:
+            return self._cached_graph
         nodes: list[dict] = []
         edges: list[dict] = []
         seen_nodes: set[str] = set()
@@ -96,7 +103,7 @@ class GraphBuilder:
                 "type": "instanceOf",
             })
 
-        return {
+        self._cached_graph = {
             "nodes": nodes,
             "edges": edges,
             "stats": {
@@ -105,6 +112,7 @@ class GraphBuilder:
                 "total_triples": len(self.kg),
             },
         }
+        return self._cached_graph
 
     def search_nodes(self, query: str) -> list[dict]:
         """Fuzzy search for nodes by name or label."""

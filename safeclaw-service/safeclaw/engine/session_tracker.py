@@ -1,11 +1,21 @@
 """Session tracker - records action outcomes and session facts for KG feedback."""
 
+import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 MAX_SESSIONS = 1000
 MAX_FILES_PER_SESSION = 200
+MAX_FACTS_PER_SESSION = 1000
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _sanitize_cmd(text: str) -> str:
+    """Strip control characters and collapse whitespace."""
+    text = _CONTROL_CHARS.sub("", text)
+    return " ".join(text.split())
 
 
 @dataclass
@@ -16,6 +26,7 @@ class SessionFact:
     success: bool
     timestamp: str
     detail: str = ""
+    risk_level: str = ""
 
 
 @dataclass
@@ -53,6 +64,7 @@ class SessionTracker:
         tool_name: str,
         success: bool,
         params: dict | None = None,
+        risk_level: str = "",
     ) -> None:
         """Record an action outcome as a session fact."""
         state = self._get_or_create(session_id)
@@ -67,7 +79,7 @@ class SessionTracker:
                     if file_path not in state.files_modified and len(state.files_modified) < MAX_FILES_PER_SESSION:
                         state.files_modified.append(file_path)
             elif "command" in params:
-                cmd = params["command"]
+                cmd = _sanitize_cmd(params["command"])
                 detail = f"cmd: {cmd[:80]}"
 
         state.facts.append(SessionFact(
@@ -76,7 +88,10 @@ class SessionTracker:
             success=success,
             timestamp=now,
             detail=detail,
+            risk_level=risk_level,
         ))
+        if len(state.facts) > MAX_FACTS_PER_SESSION:
+            state.facts = state.facts[-MAX_FACTS_PER_SESSION:]
 
     def record_violation(self, session_id: str, reason: str) -> None:
         """Record a constraint violation."""
@@ -111,6 +126,21 @@ class SessionTracker:
             )
 
         return lines
+
+    def get_risk_history(self, session_id: str) -> list[str]:
+        """Get session history entries formatted for cumulative risk checking.
+
+        Returns entries like 'MediumRisk:WriteFile' for use by the
+        DerivedConstraintChecker's cumulative risk rule.
+        """
+        state = self._sessions.get(session_id)
+        if not state:
+            return []
+        return [
+            f"{fact.risk_level}:{fact.action_class}"
+            for fact in state.facts
+            if fact.risk_level
+        ]
 
     def get_state(self, session_id: str) -> SessionState | None:
         """Get raw session state."""

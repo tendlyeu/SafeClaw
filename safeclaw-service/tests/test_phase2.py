@@ -1,13 +1,11 @@
 """Phase 2 tests: derived rules, temporal constraints, rate limiting, context violations."""
 
-import time
-from unittest.mock import patch
 
 import pytest
 
 from safeclaw.constraints.action_classifier import ActionClassifier, ClassifiedAction
 from safeclaw.constraints.rate_limiter import RateLimiter, MAX_SESSIONS
-from safeclaw.constraints.temporal_checker import TemporalChecker, TemporalCheckResult
+from safeclaw.constraints.temporal_checker import TemporalChecker
 from safeclaw.engine.context_builder import ContextBuilder
 from safeclaw.engine.knowledge_graph import KnowledgeGraph
 from safeclaw.engine.reasoning_rules import DerivedConstraintChecker

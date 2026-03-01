@@ -1,13 +1,12 @@
 """Phase 6 tests: plan reasoner, knowledge store, multi-agent governor."""
 
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.constraints.preference_checker import UserPreferences
 from safeclaw.engine.plan_reasoner import PlanReasoner, PlanStep, PlanAssessment
-from safeclaw.engine.knowledge_store import KnowledgeStore, MAX_ENTRIES
+from safeclaw.engine.knowledge_store import KnowledgeStore
 
 
 # --- Helpers ---

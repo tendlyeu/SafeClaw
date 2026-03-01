@@ -20,6 +20,8 @@ class ContextBuilder:
             self._violation_history[session_id] = []
             while len(self._violation_history) > MAX_SESSIONS:
                 self._violation_history.popitem(last=False)
+        else:
+            self._violation_history.move_to_end(session_id)
         self._violation_history[session_id].append(reason)
         if len(self._violation_history[session_id]) > 100:
             self._violation_history[session_id] = self._violation_history[session_id][-50:]
@@ -84,12 +86,17 @@ class ContextBuilder:
         results = self.kg.query(f"""
             PREFIX su: <{SU}>
             SELECT ?property ?value WHERE {{
-                ?user su:hasPreference ?pref .
+                su:user-{safe_user_id} su:hasPreference ?pref .
                 ?pref ?property ?value .
-                FILTER(STRENDS(STR(?user), "/{safe_user_id}"))
             }}
         """)
-        return [f"{str(row['property']).split('#')[-1]}: {row['value']}" for row in results]
+        prefs = []
+        for row in results:
+            prop = str(row["property"])
+            if "rdf-syntax-ns#" in prop or "www.w3.org/2002/07/owl#" in prop:
+                continue
+            prefs.append(f"{prop.split('#')[-1]}: {row['value']}")
+        return prefs
 
     def _get_active_policies(self) -> list[str]:
         results = self.kg.query(f"""

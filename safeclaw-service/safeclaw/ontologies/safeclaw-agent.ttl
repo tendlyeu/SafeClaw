@@ -84,7 +84,7 @@ sc:GitPush a owl:Class, owl:NamedIndividual ;
     rdfs:label "Git Push" .
 
 sc:ForcePush a owl:Class, owl:NamedIndividual ;
-    rdfs:subClassOf sc:ShellAction ;
+    rdfs:subClassOf sc:GitPush ;
     rdfs:label "Force Push" .
 
 sc:GitCommit a owl:Class, owl:NamedIndividual ;
@@ -119,6 +119,10 @@ sc:WebSearch a owl:Class, owl:NamedIndividual ;
 sc:NetworkRequest a owl:Class ;
     rdfs:subClassOf sc:NetworkAction ;
     rdfs:label "Network Request" .
+
+sc:NetworkRequest sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:ExternalWorld .
 
 # --- Message Action Subclasses ---
 sc:SendMessage a owl:Class, owl:NamedIndividual ;

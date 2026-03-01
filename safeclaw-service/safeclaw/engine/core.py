@@ -13,6 +13,7 @@ class ToolCallEvent:
     session_history: list[str] = field(default_factory=list)
     agent_id: str = ""
     agent_token: str = ""
+    enforcement_mode: str = "enforce"  # "enforce", "warn-only", "audit-only", "disabled"
 
 
 @dataclass
@@ -40,6 +41,7 @@ class ToolResultEvent:
     params: dict
     result: str
     success: bool
+    user_id: str = "default"
     agent_id: str = ""
     agent_token: str = ""
 

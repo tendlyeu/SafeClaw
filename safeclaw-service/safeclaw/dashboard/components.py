@@ -318,9 +318,10 @@ def NotificationListener():
       var cls = 'toast toast-' + (d.severity || 'info');
       var toast = document.createElement('div');
       toast.className = cls;
+      function esc(s) { var t = document.createElement('span'); t.textContent = s; return t.innerHTML; }
       toast.innerHTML = '<div class="toast-title">' +
-        d.title.replace(/</g,'&lt;') + '</div><div class="toast-detail">' +
-        (d.detail || '').replace(/</g,'&lt;').substring(0, 200) + '</div>';
+        esc(d.title) + '</div><div class="toast-detail">' +
+        esc((d.detail || '').substring(0, 200)) + '</div>';
       container.appendChild(toast);
       setTimeout(function() { toast.remove(); }, 8000);
     } catch(ex) {}
@@ -368,6 +369,10 @@ def RiskBadge(risk_level: str):
         "medium": "badge-medium",
         "high": "badge-high",
         "critical": "badge-critical",
+        "lowrisk": "badge-low",
+        "mediumrisk": "badge-medium",
+        "highrisk": "badge-high",
+        "criticalrisk": "badge-critical",
     }
     cls = cls_map.get(lower, "")
     return Span(risk_level, cls=f"badge {cls}".strip())

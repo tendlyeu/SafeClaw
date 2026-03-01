@@ -1,6 +1,5 @@
 """SafeClaw admin dashboard — FastHTML application factory."""
 
-import hashlib
 import os
 import secrets
 
@@ -22,9 +21,7 @@ from safeclaw.dashboard.pages import agents, audit, home, settings
 
 
 def _derive_secret(admin_password: str) -> str:
-    """Derive a session secret key from the admin password or generate one."""
-    if admin_password:
-        return hashlib.sha256(f"safeclaw-session-{admin_password}".encode()).hexdigest()
+    """Generate a random session secret key."""
     return os.urandom(32).hex()
 
 
@@ -138,7 +135,7 @@ def create_dashboard(get_engine_fn, mount_prefix: str = ""):
     @rt("/login", methods=["post"])
     def login_submit(password: str, sess):
         cfg = _get_config()
-        if password == cfg.admin_password:
+        if secrets.compare_digest(password, cfg.admin_password):
             sess["admin_auth"] = True
             return RedirectResponse(f"{_prefix}/", status_code=303)
         return RedirectResponse(f"{_prefix}/login?error=1", status_code=303)

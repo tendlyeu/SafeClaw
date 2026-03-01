@@ -1,11 +1,14 @@
 """Temporal checker - validates actions against time-window constraints."""
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP, SC
+
+logger = logging.getLogger("safeclaw.temporal")
 
 _SAFE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -61,7 +64,17 @@ class TemporalChecker:
                             ),
                         )
                 except (ValueError, TypeError):
-                    pass
+                    logger.warning(
+                        "Failed to parse notBefore value %r for %s",
+                        not_before, action.ontology_class,
+                    )
+                    return TemporalCheckResult(
+                        violated=True,
+                        reason=(
+                            f"Unparseable notBefore constraint for "
+                            f"'{action.ontology_class}': {not_before!r}"
+                        ),
+                    )
 
             if not_after is not None:
                 try:
@@ -77,6 +90,16 @@ class TemporalChecker:
                             ),
                         )
                 except (ValueError, TypeError):
-                    pass
+                    logger.warning(
+                        "Failed to parse notAfter value %r for %s",
+                        not_after, action.ontology_class,
+                    )
+                    return TemporalCheckResult(
+                        violated=True,
+                        reason=(
+                            f"Unparseable notAfter constraint for "
+                            f"'{action.ontology_class}': {not_after!r}"
+                        ),
+                    )
 
         return TemporalCheckResult(violated=False)

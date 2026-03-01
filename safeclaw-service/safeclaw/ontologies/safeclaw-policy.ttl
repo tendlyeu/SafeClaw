@@ -110,10 +110,7 @@ sp:NoForcePush a sp:Prohibition, sp:CommandConstraint ;
     rdfs:label "No force push" .
 
 sp:NoRootDelete a sp:Prohibition, sp:CommandConstraint ;
-    # NOTE: Intentionally simple regex. Catches "rm -rf /" but not all variants
-    # like "rm -r -f /" or "rm --recursive --force /". Broader patterns risk
-    # false positives; defense-in-depth via path constraints covers edge cases.
-    sp:forbiddenCommandPattern "rm\\s+-rf\\s+/" ;
+    sp:forbiddenCommandPattern "rm\\s+.*(-r|-R|--recursive).*\\s+/" ;
     sp:reason "Recursive deletion of root paths is prohibited" ;
     rdfs:label "No recursive root deletion" .
 

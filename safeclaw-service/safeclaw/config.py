@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 
 class SafeClawConfig(BaseSettings):
-    model_config = {"env_prefix": "SAFECLAW_"}
+    model_config = {"env_prefix": "SAFECLAW_", "arbitrary_types_allowed": True}
 
     host: str = "127.0.0.1"
     port: int = 8420
@@ -17,7 +17,7 @@ class SafeClawConfig(BaseSettings):
     audit_dir: Path | None = None  # defaults to data_dir / "audit"
 
     # CORS
-    cors_origin_regex: str = r"https?://localhost:\d+"
+    cors_origin_regex: str = r"https?://localhost:\d+$"
 
     # Auth
     require_auth: bool = False
@@ -49,8 +49,26 @@ class SafeClawConfig(BaseSettings):
     @property
     def raw(self) -> dict:
         config_path = self.data_dir / "config.json"
-        if config_path.exists():
-            import json
-            with open(config_path) as f:
-                return json.load(f)
-        return {}
+        if not config_path.exists():
+            object.__setattr__(self, "_raw_cache", {})
+            object.__setattr__(self, "_raw_cache_mtime", None)
+            return {}
+
+        current_mtime = config_path.stat().st_mtime
+        cached = getattr(self, "_raw_cache", None)
+        cached_mtime = getattr(self, "_raw_cache_mtime", None)
+        if cached is not None and cached_mtime is not None and current_mtime == cached_mtime:
+            return cached
+
+        import json
+
+        with open(config_path, encoding="utf-8") as f:
+            data = json.load(f)
+        object.__setattr__(self, "_raw_cache", data)
+        object.__setattr__(self, "_raw_cache_mtime", current_mtime)
+        return data
+
+    def invalidate_raw_cache(self) -> None:
+        """Invalidate the cached raw config, forcing a re-read on next access."""
+        object.__setattr__(self, "_raw_cache", None)
+        object.__setattr__(self, "_raw_cache_mtime", None)

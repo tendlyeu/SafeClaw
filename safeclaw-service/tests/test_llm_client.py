@@ -1,7 +1,7 @@
 """Tests for the Mistral client wrapper."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from safeclaw.config import SafeClawConfig
 

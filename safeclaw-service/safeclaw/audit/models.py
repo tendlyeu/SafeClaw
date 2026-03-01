@@ -42,5 +42,6 @@ class DecisionRecord(BaseModel):
     agent_id: str = ""
     action: ActionDetail
     decision: str  # "allowed" | "blocked"
+    constraint_step: str = ""  # pipeline step that caused the block, e.g. "policy_check"
     justification: Justification
     session_action_history: list[str] = []

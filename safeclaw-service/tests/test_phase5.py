@@ -1,13 +1,12 @@
 """Phase 5 tests: API key authentication, middleware, hybrid engine, circuit breaker."""
 
-import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
-from safeclaw.auth.api_key import APIKey, APIKeyManager
+from safeclaw.auth.api_key import APIKeyManager
 from safeclaw.engine.hybrid_engine import CircuitBreakerState, HybridEngine
 from safeclaw.engine.core import (
     AgentStartEvent,
@@ -118,22 +117,20 @@ class TestAPIKeyAuthMiddleware:
 # --- CircuitBreakerState Tests ---
 
 class TestCircuitBreaker:
-    @pytest.mark.asyncio
-    async def test_initial_state_closed(self):
+    def test_initial_state_closed(self):
         cb = CircuitBreakerState()
         assert cb.is_open is False
         assert cb.failures == 0
-        assert await cb.should_try_remote() is True
+        assert cb.should_try_remote() is True
 
-    @pytest.mark.asyncio
-    async def test_opens_after_max_failures(self):
+    def test_opens_after_max_failures(self):
         cb = CircuitBreakerState(max_failures=3)
         cb.record_failure()
         cb.record_failure()
         assert cb.is_open is False
         cb.record_failure()
         assert cb.is_open is True
-        assert await cb.should_try_remote() is False
+        assert cb.should_try_remote() is False
 
     def test_closes_on_success(self):
         cb = CircuitBreakerState(max_failures=2)
@@ -144,17 +141,16 @@ class TestCircuitBreaker:
         assert cb.is_open is False
         assert cb.failures == 0
 
-    @pytest.mark.asyncio
-    async def test_recovery_timeout_allows_retry(self, monkeypatch):
+    def test_recovery_timeout_allows_retry(self, monkeypatch):
         fake_time = [1000.0]
         monkeypatch.setattr("time.monotonic", lambda: fake_time[0])
         cb = CircuitBreakerState(max_failures=1, recovery_timeout=0.1)
         cb.record_failure()
         assert cb.is_open is True
-        assert await cb.should_try_remote() is False
+        assert cb.should_try_remote() is False
         # Advance past recovery timeout
         fake_time[0] += 0.15
-        assert await cb.should_try_remote() is True
+        assert cb.should_try_remote() is True
 
     def test_partial_failures_dont_open(self):
         cb = CircuitBreakerState(max_failures=3)
@@ -307,9 +303,8 @@ class TestHybridEngine:
         decision = await engine.evaluate_tool_call(event)
         assert decision.block is True
 
-    @pytest.mark.asyncio
-    async def test_circuit_breaker_half_open_single_probe(self, monkeypatch):
-        """Only one concurrent request probes in half-open state (R3-61)."""
+    def test_circuit_breaker_half_open_single_probe(self, monkeypatch):
+        """Only one request probes in half-open state (R3-61)."""
         fake_time = [1000.0]
         monkeypatch.setattr("time.monotonic", lambda: fake_time[0])
 
@@ -320,13 +315,7 @@ class TestHybridEngine:
         # Advance past recovery timeout into half-open
         fake_time[0] += 0.2
 
-        # Fire multiple concurrent should_try_remote() calls
-        results = await asyncio.gather(
-            cb.should_try_remote(),
-            cb.should_try_remote(),
-            cb.should_try_remote(),
-            cb.should_try_remote(),
-            cb.should_try_remote(),
-        )
+        # Call should_try_remote() multiple times synchronously
+        results = [cb.should_try_remote() for _ in range(5)]
         # Exactly one should get through as the probe
         assert results.count(True) == 1

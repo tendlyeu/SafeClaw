@@ -1,12 +1,11 @@
 """Agent registration with per-agent tokens."""
 
-import hashlib
 import hmac
 import logging
 import os
 import secrets
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from time import monotonic
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,18 @@ class AgentRegistry:
         session_id: str,
         parent_id: str | None = None,
     ) -> str:
-        """Register a new agent and return its raw token."""
+        """Register a new agent and return its raw token.
+
+        If the agent_id already exists and is NOT killed, raises ValueError
+        to prevent accidental overwrites. Killed agents may be re-registered
+        (effectively resetting their state).
+        """
+        existing = self._agents.get(agent_id)
+        if existing is not None and not existing.killed:
+            raise ValueError(
+                f"Agent '{agent_id}' is already registered and active. "
+                "Kill it first or use a different agent_id."
+            )
         token = secrets.token_urlsafe(32)
         record = AgentRecord(
             agent_id=agent_id,

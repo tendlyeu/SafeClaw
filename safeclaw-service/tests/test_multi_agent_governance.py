@@ -4,16 +4,14 @@ Covers: AgentRegistry, RoleManager, DelegationDetector,
 TempPermissionManager, hierarchy rate limiting, and engine integration.
 """
 
-import time
 from pathlib import Path
 
 import pytest
 
 from safeclaw.engine.agent_registry import AgentRegistry, MAX_AGENTS
-from safeclaw.engine.roles import RoleManager, Role, BUILTIN_ROLES
+from safeclaw.engine.roles import RoleManager
 from safeclaw.engine.delegation_detector import (
     DelegationDetector,
-    DelegationResult,
     DETECTION_WINDOW,
 )
 from safeclaw.engine.temp_permissions import TempPermissionManager
@@ -104,9 +102,19 @@ class TestAgentRegistry:
         # The last agent should still be present
         assert reg.get_agent(f"agent-{MAX_AGENTS}") is not None
 
-    def test_re_register_replaces_old(self):
+    def test_re_register_active_agent_raises(self):
+        """Re-registering an active (non-killed) agent raises ValueError."""
+        reg = AgentRegistry()
+        reg.register_agent("agent-1", "researcher", "sess-1")
+        with pytest.raises(ValueError, match="already registered and active"):
+            reg.register_agent("agent-1", "developer", "sess-1")
+
+    def test_re_register_killed_agent_succeeds(self):
+        """Re-registering a killed agent is allowed and resets its state."""
         reg = AgentRegistry()
         token1 = reg.register_agent("agent-1", "researcher", "sess-1")
+        reg.kill_agent("agent-1")
+        assert reg.is_killed("agent-1") is True
         token2 = reg.register_agent("agent-1", "developer", "sess-1")
         # Old token should no longer work
         assert reg.verify_token("agent-1", token1) is False
@@ -114,6 +122,8 @@ class TestAgentRegistry:
         assert reg.verify_token("agent-1", token2) is True
         # Role should be updated
         assert reg.get_agent("agent-1").role == "developer"
+        # Agent should no longer be killed
+        assert reg.is_killed("agent-1") is False
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +413,6 @@ class TestEngineMultiAgentIntegration:
     def engine(self, tmp_path):
         from safeclaw.config import SafeClawConfig
         from safeclaw.engine.full_engine import FullEngine
-        from safeclaw.engine.core import ToolCallEvent
 
         config = SafeClawConfig(
             data_dir=tmp_path,
@@ -493,7 +502,7 @@ class TestEngineMultiAgentIntegration:
 
         engine.delegation_detector.mode = "strict"
         token_r = engine.agent_registry.register_agent("agent-d1", "researcher", "sess-d")
-        token_d = engine.agent_registry.register_agent("agent-d2", "developer", "sess-d")
+        engine.agent_registry.register_agent("agent-d2", "developer", "sess-d")
 
         # Agent d1 (researcher) tries to write -> blocked by role
         event1 = ToolCallEvent(

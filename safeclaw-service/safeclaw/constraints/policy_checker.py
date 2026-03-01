@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
@@ -22,6 +22,7 @@ class PolicyCheckResult:
     policy_uri: str = ""
     policy_type: str = ""
     reason: str = ""
+    all_violations: list[dict] = field(default_factory=list)
 
 
 class PolicyChecker:
@@ -49,7 +50,8 @@ class PolicyChecker:
             }}
         """)
         self._forbidden_paths = [
-            (str(r["policy"]), str(r["pattern"]), str(r["reason"])) for r in path_results
+            (str(r["policy"]), str(r["pattern"]).strip("/"), str(r["reason"]))
+            for r in path_results
         ]
 
         # Command constraints
@@ -93,29 +95,30 @@ class PolicyChecker:
 
     def check(self, action: ClassifiedAction) -> PolicyCheckResult:
         """Check if action violates any policies."""
+        all_violations: list[dict] = []
+
         # Check path constraints
         file_path = action.params.get("file_path", "") or action.params.get("path", "")
         if file_path:
+            normalized_path = file_path.strip("/")
             for policy_uri, pattern, reason in self._forbidden_paths:
-                if self._safe_match(pattern, file_path):
-                    return PolicyCheckResult(
-                        violated=True,
-                        policy_uri=policy_uri,
-                        policy_type="Prohibition",
-                        reason=reason,
-                    )
+                if self._safe_match(pattern, normalized_path):
+                    all_violations.append({
+                        "policy_uri": policy_uri,
+                        "policy_type": "Prohibition",
+                        "reason": reason,
+                    })
 
         # Check command constraints
         command = action.params.get("command", "")
         if command:
             for policy_uri, pattern, reason in self._forbidden_commands:
                 if self._safe_match(pattern, command):
-                    return PolicyCheckResult(
-                        violated=True,
-                        policy_uri=policy_uri,
-                        policy_type="Prohibition",
-                        reason=reason,
-                    )
+                    all_violations.append({
+                        "policy_uri": policy_uri,
+                        "policy_type": "Prohibition",
+                        "reason": reason,
+                    })
 
         # Check class-level prohibitions (hierarchy-aware)
         if self._class_prohibitions:
@@ -126,11 +129,20 @@ class PolicyChecker:
             )
             for policy_uri, target_class, reason in self._class_prohibitions:
                 if target_class in action_classes:
-                    return PolicyCheckResult(
-                        violated=True,
-                        policy_uri=policy_uri,
-                        policy_type="Prohibition",
-                        reason=reason,
-                    )
+                    all_violations.append({
+                        "policy_uri": policy_uri,
+                        "policy_type": "Prohibition",
+                        "reason": reason,
+                    })
+
+        if all_violations:
+            first = all_violations[0]
+            return PolicyCheckResult(
+                violated=True,
+                policy_uri=first["policy_uri"],
+                policy_type=first["policy_type"],
+                reason=first["reason"],
+                all_violations=all_violations,
+            )
 
         return PolicyCheckResult(violated=False)

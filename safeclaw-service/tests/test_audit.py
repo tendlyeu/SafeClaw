@@ -1,6 +1,5 @@
 """Tests for the audit system."""
 
-from pathlib import Path
 
 from safeclaw.audit.logger import AuditLogger
 from safeclaw.audit.models import (

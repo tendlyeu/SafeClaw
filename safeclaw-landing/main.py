@@ -1,3 +1,5 @@
+from datetime import date
+
 from fasthtml.common import *
 from fasthtml.components import Footer as FooterTag
 
@@ -31,7 +33,7 @@ def Nav():
                 Li(A("How It Works", href="/#how-it-works")),
                 Li(A("Architecture", href="/#architecture")),
                 Li(A("Docs", href="/docs")),
-                Li(A("GitHub", href=GITHUB_URL, target="_blank")),
+                Li(A("GitHub", href=GITHUB_URL, target="_blank", rel="noopener noreferrer")),
                 cls="nav-links", id="nav-links",
             ),
             Button("☰", cls="nav-mobile-toggle",
@@ -50,7 +52,7 @@ def Hero():
               "Audit every decision. Never let your agent go astray."),
             Div(
                 A("View on GitHub", href=GITHUB_URL, target="_blank",
-                  cls="btn btn-primary"),
+                  rel="noopener noreferrer", cls="btn btn-primary"),
                 A("Quick Start", href="#quickstart", cls="btn btn-secondary"),
                 cls="hero-buttons",
             ),
@@ -301,12 +303,12 @@ def Footer():
         Div(
             P("SafeClaw — Neurosymbolic AI Governance", cls="footer-brand"),
             Ul(
-                Li(A("GitHub", href=GITHUB_URL, target="_blank")),
+                Li(A("GitHub", href=GITHUB_URL, target="_blank", rel="noopener noreferrer")),
                 Li(A("Documentation", href=DOCS_URL)),
                 Li(A("MIT License", href=f"{GITHUB_URL}/blob/main/LICENSE")),
                 cls="footer-links",
             ),
-            P(f"© 2025 SafeClaw. Built with FastHTML."),
+            P(f"© {date.today().year} SafeClaw. Built with FastHTML."),
             cls="container",
         ),
         cls="footer",

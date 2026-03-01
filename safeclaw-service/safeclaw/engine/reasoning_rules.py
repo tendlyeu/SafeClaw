@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.constraints.preference_checker import UserPreferences
-from safeclaw.engine.knowledge_graph import KnowledgeGraph, SC, SP
+from safeclaw.engine.knowledge_graph import KnowledgeGraph
 
 if TYPE_CHECKING:
     from safeclaw.engine.class_hierarchy import ClassHierarchy
-
-_SAFE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass
@@ -35,20 +32,6 @@ class DerivedConstraintChecker:
     ):
         self.kg = knowledge_graph
         self._hierarchy = hierarchy
-        # Pre-load prohibition target classes for cached lookups
-        self._prohibition_targets: set[str] = set()
-        if hierarchy:
-            results = self.kg.query(f"""
-                PREFIX sp: <{SP}>
-                SELECT ?target WHERE {{
-                    ?constraint a sp:Prohibition ;
-                                sp:appliesTo ?target .
-                }}
-            """)
-            for r in results:
-                uri = str(r["target"])
-                cls = uri.rsplit("#", 1)[-1] if "#" in uri else uri
-                self._prohibition_targets.add(cls)
 
     def check(
         self,
@@ -74,14 +57,7 @@ class DerivedConstraintChecker:
                 f"Action affects SharedState and user autonomy is '{user_prefs.autonomy_level}'"
             )
 
-        # Rule 3: Transitive prohibition from parent classes
-        if self._check_transitive_prohibition(action):
-            triggered_rules.append("TransitiveProhibitionRule")
-            reasons.append(
-                f"Action '{action.ontology_class}' inherits a prohibition from a parent class"
-            )
-
-        # Rule 4: Cumulative risk escalation
+        # Rule 3: Cumulative risk escalation
         if self._check_cumulative_risk(session_history):
             triggered_rules.append("CumulativeRiskRule")
             reasons.append(
@@ -109,30 +85,6 @@ class DerivedConstraintChecker:
             action.affects_scope == "SharedState"
             and user_prefs.autonomy_level in ("cautious", "supervised")
         )
-
-    def _check_transitive_prohibition(self, action: ClassifiedAction) -> bool:
-        """Rule 3: If a parent class has a prohibition, child inherits it."""
-        # Use cached hierarchy when available (faster than SPARQL)
-        if self._hierarchy:
-            superclasses = self._hierarchy.get_superclasses(action.ontology_class)
-            return bool(superclasses & self._prohibition_targets)
-
-        # Fallback: SPARQL query
-        if not _SAFE_ID.match(action.ontology_class):
-            return False
-        results = self.kg.query(f"""
-            PREFIX sp: <{SP}>
-            PREFIX sc: <{SC}>
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            SELECT ?prohibition WHERE {{
-                sc:{action.ontology_class} rdfs:subClassOf* ?parent .
-                ?constraint a sp:Prohibition ;
-                            sp:appliesTo ?parent .
-                BIND(?constraint AS ?prohibition)
-            }}
-            LIMIT 1
-        """)
-        return len(results) > 0
 
     def _check_cumulative_risk(self, session_history: list[str]) -> bool:
         """Rule 4: 3+ MediumRisk or 2+ HighRisk actions in session → escalate."""

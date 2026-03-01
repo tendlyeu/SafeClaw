@@ -33,7 +33,7 @@ class KnowledgeStore:
         store_file = self._store_file()
         if not store_file.exists():
             return
-        with open(store_file) as f:
+        with open(store_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -47,7 +47,7 @@ class KnowledgeStore:
         """Persist all facts to disk atomically."""
         store_file = self._store_file()
         tmp_file = store_file.with_suffix(".jsonl.tmp")
-        with open(tmp_file, "w") as f:
+        with open(tmp_file, "w", encoding="utf-8") as f:
             for fact in self._facts.values():
                 f.write(json.dumps(fact) + "\n")
         os.replace(tmp_file, store_file)
@@ -69,7 +69,9 @@ class KnowledgeStore:
             "session_id": session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        # Evict oldest entries
+        # Move updated entry to end so it is treated as most-recent
+        self._facts.move_to_end(fact_id)
+        # Evict oldest entries (O(1) per eviction via OrderedDict.popitem)
         while len(self._facts) > MAX_ENTRIES:
             self._facts.popitem(last=False)
         self._save()

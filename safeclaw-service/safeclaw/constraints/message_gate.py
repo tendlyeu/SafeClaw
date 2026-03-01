@@ -21,6 +21,24 @@ SENSITIVE_PATTERNS = [
     (r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----", "Private key"),
 ]
 
+# Patterns for risk level classification (case-insensitive)
+# "high" patterns indicate actual credentials/secrets in the content
+HIGH_RISK_PATTERNS = [
+    re.compile(r"(?i)-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"),
+    re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b"),
+    re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+]
+
+# "medium" patterns indicate sensitive keywords that suggest credential-adjacent content
+MEDIUM_RISK_PATTERNS = [
+    re.compile(r"(?i)\b(?:password|passwd|pwd)\b"),
+    re.compile(r"(?i)\b(?:api[_-]?key)\b"),
+    re.compile(r"(?i)\b(?:secret)\b"),
+    re.compile(r"(?i)\b(?:token)\b"),
+    re.compile(r"(?i)\b(?:credential)\b"),
+]
+
 # Max messages per session per hour (default)
 DEFAULT_MESSAGE_RATE_LIMIT = 50
 
@@ -30,6 +48,7 @@ class MessageCheckResult:
     block: bool
     reason: str = ""
     check_type: str = ""  # "never_contact" | "sensitive_data" | "rate_limit" | "content_policy"
+    risk_level: str = "LowRisk"  # "LowRisk", "MediumRisk", "HighRisk"
 
 
 class MessageGate:
@@ -62,6 +81,21 @@ class MessageGate:
         """Remove a contact from the never-contact list."""
         self._never_contact.discard(contact.lower())
 
+    def _classify_risk_level(self, content: str) -> str:
+        """Classify message risk level based on content patterns.
+
+        Returns "HighRisk" if the content contains actual credentials/secrets,
+        "MediumRisk" if it contains sensitive keywords (password, api_key, etc.),
+        or "LowRisk" otherwise.
+        """
+        for pattern in HIGH_RISK_PATTERNS:
+            if pattern.search(content):
+                return "HighRisk"
+        for pattern in MEDIUM_RISK_PATTERNS:
+            if pattern.search(content):
+                return "MediumRisk"
+        return "LowRisk"
+
     def check(
         self,
         to: str,
@@ -69,12 +103,16 @@ class MessageGate:
         session_id: str,
     ) -> MessageCheckResult:
         """Run all message checks."""
+        # Classify risk level based on content
+        risk_level = self._classify_risk_level(content)
+
         # 1. Never-contact list
         if to.lower() in self._never_contact:
             return MessageCheckResult(
                 block=True,
                 reason=f"Recipient '{to}' is on the never-contact list",
                 check_type="never_contact",
+                risk_level=risk_level,
             )
 
         # 2. Sensitive data detection
@@ -84,33 +122,38 @@ class MessageGate:
                 block=True,
                 reason=f"Message contains sensitive data: {sensitive}",
                 check_type="sensitive_data",
+                risk_level=risk_level,
             )
 
-        # 3. Rate limiting
+        # 3. Rate limiting (read-only: don't modify _session_message_counts)
         now = time.monotonic()
         cutoff = now - 3600
         counts = self._session_message_counts.get(session_id, [])
-        counts = [t for t in counts if t >= cutoff]
-        self._session_message_counts[session_id] = counts
-        while len(self._session_message_counts) > MAX_SESSIONS:
-            self._session_message_counts.popitem(last=False)
+        active_count = sum(1 for t in counts if t >= cutoff)
 
-        if len(counts) >= self._message_rate_limit:
+        if active_count >= self._message_rate_limit:
             return MessageCheckResult(
                 block=True,
-                reason=f"Message rate limit exceeded: {len(counts)}/{self._message_rate_limit} messages in the last hour",
+                reason=f"Message rate limit exceeded: {active_count}/{self._message_rate_limit} messages in the last hour",
                 check_type="rate_limit",
+                risk_level=risk_level,
             )
 
-        return MessageCheckResult(block=False)
+        return MessageCheckResult(block=False, risk_level=risk_level)
 
     def record_message(self, session_id: str) -> None:
         """Record a sent message for rate limiting."""
+        now = time.monotonic()
+        cutoff = now - 3600
         if session_id not in self._session_message_counts:
             self._session_message_counts[session_id] = []
             while len(self._session_message_counts) > MAX_SESSIONS:
                 self._session_message_counts.popitem(last=False)
-        self._session_message_counts[session_id].append(time.monotonic())
+        # Prune expired entries
+        self._session_message_counts[session_id] = [
+            t for t in self._session_message_counts[session_id] if t >= cutoff
+        ]
+        self._session_message_counts[session_id].append(now)
 
     def clear_session(self, session_id: str) -> None:
         """Remove session message counts when session ends."""

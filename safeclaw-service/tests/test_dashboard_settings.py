@@ -1,7 +1,7 @@
 """Tests for settings dashboard page."""
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from starlette.testclient import TestClient
 
 from safeclaw.config import SafeClawConfig
@@ -11,6 +11,7 @@ from safeclaw.dashboard.app import create_dashboard
 @pytest.fixture
 def settings_client():
     engine = MagicMock()
+    engine.reload = AsyncMock()
     engine.config = SafeClawConfig(admin_password="", mistral_api_key="sk-test-123")
     engine.audit = MagicMock()
     engine.audit.get_recent_records.return_value = []

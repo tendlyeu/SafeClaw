@@ -1,9 +1,8 @@
 """Hybrid engine - routes between local cache and remote SafeClaw service."""
 
-import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
@@ -29,7 +28,6 @@ class CircuitBreakerState:
     last_failure: float = 0
     recovery_timeout: float = 60.0  # seconds
     is_open: bool = False
-    _probe_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _probing: bool = False
 
     def record_failure(self) -> None:
@@ -47,18 +45,15 @@ class CircuitBreakerState:
             self.is_open = False
             logger.info("Circuit breaker CLOSED: remote service recovered")
 
-    async def should_try_remote(self) -> bool:
+    def should_try_remote(self) -> bool:
         if not self.is_open:
             return True
         # Half-open: allow one probe request after recovery timeout
         if time.monotonic() - self.last_failure > self.recovery_timeout:
-            if self._probe_lock.locked():
-                return False  # Another request is already probing
-            async with self._probe_lock:
-                if self._probing:
-                    return False
-                self._probing = True
-                return True
+            if self._probing:
+                return False
+            self._probing = True
+            return True
         return False
 
 
@@ -93,7 +88,7 @@ class HybridEngine(SafeClawEngine):
         await self._client.aclose()
 
     async def evaluate_tool_call(self, event: ToolCallEvent) -> Decision:
-        if await self.circuit_breaker.should_try_remote():
+        if self.circuit_breaker.should_try_remote():
             try:
                 resp = await self._client.post(
                     f"{self.remote_url}/api/v1/evaluate/tool-call",
@@ -127,7 +122,7 @@ class HybridEngine(SafeClawEngine):
         return Decision(block=False)
 
     async def evaluate_message(self, event: MessageEvent) -> Decision:
-        if await self.circuit_breaker.should_try_remote():
+        if self.circuit_breaker.should_try_remote():
             try:
                 resp = await self._client.post(
                     f"{self.remote_url}/api/v1/evaluate/message",
@@ -159,7 +154,7 @@ class HybridEngine(SafeClawEngine):
         return Decision(block=False)
 
     async def build_context(self, event: AgentStartEvent) -> ContextResult:
-        if await self.circuit_breaker.should_try_remote():
+        if self.circuit_breaker.should_try_remote():
             try:
                 resp = await self._client.post(
                     f"{self.remote_url}/api/v1/context/build",
@@ -184,7 +179,7 @@ class HybridEngine(SafeClawEngine):
 
     async def record_action_result(self, event: ToolResultEvent) -> None:
         # Fire-and-forget to remote, also record locally
-        if await self.circuit_breaker.should_try_remote():
+        if self.circuit_breaker.should_try_remote():
             try:
                 await self._client.post(
                     f"{self.remote_url}/api/v1/record/tool-result",
@@ -198,8 +193,10 @@ class HybridEngine(SafeClawEngine):
                         "success": event.success,
                     },
                 )
+                self.circuit_breaker.record_success()
             except Exception as e:
                 logger.warning(f"Failed to record action result remotely: {e}")
+                self.circuit_breaker.record_failure()
 
         if self.local_engine:
             await self.local_engine.record_action_result(event)

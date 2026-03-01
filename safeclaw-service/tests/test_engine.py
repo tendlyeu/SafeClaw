@@ -5,7 +5,7 @@ from pathlib import Path
 
 from safeclaw.config import SafeClawConfig
 from safeclaw.constraints.policy_checker import PolicyChecker
-from safeclaw.engine.core import ToolCallEvent, MessageEvent, AgentStartEvent
+from safeclaw.engine.core import ToolCallEvent, AgentStartEvent
 from safeclaw.engine.full_engine import FullEngine
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP
 

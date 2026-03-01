@@ -186,10 +186,10 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
         return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)
 
     @rt("/settings/reload", methods=["post"])
-    def reload_ontologies(sess, _csrf: str = ""):
+    async def reload_ontologies(sess, _csrf: str = ""):
         if verify_csrf and not verify_csrf(sess, _csrf):
             return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
-        engine.reload()
+        await engine.reload()
         sess["settings_flash"] = "Ontologies reloaded successfully."
         return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)
