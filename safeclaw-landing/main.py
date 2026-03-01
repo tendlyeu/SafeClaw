@@ -1182,4 +1182,52 @@ async def health_check(req, sess):
         )
 
 
+from datetime import datetime, timezone
+
+from dashboard.keys import KeysContent, KeyTable, generate_api_key, hash_key, NewKeyModal
+
+
+@rt("/dashboard/keys")
+def dashboard_keys(req, sess):
+    user = req.scope.get("user")
+    return (
+        Title("API Keys — SafeClaw"),
+        *MUITheme.blue.headers(),
+        DashboardLayout("API Keys", *KeysContent(user.id), user=user, active="keys"),
+    )
+
+
+@rt("/dashboard/keys/create")
+def create_key(req, sess, label: str = "", scope: str = "full"):
+    user = req.scope.get("user")
+    raw_key, key_id = generate_api_key()
+    api_keys.insert(
+        user_id=user.id,
+        key_id=key_id,
+        key_hash=hash_key(raw_key),
+        label=label or "Unnamed key",
+        scope=scope,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        is_active=True,
+    )
+    return Div(
+        NewKeyModal(raw_key),
+        KeyTable(user.id),
+    )
+
+
+@rt("/dashboard/keys/{key_pk}/revoke")
+def revoke_key(req, sess, key_pk: int):
+    user = req.scope.get("user")
+    try:
+        key = api_keys[key_pk]
+    except Exception:
+        return KeyTable(user.id)
+    if key.user_id != user.id:
+        return KeyTable(user.id)
+    key.is_active = False
+    api_keys.update(key)
+    return KeyTable(user.id)
+
+
 serve(port=5002)
