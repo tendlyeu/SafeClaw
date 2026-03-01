@@ -58,13 +58,23 @@ def CreateKeyForm():
     """Form to create a new API key."""
     return Card(
         H3("Create New Key"),
+        P("API keys authenticate your agent's plugin against SafeClaw. "
+          "Each key is shown only once at creation — we store a SHA-256 hash, "
+          "so we cannot recover a lost key. Create a new one if needed.",
+          cls=TextPresets.muted_sm),
         Form(
             LabelInput("Label", id="label", placeholder="e.g. My dev key", required=True),
+            P("A name to help you remember what this key is used for.",
+              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
             LabelSelect(
                 Option("Full access", value="full"),
                 Option("Evaluate only", value="evaluate_only"),
                 label="Scope", id="scope",
             ),
+            P(Strong("Full access"), " allows all API operations (evaluate, record, context). ",
+              Strong("Evaluate only"), " restricts the key to evaluation endpoints — "
+              "it can check whether actions are allowed but cannot record results or manage agents.",
+              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
             Button("Create Key", cls=ButtonT.primary, type="submit"),
             hx_post="/dashboard/keys/create",
             hx_target="#key-list",
@@ -83,7 +93,10 @@ def NewKeyModal(raw_key: str):
             Pre(Code(raw_key), style="word-break:break-all;"),
             cls="space-y-2",
         ),
-        P("Store it securely. Use it as your SAFECLAW_API_KEY.", cls=TextPresets.muted_sm),
+        P("Use ", Code("safeclaw connect " + raw_key[:12] + "..."),
+          " in your terminal to link this key to your machine, or set it as ",
+          Code("SAFECLAW_API_KEY"), " in your environment.",
+          cls=TextPresets.muted_sm),
         id="new-key-alert",
         cls="uk-alert-success",
     )
@@ -96,6 +109,9 @@ def KeysContent(user_id: int):
         CreateKeyForm(),
         Card(
             H3("Your API Keys"),
+            P("These keys are used by the SafeClaw plugin running alongside your AI agent. "
+              "Revoking a key immediately disconnects any agent using it.",
+              cls=TextPresets.muted_sm),
             Div(KeyTable(user_id), id="key-list"),
         ),
     )

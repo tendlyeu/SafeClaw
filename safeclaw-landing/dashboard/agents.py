@@ -41,12 +41,23 @@ def ServiceConfigCard():
     """Card for configuring service connection."""
     return Card(
         H3("Service Connection"),
-        P("Configure the SafeClaw service URL and admin password to manage agents.", cls=TextPresets.muted_sm),
+        P("This page connects to a running SafeClaw service instance to show "
+          "agents that have registered with it. This is for advanced users "
+          "who self-host the SafeClaw engine.",
+          cls=TextPresets.muted_sm),
+        P("If you're using the hosted service at ", Code("safeclaw.eu"),
+          ", agents are managed automatically — you don't need to configure anything here.",
+          cls=TextPresets.muted_sm),
         Form(
             LabelInput("Service URL", id="service_url", value="http://localhost:8420",
                        placeholder="http://localhost:8420"),
+            P("The URL of your self-hosted SafeClaw service.",
+              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
             LabelInput("Admin Password", id="admin_password", type="password",
                        placeholder="Leave empty if not set"),
+            P("Required if you set ", Code("SAFECLAW_ADMIN_PASSWORD"),
+              " on your service.",
+              cls=TextPresets.muted_sm, style="margin-top:-0.5rem;"),
             Button("Connect & Load Agents", cls=ButtonT.primary, type="submit"),
             hx_post="/dashboard/agents/load",
             hx_target="#agent-list",
@@ -62,6 +73,10 @@ def AgentsContent():
         ServiceConfigCard(),
         Card(
             H3("Registered Agents"),
+            P("Agents register themselves when they start a session with the SafeClaw service. "
+              "You can ", Strong("kill"), " an agent to immediately block all its actions, "
+              "or ", Strong("revive"), " it to restore access.",
+              cls=TextPresets.muted_sm),
             Div(P("Connect to a service to see agents.", cls=TextPresets.muted_sm), id="agent-list"),
         ),
     )

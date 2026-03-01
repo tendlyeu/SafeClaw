@@ -8,6 +8,9 @@ def ServiceHealthCard():
     """Card showing service health status, refreshes via HTMX."""
     return Card(
         H3("Service Health"),
+        P("Checks whether the SafeClaw governance engine is running and reachable. "
+          "If you're using the hosted service, this should always show healthy.",
+          cls=TextPresets.muted_sm),
         Div(
             P("Checking...", cls=TextPresets.muted_sm),
             id="health-status",
@@ -25,9 +28,11 @@ def MistralNudge():
             UkIcon("alert-triangle", height=20),
             Div(
                 P(Strong("LLM features disabled")),
-                P("Add your Mistral API key in ",
+                P("SafeClaw is running in rule-based mode only. "
+                  "Add your Mistral API key in ",
                   A("Preferences", href="/dashboard/prefs"),
-                  " to enable security review and smart classification.",
+                  " to unlock smart classification, security review, "
+                  "and plain-English decision explanations.",
                   cls=TextPresets.muted_sm),
             ),
         ),
@@ -39,12 +44,18 @@ def GettingStartedCard():
     """Setup instructions for new users."""
     return Card(
         H3("Getting Started"),
+        P("Follow these steps to connect your AI agent to SafeClaw. "
+          "This only needs to be done once per machine.",
+          cls=TextPresets.muted_sm),
         Div(
-            P("1. Create an API key in the ", A("Keys", href="/dashboard/keys"), " tab"),
-            P("2. Install the OpenClaw plugin:"),
+            P(Strong("1."), " Create an API key in the ", A("Keys", href="/dashboard/keys"), " tab"),
+            P(Strong("2."), " Install the plugin:"),
             Pre(Code("npm install -g openclaw-safeclaw-plugin")),
-            P("3. Connect your plugin:"),
+            P(Strong("3."), " Connect your plugin:"),
             Pre(Code("safeclaw connect sc_your_key_here")),
+            P("After connecting, every tool call your AI agent makes will be "
+              "validated against your governance rules before execution.",
+              cls=TextPresets.muted_sm),
             cls="space-y-2",
         ),
     )
@@ -56,12 +67,12 @@ def OverviewContent(user, key_count: int, has_mistral_key: bool = True):
         Grid(
             Card(
                 DivLAligned(UkIcon("key", height=20), H4("API Keys")),
-                P(f"{key_count} keys", cls=TextPresets.muted_sm),
+                P(f"{key_count} key{'s' if key_count != 1 else ''} created", cls=TextPresets.muted_sm),
                 footer=A("Manage keys ->", href="/dashboard/keys"),
             ),
             Card(
                 DivLAligned(UkIcon("bot", height=20), H4("Agents")),
-                P("View on service", cls=TextPresets.muted_sm),
+                P("View registered agents", cls=TextPresets.muted_sm),
                 footer=A("View agents ->", href="/dashboard/agents"),
             ),
             cols=2,
