@@ -1326,6 +1326,8 @@ def auth_callback(req, sess, code: str = "", state: str = ""):
         email=info.get("email", ""),
     )
     sess["auth"] = user.id
+    if not user.onboarded:
+        return RedirectResponse("/dashboard/onboard", status_code=303)
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -1383,6 +1385,7 @@ async def health_check(req, sess):
 from datetime import datetime, timezone
 
 from dashboard.keys import KeysContent, KeyTable, generate_api_key, hash_key, NewKeyModal
+from dashboard.onboard import OnboardStep1, OnboardStep2
 
 
 @rt("/dashboard/keys")
@@ -1426,6 +1429,44 @@ def revoke_key(req, sess, key_pk: int):
     key.is_active = False
     api_keys.update(key)
     return KeyTable(user.id)
+
+
+@rt("/dashboard/onboard")
+def dashboard_onboard(req, sess):
+    user = req.scope.get("user")
+    if user.onboarded:
+        return RedirectResponse("/dashboard", status_code=303)
+    return (
+        Title("Get Started — SafeClaw"),
+        *MUITheme.blue.headers(),
+        DashboardLayout("Get Started", OnboardStep1(), user=user, active="onboard"),
+    )
+
+
+@rt("/dashboard/onboard/step1")
+def onboard_step1(req, sess, autonomy_level: str = "moderate"):
+    user = req.scope.get("user")
+    user.autonomy_level = autonomy_level
+    users.update(user)
+    raw_key, key_id = generate_api_key()
+    api_keys.insert(
+        user_id=user.id,
+        key_id=key_id,
+        key_hash=hash_key(raw_key),
+        label="Default",
+        scope="full",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        is_active=True,
+    )
+    return OnboardStep2(raw_key)
+
+
+@rt("/dashboard/onboard/done")
+def onboard_done(req, sess):
+    user = req.scope.get("user")
+    user.onboarded = True
+    users.update(user)
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 from dashboard.agents import AgentsContent, AgentTable
