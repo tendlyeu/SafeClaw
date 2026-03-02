@@ -41,8 +41,11 @@ def agents_client():
     engine.security_reviewer = None
     engine.classification_observer = None
     engine.explainer = None
+    engine.heartbeat_monitor._agents = {}
     engine.temp_permissions = MagicMock()
     engine.temp_permissions.list_grants.return_value = []
+    engine.role_manager = MagicMock()
+    engine.role_manager.get_role.return_value = None
 
     def get_engine():
         return engine

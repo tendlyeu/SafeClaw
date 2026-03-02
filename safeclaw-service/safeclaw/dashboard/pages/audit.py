@@ -1,6 +1,7 @@
 """Dashboard audit log page — filterable audit log with detail expansion."""
 
 from fasthtml.common import (
+    A,
     Button,
     Div,
     Form,
@@ -24,7 +25,15 @@ from safeclaw.dashboard.components import DecisionBadge, Page, RiskBadge
 
 def register(rt, get_engine):
     @rt("/audit")
-    def audit(filter: str = "", session_id: str = "", limit: int = 50):
+    def audit(
+        filter: str = "",
+        session_id: str = "",
+        tool_name: str = "",
+        risk: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        limit: int = 50,
+    ):
         engine = get_engine()
 
         # ── Fetch records based on filters ────────────────────────
@@ -34,6 +43,16 @@ def register(rt, get_engine):
             records = engine.audit.get_session_records(session_id)
         else:
             records = engine.audit.get_recent_records(limit=limit)
+
+        # ── Post-fetch filters ───────────────────────────────────
+        if tool_name:
+            records = [r for r in records if tool_name.lower() in r.action.tool_name.lower()]
+        if risk:
+            records = [r for r in records if r.action.risk_level.lower() == risk.lower()]
+        if date_from:
+            records = [r for r in records if r.timestamp[:10] >= date_from]
+        if date_to:
+            records = [r for r in records if r.timestamp[:10] <= date_to]
 
         # ── Filter panel ──────────────────────────────────────────
         filter_panel = Div(
@@ -60,6 +79,51 @@ def register(rt, get_engine):
                         ),
                     ),
                     Div(
+                        Input(
+                            type="text",
+                            name="tool_name",
+                            placeholder="Tool name",
+                            value=tool_name,
+                        ),
+                    ),
+                    Div(
+                        Select(
+                            Option("All risks", value="", selected=(not risk)),
+                            Option(
+                                "critical",
+                                value="critical",
+                                selected=(risk == "critical"),
+                            ),
+                            Option(
+                                "high",
+                                value="high",
+                                selected=(risk == "high"),
+                            ),
+                            Option(
+                                "medium",
+                                value="medium",
+                                selected=(risk == "medium"),
+                            ),
+                            Option(
+                                "low",
+                                value="low",
+                                selected=(risk == "low"),
+                            ),
+                            name="risk",
+                        ),
+                    ),
+                    style="display: flex; gap: 1rem; align-items: end;",
+                ),
+                Div(
+                    Div(
+                        Span("From", cls="text-xs"),
+                        Input(type="date", name="date_from", value=date_from),
+                    ),
+                    Div(
+                        Span("To", cls="text-xs"),
+                        Input(type="date", name="date_to", value=date_to),
+                    ),
+                    Div(
                         Button("Apply", type="submit", cls="btn btn-primary"),
                     ),
                     style="display: flex; gap: 1rem; align-items: end;",
@@ -68,6 +132,30 @@ def register(rt, get_engine):
                 action=f"{_comp.MOUNT_PREFIX}/audit",
             ),
             cls="panel",
+        )
+
+        # ── Export buttons ───────────────────────────────────────
+        export_links = []
+        if session_id:
+            export_links.append(
+                A(
+                    "Export Session Report",
+                    href=f"/api/v1/audit/report/{session_id}?format=markdown",
+                    cls="btn export-btn",
+                    target="_blank",
+                )
+            )
+        export_links.append(
+            A(
+                "Compliance Report",
+                href="/api/v1/audit/compliance",
+                cls="btn export-btn",
+                target="_blank",
+            )
+        )
+        export_row = Div(
+            *export_links,
+            style="display: flex; gap: 1rem; margin-bottom: 1rem;",
         )
 
         # ── Results table ─────────────────────────────────────────
@@ -130,7 +218,7 @@ def register(rt, get_engine):
 
         results_panel = Div(H2("Results"), results_table, cls="panel")
 
-        return Page("Audit Log", filter_panel, results_panel, active="audit")
+        return Page("Audit Log", filter_panel, export_row, results_panel, active="audit")
 
     @rt("/audit/detail/{audit_id}")
     def audit_detail(audit_id: str):
@@ -227,9 +315,7 @@ def register(rt, get_engine):
         history = getattr(record, "session_action_history", None) or []
         if history:
             last_5 = history[-5:]
-            history_rows = [
-                Tr(Td(Span(str(h), cls="mono text-xs"))) for h in last_5
-            ]
+            history_rows = [Tr(Td(Span(str(h), cls="mono text-xs"))) for h in last_5]
             sections.append(
                 Div(
                     H2("Session History (last 5)"),
@@ -238,4 +324,34 @@ def register(rt, get_engine):
                 )
             )
 
+        # ── LLM Explain button ───────────────────────────────────
+        if engine.explainer is not None:
+            sections.append(
+                Div(
+                    Button(
+                        "Explain",
+                        cls="btn btn-sm hx_indicator",
+                        hx_get=f"{_comp.MOUNT_PREFIX}/audit/explain/{audit_id}",
+                        hx_target=f"#explain-{audit_id}",
+                        hx_swap="innerHTML",
+                    ),
+                    Div(id=f"explain-{audit_id}"),
+                    cls="mt-2",
+                )
+            )
+
         return Div(*sections, style="padding: 0.75rem 0;")
+
+    @rt("/audit/explain/{audit_id}")
+    async def audit_explain(audit_id: str):
+        engine = get_engine()
+
+        if engine.explainer is None:
+            return Div(P("Explainer not available.", cls="text-muted"))
+
+        record = engine.audit.get_record_by_id(audit_id)
+        if record is None:
+            return Div(P("Record not found.", cls="text-muted"))
+
+        explanation = await engine.explainer.explain(record)
+        return Div(P(explanation), cls="explain-block")
