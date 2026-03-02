@@ -1,3 +1,4 @@
 python-fasthtml==0.12.47
-monsterui
+fastcore==1.12.18
+monsterui==1.0.44
 httpx
