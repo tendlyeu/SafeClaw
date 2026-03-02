@@ -7,12 +7,14 @@ from fastlite import database
 db = database("data/safeclaw.db")
 db.execute("PRAGMA journal_mode=WAL")
 
-# Make DB files writable by all so the safeclaw service container
-# (which runs as a different non-root user) can also write to them
+# Best-effort: tighten DB file permissions if we own them
 for suffix in ("", "-wal", "-shm"):
     path = f"data/safeclaw.db{suffix}"
     if os.path.exists(path):
-        os.chmod(path, 0o660)
+        try:
+            os.chmod(path, 0o660)
+        except OSError:
+            pass
 
 
 class User:
