@@ -9,8 +9,9 @@ COPY . .
 
 RUN groupadd -r safeclaw && useradd -r -g safeclaw safeclaw
 
-# Create data directory for SQLite
-RUN mkdir -p data && chown safeclaw:safeclaw data && chmod 770 data
+# Make app dir writable by safeclaw (FastHTML writes .sesskey at runtime)
+# and tighten data directory for SQLite
+RUN chown -R safeclaw:safeclaw /app && chmod 770 data
 
 USER safeclaw
 
