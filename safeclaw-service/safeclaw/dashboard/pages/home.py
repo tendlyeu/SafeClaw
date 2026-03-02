@@ -42,6 +42,20 @@ def _build_home_content(engine):
         cls="stat-grid",
     )
 
+    # ── Heartbeat overview row ────────────────────────────
+    stale_agents = engine.heartbeat_monitor.check_stale()
+    heartbeat_agents = engine.heartbeat_monitor._agents
+    total_hb = len(heartbeat_agents)
+    healthy = total_hb - len(stale_agents)
+    drift_count = sum(1 for v in heartbeat_agents.values() if v["config_hash"] != v["first_hash"])
+
+    heartbeat_row = Div(
+        StatCard("Healthy Agents", healthy, color="green"),
+        StatCard("Stale Agents", len(stale_agents), color="red" if len(stale_agents) > 0 else ""),
+        StatCard("Config Drift", drift_count, color="orange" if drift_count > 0 else ""),
+        cls="stat-grid",
+    )
+
     # ── Quick stats row ─────────────────────────────────────
     quick_row = Div(
         StatCard("Total Decisions", total),
@@ -49,6 +63,19 @@ def _build_home_content(engine):
         StatCard("Blocked", blocked, color="red"),
         StatCard("Block Rate %", f"{block_rate}%", color="orange"),
         cls="stat-grid",
+    )
+
+    # ── Risk distribution row ─────────────────────────────
+    risk_dist = stats.get("risk_distribution", {})
+    risk_row = Div(
+        H2("Risk Distribution"),
+        Div(
+            StatCard("Critical", risk_dist.get("critical", 0), color="red"),
+            StatCard("High", risk_dist.get("high", 0), color="orange"),
+            StatCard("Medium", risk_dist.get("medium", 0), color="blue"),
+            StatCard("Low", risk_dist.get("low", 0), color="green"),
+            cls="stat-grid",
+        ),
     )
 
     # ── Recent activity table ───────────────────────────────
@@ -94,7 +121,9 @@ def _build_home_content(engine):
 
     return Div(
         status_row,
+        heartbeat_row,
         quick_row,
+        risk_row,
         activity_panel,
         id="home-stats",
         hx_get=f"{prefix}/partials/home-stats",

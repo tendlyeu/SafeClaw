@@ -159,6 +159,43 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 .badge-medium  { color: var(--orange); }
 .badge-high    { color: var(--red); }
 .badge-critical { color: var(--red); font-weight: 700; }
+.stale-badge { background: rgba(251,146,60,0.15); color: var(--orange); }
+.drift-warning { background: rgba(248,113,113,0.15); color: var(--red); }
+
+/* ── Export buttons ── */
+.export-btn {
+    background: var(--surface); color: var(--blue);
+    border-color: var(--blue);
+}
+.export-btn:hover { background: rgba(96,165,250,0.1); }
+
+/* ── Explain block ── */
+.explain-block {
+    background: rgba(167,139,250,0.08);
+    border: 1px solid rgba(167,139,250,0.2);
+    border-radius: 8px; padding: 1rem;
+    margin-top: 0.75rem; font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+/* ── Grant form ── */
+details.grant-form > summary {
+    cursor: pointer; color: var(--blue);
+    font-size: 0.85rem; font-weight: 500;
+    margin-top: 0.5rem;
+}
+details.grant-form[open] > summary { margin-bottom: 0.75rem; }
+details.grant-form .grant-inputs {
+    display: flex; gap: 0.75rem; align-items: end;
+    flex-wrap: wrap;
+}
+details.grant-form .grant-inputs > div { flex: 1; min-width: 120px; }
+
+/* ── Filter row ── */
+.filter-row {
+    display: flex; gap: 1rem; align-items: end;
+    flex-wrap: wrap; margin-bottom: 0.75rem;
+}
 
 /* ── Buttons ── */
 .btn {
@@ -179,7 +216,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
 /* ── Form inputs ── */
 input[type="text"], input[type="password"], input[type="number"],
-input[type="email"], select, textarea {
+input[type="email"], input[type="date"], select, textarea {
     width: 100%; padding: 0.6rem 0.75rem;
     background: var(--bg); color: var(--text);
     border: 1px solid var(--border); border-radius: 6px;
