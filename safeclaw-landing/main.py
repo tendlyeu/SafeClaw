@@ -391,6 +391,7 @@ def DocsToc():
         ("dashboard", "Admin Dashboard"),
         ("user-dashboard", "User Dashboard"),
         ("demos", "Demonstration Flows"),
+        ("api-reference", "API Reference"),
         ("config", "Configuration Reference"),
         ("saas", "SaaS Onboarding"),
     ]
@@ -431,7 +432,7 @@ def DocsPage():
                            "constraint pipeline against a knowledge graph of ontologies, policies, "
                            "and user preferences."),
                     ),
-                    P("The plugin is a thin client (~220 lines) with no governance logic of its own. "
+                    P("The plugin is a thin client (~275 lines) with no governance logic of its own. "
                       "All validation happens server-side, making it easy to update policies without "
                       "redeploying the agent."),
                 ),
@@ -478,8 +479,8 @@ def DocsPage():
                         Table(
                             Thead(Tr(Th("Mode"), Th("Behavior"))),
                             Tbody(
-                                Tr(Td(Code("closed")), Td("Block on service unavailability (default). Safer.")),
-                                Tr(Td(Code("open")), Td("Allow on service failure. More available.")),
+                                Tr(Td(Code("open")), Td("Allow on service failure (default). More available.")),
+                                Tr(Td(Code("closed")), Td("Block on service unavailability. Safer.")),
                             ),
                         ),
                         cls="docs-table-wrap",
@@ -896,7 +897,7 @@ def DocsPage():
                         cls="docs-table-wrap",
                     ),
                     H3("Plugin Error Handling", cls="docs-h3"),
-                    P("The TypeScript plugin (v0.1.2+) parses structured errors and provides "
+                    P("The TypeScript plugin (v0.1.3+) parses structured errors and provides "
                       "context-specific warnings:"),
                     Ul(
                         Li(Strong("Timeout"), " — logs timeout duration and service URL"),
@@ -1005,6 +1006,72 @@ def DocsPage():
                     ),
                     P("Each check prints ", Span("OK", cls="risk-low"), " or ",
                       Span("ISSUE", cls="risk-critical"), " with remediation hints."),
+
+                    H3("safeclaw serve", cls="docs-h3"),
+                    P("Starts the SafeClaw service:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw serve\n"
+                            "$ safeclaw serve --host 0.0.0.0 --port 8420 --reload",
+                            cls="docs-pre",
+                        ),
+                    ),
+
+                    H3("safeclaw init", cls="docs-h3"),
+                    P("Generates a default ", Code("~/.safeclaw/config.json"), " with all sections:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw init --user-id myname\n"
+                            "$ safeclaw init --user-id myname --mode remote "
+                            "--service-url http://localhost:8420/api/v1",
+                            cls="docs-pre",
+                        ),
+                    ),
+
+                    H3("safeclaw audit", cls="docs-h3"),
+                    P("Manage audit records:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw audit list --limit 20\n"
+                            "$ safeclaw audit report --format markdown\n"
+                            "$ safeclaw audit clear --older-than 30",
+                            cls="docs-pre",
+                        ),
+                    ),
+
+                    H3("safeclaw policy", cls="docs-h3"),
+                    P("Manage governance policies:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw policy list\n"
+                            "$ safeclaw policy add NoSecrets --type prohibition "
+                            "--reason \"Secrets must not be committed\" "
+                            "--path-pattern \".*\\.secret.*\"\n"
+                            "$ safeclaw policy remove NoSecrets",
+                            cls="docs-pre",
+                        ),
+                    ),
+
+                    H3("safeclaw pref", cls="docs-h3"),
+                    P("Get or set user preferences:"),
+                    Div(
+                        Pre(
+                            "$ safeclaw pref get myuser\n"
+                            "$ safeclaw pref set myuser --autonomy-level cautious "
+                            "--confirm-before-delete true",
+                            cls="docs-pre",
+                        ),
+                    ),
+
+                    H3("safeclaw llm", cls="docs-h3"),
+                    P("Manage LLM features (requires Mistral API key):"),
+                    Div(
+                        Pre(
+                            "$ safeclaw llm suggestions\n"
+                            "$ safeclaw llm review --dry-run",
+                            cls="docs-pre",
+                        ),
+                    ),
                 ),
 
                 # ── 14. Real-Time Events (SSE) ──
@@ -1246,7 +1313,157 @@ def DocsPage():
                     ), cls="docs-pre"),
                 ),
 
-                # ── 18. Configuration Reference ──
+                # ── 18. API Reference ──
+                DocsSection("api-reference", "API Reference",
+                    P("All endpoints are under ", Code("/api/v1"), ". "
+                      "Admin endpoints require the ", Code("X-Admin-Password"),
+                      " header or API key authentication."),
+                    H3("Evaluation & Context", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("POST"), Td(Code("/evaluate/tool-call")),
+                                   Td("Main constraint gate — validates tool calls")),
+                                Tr(Td("POST"), Td(Code("/evaluate/message")),
+                                   Td("Message governance (content, recipients)")),
+                                Tr(Td("POST"), Td(Code("/context/build")),
+                                   Td("Build governance context for agent system prompt")),
+                                Tr(Td("POST"), Td(Code("/session/end")),
+                                   Td("Clean up per-session state")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Recording & Logging", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("POST"), Td(Code("/record/tool-result")),
+                                   Td("Record action outcomes for dependency tracking")),
+                                Tr(Td("POST"), Td(Code("/log/llm-input")),
+                                   Td("Audit log LLM input")),
+                                Tr(Td("POST"), Td(Code("/log/llm-output")),
+                                   Td("Audit log LLM output")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Audit & Reporting (admin)", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("GET"), Td(Code("/audit")),
+                                   Td("Query audit records (filters: sessionId, blocked, limit)")),
+                                Tr(Td("GET"), Td(Code("/audit/statistics")),
+                                   Td("Aggregate audit statistics")),
+                                Tr(Td("GET"), Td(Code("/audit/report/{session_id}")),
+                                   Td("Generate session report (markdown/JSON/CSV)")),
+                                Tr(Td("GET"), Td(Code("/audit/compliance")),
+                                   Td("Generate compliance report")),
+                                Tr(Td("GET"), Td(Code("/audit/{audit_id}/explain")),
+                                   Td("LLM-powered decision explanation (requires Mistral)")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Ontology (admin)", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("POST"), Td(Code("/reload")),
+                                   Td("Hot-reload ontologies and reinitialize checkers")),
+                                Tr(Td("GET"), Td(Code("/ontology/graph")),
+                                   Td("D3-compatible knowledge graph visualization data")),
+                                Tr(Td("GET"), Td(Code("/ontology/search")),
+                                   Td("Fuzzy search for ontology nodes")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Preferences (admin)", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("GET"), Td(Code("/preferences/{user_id}")),
+                                   Td("Get user preferences")),
+                                Tr(Td("POST"), Td(Code("/preferences/{user_id}")),
+                                   Td("Update user preferences (writes Turtle file)")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Agent Management (admin)", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("POST"), Td(Code("/agents/register")),
+                                   Td("Register a new agent with role and token")),
+                                Tr(Td("GET"), Td(Code("/agents")),
+                                   Td("List all registered agents with metadata")),
+                                Tr(Td("POST"), Td(Code("/agents/{agent_id}/kill")),
+                                   Td("Kill switch — block all actions from agent")),
+                                Tr(Td("POST"), Td(Code("/agents/{agent_id}/revive")),
+                                   Td("Revive a killed agent")),
+                                Tr(Td("POST"), Td(Code("/agents/{agent_id}/temp-grant")),
+                                   Td("Grant time-limited or task-scoped permission")),
+                                Tr(Td("DELETE"), Td(Code("/agents/{agent_id}/temp-grant/{grant_id}")),
+                                   Td("Revoke a temporary permission grant")),
+                                Tr(Td("POST"), Td(Code("/tasks/{task_id}/complete")),
+                                   Td("Mark task complete, revoke associated grants")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Health & Connection", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("GET"), Td(Code("/health")),
+                                   Td("Service health (version, uptime, component status)")),
+                                Tr(Td("POST"), Td(Code("/heartbeat")),
+                                   Td("Plugin heartbeat with config drift detection")),
+                                Tr(Td("POST"), Td(Code("/handshake")),
+                                   Td("Validate API key and log connection event")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("LLM Features", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("POST"), Td(Code("/policies/compile")),
+                                   Td("Compile natural language policy to Turtle (admin, requires Mistral)")),
+                                Tr(Td("GET"), Td(Code("/llm/findings")),
+                                   Td("Query LLM security findings")),
+                                Tr(Td("GET"), Td(Code("/llm/suggestions")),
+                                   Td("Get classification suggestions from observation log")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                    H3("Real-Time", cls="docs-h3"),
+                    Div(
+                        Table(
+                            Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
+                            Tbody(
+                                Tr(Td("GET"), Td(Code("/events")),
+                                   Td("SSE stream of governance events (admin)")),
+                            ),
+                        ),
+                        cls="docs-table-wrap",
+                    ),
+                ),
+
+                # ── 19. Configuration Reference ──
                 DocsSection("config", "Configuration Reference",
                     H3("Plugin Environment Variables", cls="docs-h3"),
                     Div(
@@ -1258,13 +1475,13 @@ def DocsPage():
                                    Td("SafeClaw service URL")),
                                 Tr(Td(Code("SAFECLAW_API_KEY")), Td("(none)"),
                                    Td("Bearer token for service authentication")),
-                                Tr(Td(Code("SAFECLAW_TIMEOUT_MS")), Td(Code("500")),
-                                   Td("HTTP timeout for service calls")),
+                                Tr(Td(Code("SAFECLAW_TIMEOUT_MS")), Td(Code("5000")),
+                                   Td("HTTP timeout for service calls (ms)")),
                                 Tr(Td(Code("SAFECLAW_ENABLED")), Td(Code("true")),
                                    Td("Enable/disable the plugin")),
                                 Tr(Td(Code("SAFECLAW_ENFORCEMENT")), Td(Code("enforce")),
                                    Td("Enforcement mode")),
-                                Tr(Td(Code("SAFECLAW_FAIL_MODE")), Td(Code("closed")),
+                                Tr(Td(Code("SAFECLAW_FAIL_MODE")), Td(Code("open")),
                                    Td("Behavior on service failure")),
                                 Tr(Td(Code("SAFECLAW_AGENT_ID")), Td("(none)"),
                                    Td("Agent identifier")),
@@ -1301,24 +1518,69 @@ def DocsPage():
                                    Td("Mistral model for complex tasks")),
                                 Tr(Td(Code("SAFECLAW_MISTRAL_TIMEOUT_MS")), Td(Code("3000")),
                                    Td("LLM call timeout")),
+                                Tr(Td(Code("SAFECLAW_CORS_ORIGIN_REGEX")),
+                                   Td(Code(r"https?://localhost:\d+$")),
+                                   Td("CORS allowed origin regex")),
+                                Tr(Td(Code("SAFECLAW_DB_PATH")), Td("(none)"),
+                                   Td("SQLite path for multi-tenant API key storage")),
+                                Tr(Td(Code("SAFECLAW_LLM_SECURITY_REVIEW_ENABLED")), Td(Code("true")),
+                                   Td("Enable LLM security review observer")),
+                                Tr(Td(Code("SAFECLAW_LLM_CLASSIFICATION_OBSERVE")), Td(Code("true")),
+                                   Td("Enable LLM classification observer")),
                             ),
                         ),
                         cls="docs-table-wrap",
                     ),
                     H3("Config File (~/.safeclaw/config.json)", cls="docs-h3"),
                     P("The ", Code("safeclaw connect"), " command writes a JSON config file "
-                      "that the plugin reads at startup. Example:"),
+                      "that the plugin reads at startup. The ", Code("safeclaw init"),
+                      " command generates a full config with all sections:"),
                     Div(
                         Pre(Code(
                             '{\n'
+                            '  "enabled": true,\n'
+                            '  "userId": "",\n'
+                            '  "mode": "embedded | remote | hybrid",\n'
                             '  "remote": {\n'
+                            '    "serviceUrl": "https://api.safeclaw.eu/api/v1",\n'
                             '    "apiKey": "sc_abc123...",\n'
-                            '    "serviceUrl": "https://api.safeclaw.eu/api/v1"\n'
+                            '    "timeoutMs": 500\n'
+                            '  },\n'
+                            '  "hybrid": {\n'
+                            '    "circuitBreaker": {\n'
+                            '      "failureThreshold": 3,\n'
+                            '      "resetTimeoutSec": 30,\n'
+                            '      "fallbackMode": "local-only"\n'
+                            '    }\n'
+                            '  },\n'
+                            '  "enforcement": {\n'
+                            '    "mode": "enforce",\n'
+                            '    "blockMessage": "[SafeClaw] Action blocked: {reason}",\n'
+                            '    "maxReasonerTimeMs": 200\n'
+                            '  },\n'
+                            '  "contextInjection": {\n'
+                            '    "enabled": true,\n'
+                            '    "includePreferences": true,\n'
+                            '    "includePolicies": true,\n'
+                            '    "includeSessionFacts": true,\n'
+                            '    "includeRecentViolations": true,\n'
+                            '    "maxContextChars": 2000\n'
+                            '  },\n'
+                            '  "audit": {\n'
+                            '    "enabled": true,\n'
+                            '    "logLlmIO": true,\n'
+                            '    "logAllowedActions": true,\n'
+                            '    "logBlockedActions": true,\n'
+                            '    "retentionDays": 90,\n'
+                            '    "format": "jsonl"\n'
+                            '  },\n'
+                            '  "roles": {\n'
+                            '    "defaultRole": "developer"\n'
                             '  }\n'
                             '}'
                         ), cls="docs-pre"),
                     ),
-                    P("This file takes precedence over environment variables for ",
+                    P("The ", Code("remote"), " section takes precedence over environment variables for ",
                       Code("SAFECLAW_API_KEY"), " and ", Code("SAFECLAW_URL"),
                       ". The file is created with ", Code("0600"), " permissions."),
                 ),
