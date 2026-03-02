@@ -53,4 +53,18 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         request.state.org_id = api_key.org_id
         request.state.api_key_scope = api_key.scope
 
+        # Enforce API key scope restrictions
+        SCOPE_ALLOWED = {
+            "evaluate_only": {"/api/v1/evaluate/", "/api/v1/handshake", "/api/v1/heartbeat", "/api/v1/health"},
+            "read_only": {"/api/v1/evaluate/", "/api/v1/context/", "/api/v1/handshake",
+                          "/api/v1/heartbeat", "/api/v1/health", "/api/v1/audit"},
+        }
+        scope = api_key.scope
+        if scope in SCOPE_ALLOWED:
+            if not any(request.url.path.startswith(p) for p in SCOPE_ALLOWED[scope]):
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": f"Scope '{scope}' cannot access this endpoint"},
+                )
+
         return await call_next(request)

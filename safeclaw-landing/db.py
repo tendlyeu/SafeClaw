@@ -12,7 +12,7 @@ db.execute("PRAGMA journal_mode=WAL")
 for suffix in ("", "-wal", "-shm"):
     path = f"data/safeclaw.db{suffix}"
     if os.path.exists(path):
-        os.chmod(path, 0o666)
+        os.chmod(path, 0o660)
 
 
 class User:

@@ -7,6 +7,7 @@ services:
       - safeclaw-data:/home/safeclaw/.safeclaw
     environment:
       - SAFECLAW_LOG_LEVEL=INFO
+      - SAFECLAW_ADMIN_PASSWORD=${SAFECLAW_ADMIN_PASSWORD:?Set SAFECLAW_ADMIN_PASSWORD}
 
 volumes:
   safeclaw-data:

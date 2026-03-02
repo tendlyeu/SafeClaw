@@ -116,9 +116,9 @@ export function saveConfig(config: SafeClawConfig): void {
   (existing.enforcement as Record<string, unknown>).failMode = config.failMode;
 
   // Ensure parent directory exists
-  mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+  mkdirSync(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });
 
-  writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', 'utf-8');
+  writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
 }
 
 /**

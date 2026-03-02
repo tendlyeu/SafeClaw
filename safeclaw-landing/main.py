@@ -1,5 +1,9 @@
+import ipaddress
+import os
+import re
 import secrets
 from datetime import date
+from urllib.parse import urlparse
 
 import httpx
 from fasthtml.common import *
@@ -8,6 +12,29 @@ from fasthtml.oauth import redir_url
 
 from auth import github_client, user_auth_before, get_current_user
 from db import users, upsert_user
+
+
+def _validate_service_url(url: str) -> bool:
+    """Validate a service URL against SSRF attacks.
+
+    Rejects non-http(s) schemes and private/loopback IP addresses.
+    Returns True if valid, raises ValueError otherwise.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid scheme: {parsed.scheme}. Only http and https are allowed.")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("No hostname in URL.")
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_loopback or addr.is_private or addr.is_reserved or addr.is_link_local:
+            raise ValueError(f"Private/loopback addresses are not allowed: {hostname}")
+    except ValueError as e:
+        if "Private" in str(e) or "loopback" in str(e):
+            raise
+        # hostname is not an IP literal — that's fine (it's a DNS name)
+    return True
 
 GITHUB_URL = "https://github.com/tendlyeu/SafeClaw"
 DOCS_URL = "/docs"
@@ -1475,6 +1502,7 @@ async def health_check(req, sess):
         )
     try:
         service_url = user.service_url or "http://localhost:8420"
+        _validate_service_url(service_url)
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{service_url}/health")
             data = r.json()
@@ -1511,7 +1539,7 @@ def dashboard_keys(req, sess):
     )
 
 
-@rt("/dashboard/keys/create")
+@rt("/dashboard/keys/create", methods=["POST"])
 def create_key(req, sess, label: str = "", scope: str = "full"):
     user = req.scope.get("user")
     raw_key, key_id = generate_api_key()
@@ -1530,7 +1558,7 @@ def create_key(req, sess, label: str = "", scope: str = "full"):
     )
 
 
-@rt("/dashboard/keys/{key_pk}/revoke")
+@rt("/dashboard/keys/{key_pk}/revoke", methods=["POST"])
 def revoke_key(req, sess, key_pk: int):
     user = req.scope.get("user")
     try:
@@ -1624,6 +1652,10 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
     user = req.scope.get("user")
     url = (service_url or user.service_url or "http://localhost:8420").rstrip("/")
     try:
+        _validate_service_url(url)
+    except ValueError as e:
+        return P(f"Invalid service URL: {e}", cls=TextPresets.muted_sm)
+    try:
         headers = {}
         if admin_password:
             headers["X-Admin-Password"] = admin_password
@@ -1636,11 +1668,17 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
         return P(f"Could not connect: {e}", cls=TextPresets.muted_sm)
 
 
-@rt("/dashboard/agents/{agent_id}/kill")
+@rt("/dashboard/agents/{agent_id}/kill", methods=["POST"])
 async def kill_agent_proxy(req, sess, agent_id: str):
     """Proxy kill request to self-hosted service."""
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', agent_id):
+        return JSONResponse(status_code=400, content={"error": "Invalid agent_id"})
     user = req.scope.get("user")
     url = (user.service_url or "http://localhost:8420").rstrip("/")
+    try:
+        _validate_service_url(url)
+    except ValueError as e:
+        return P(f"Invalid service URL: {e}", cls=TextPresets.muted_sm)
     headers = {}
     if user.admin_password:
         headers["X-Admin-Password"] = user.admin_password
@@ -1653,11 +1691,17 @@ async def kill_agent_proxy(req, sess, agent_id: str):
         return P(f"Error: {e}", cls=TextPresets.muted_sm)
 
 
-@rt("/dashboard/agents/{agent_id}/revive")
+@rt("/dashboard/agents/{agent_id}/revive", methods=["POST"])
 async def revive_agent_proxy(req, sess, agent_id: str):
     """Proxy revive request to self-hosted service."""
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', agent_id):
+        return JSONResponse(status_code=400, content={"error": "Invalid agent_id"})
     user = req.scope.get("user")
     url = (user.service_url or "http://localhost:8420").rstrip("/")
+    try:
+        _validate_service_url(url)
+    except ValueError as e:
+        return P(f"Invalid service URL: {e}", cls=TextPresets.muted_sm)
     headers = {}
     if user.admin_password:
         headers["X-Admin-Password"] = user.admin_password
@@ -1700,7 +1744,7 @@ async def dashboard_prefs(req, sess):
     )
 
 
-@rt("/dashboard/prefs/save")
+@rt("/dashboard/prefs/save", methods=["POST"])
 async def save_prefs(req, sess, autonomy_level: str = "moderate",
                      confirm_before_delete: str = "", confirm_before_push: str = "",
                      confirm_before_send: str = "", max_files_per_commit: int = 10,
@@ -1717,6 +1761,11 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
     user.max_files_per_commit = max_files_per_commit
     user.self_hosted = self_hosted == "on"
     user.audit_logging = audit_logging == "on"
+    if service_url.strip():
+        try:
+            _validate_service_url(service_url.strip())
+        except ValueError as e:
+            return P(f"Invalid service URL: {e}", style="color:#f87171;")
     user.service_url = service_url.strip()
     user.admin_password = admin_password
 
@@ -1759,10 +1808,7 @@ def audit_results(req, sess, filter: str = "all", session_id: str = ""):
     return AuditTable(rows)
 
 
-serve(port=5002)
-
 # ── Mount SafeClaw Service ──
-import os
 
 if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
     import sys
@@ -1779,3 +1825,5 @@ if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
 
     from safeclaw.main import app as safeclaw_api
     app.mount("/", safeclaw_api)
+
+serve(port=5002)

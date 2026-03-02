@@ -36,7 +36,8 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
       // Try to parse structured error body from service
       try {
         const errBody = await res.json() as Record<string, unknown>;
-        const detail = errBody.detail ?? `HTTP ${res.status}`;
+        const rawDetail = errBody.detail ?? `HTTP ${res.status}`;
+        const detail = typeof rawDetail === 'string' ? rawDetail : JSON.stringify(rawDetail);
         const hint = errBody.hint ? ` (${errBody.hint})` : '';
         console.warn(`[SafeClaw] ${path}: ${detail}${hint}`);
       } catch {
@@ -141,15 +142,10 @@ export default {
     // Heartbeat watchdog — send config hash to service every 30s
     const sendHeartbeat = async () => {
       try {
-        await fetch(`${config.serviceUrl}/heartbeat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentId: config.agentId || 'default',
-            configHash: configHash(config),
-            status: 'alive',
-          }),
-          signal: AbortSignal.timeout(config.timeoutMs),
+        await post('/heartbeat', {
+          agentId: config.agentId || 'default',
+          configHash: configHash(config),
+          status: 'alive',
         });
       } catch {
         // Heartbeat failure is non-fatal
@@ -171,14 +167,10 @@ export default {
     // Clean shutdown: send shutdown heartbeat and clear interval
     const shutdown = () => {
       clearInterval(heartbeatInterval);
-      fetch(`${config.serviceUrl}/heartbeat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentId: config.agentId || 'default',
-          configHash: configHash(config),
-          status: 'shutdown',
-        }),
+      post('/heartbeat', {
+        agentId: config.agentId || 'default',
+        configHash: configHash(config),
+        status: 'shutdown',
       }).catch(() => {});
     };
     process.on('exit', shutdown);

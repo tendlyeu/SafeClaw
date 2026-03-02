@@ -11,9 +11,8 @@ class ToolCallEvent:
     tool_name: str
     params: dict
     session_history: list[str] = field(default_factory=list)
-    agent_id: str = ""
+    agent_id: str | None = None
     agent_token: str = ""
-    enforcement_mode: str = "enforce"  # "enforce", "warn-only", "audit-only", "disabled"
 
 
 @dataclass
@@ -22,7 +21,7 @@ class MessageEvent:
     user_id: str
     to: str
     content: str
-    agent_id: str = ""
+    agent_id: str | None = None
     agent_token: str = ""
 
 
@@ -30,7 +29,7 @@ class MessageEvent:
 class AgentStartEvent:
     session_id: str
     user_id: str
-    agent_id: str = ""
+    agent_id: str | None = None
     agent_token: str = ""
 
 
@@ -42,7 +41,7 @@ class ToolResultEvent:
     result: str
     success: bool
     user_id: str = "default"
-    agent_id: str = ""
+    agent_id: str | None = None
     agent_token: str = ""
 
 
@@ -51,7 +50,7 @@ class LlmIOEvent:
     session_id: str
     direction: str  # "input" or "output"
     content: str
-    agent_id: str = ""
+    agent_id: str | None = None
     agent_token: str = ""
 
 

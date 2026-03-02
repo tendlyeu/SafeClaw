@@ -7,9 +7,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Create data directory for SQLite — world-writable so the safeclaw service
-# container (which runs as non-root) can also write to the shared DB
-RUN mkdir -p data && chmod 777 data
+RUN groupadd -r safeclaw && useradd -r -g safeclaw safeclaw
+
+# Create data directory for SQLite
+RUN mkdir -p data && chown safeclaw:safeclaw data && chmod 770 data
+
+USER safeclaw
 
 EXPOSE 5002
 

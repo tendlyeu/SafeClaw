@@ -99,7 +99,6 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         session_history=request.sessionHistory,
         agent_id=request.agentId,
         agent_token=request.agentToken,
-        enforcement_mode=request.enforcementMode,
     )
     decision = await engine.evaluate_tool_call(event)
     return DecisionResponse(
@@ -144,9 +143,11 @@ async def build_context(request: AgentStartRequest) -> ContextResponse:
 
 
 @router.post("/session/end")
-async def end_session(request: SessionEndRequest):
+async def end_session(request: SessionEndRequest, req: Request):
     """Clean up all per-session state when a session ends."""
     engine = _get_engine()
+    org_id = getattr(req.state, "org_id", None)
+    logger.info("Session %s cleared by org_id=%s", request.sessionId, org_id)
     await engine.clear_session(request.sessionId)
     return {"ok": True, "sessionId": request.sessionId}
 
@@ -449,7 +450,7 @@ async def handshake(req: HandshakeRequest, request: Request):
     engine = _get_engine()
 
     # Log to audit dashboard
-    key_mgr = getattr(engine, "_key_manager", None)
+    key_mgr = getattr(engine, "api_key_manager", None)
     if key_mgr and hasattr(key_mgr, "log_audit_decision") and org_id:
         from datetime import datetime, timezone
 
@@ -481,7 +482,7 @@ async def handshake(req: HandshakeRequest, request: Request):
 # ── LLM Layer Routes ──
 
 
-@router.post("/policies/compile", response_model=PolicyCompileResponse)
+@router.post("/policies/compile", response_model=PolicyCompileResponse, dependencies=[Depends(require_admin)])
 async def compile_policy(request: PolicyCompileRequest) -> PolicyCompileResponse:
     engine = _get_engine()
     if not hasattr(engine, "llm_client") or engine.llm_client is None:

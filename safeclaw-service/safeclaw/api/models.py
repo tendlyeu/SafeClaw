@@ -39,9 +39,8 @@ class ToolCallRequest(BaseModel):
     toolName: str
     params: dict = {}
     sessionHistory: list[str] = []
-    agentId: str = ""
+    agentId: str | None = None
     agentToken: str = ""
-    enforcementMode: str = "enforce"  # "enforce", "warn-only", "audit-only", "disabled"
 
     @field_validator("params")
     @classmethod
@@ -54,7 +53,7 @@ class MessageRequest(BaseModel):
     userId: str = "default"
     to: str
     content: str
-    agentId: str = ""
+    agentId: str | None = None
     agentToken: str = ""
 
 

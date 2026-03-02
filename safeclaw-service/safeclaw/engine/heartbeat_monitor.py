@@ -2,10 +2,13 @@
 
 import logging
 import time
+from collections import OrderedDict
 
 from safeclaw.engine.event_bus import EventBus, SafeClawEvent
 
 logger = logging.getLogger("safeclaw.heartbeat")
+
+MAX_AGENTS = 1000
 
 
 class HeartbeatMonitor:
@@ -14,7 +17,7 @@ class HeartbeatMonitor:
     def __init__(self, event_bus: EventBus):
         self._event_bus = event_bus
         # {agent_id: {"last_seen": monotonic, "config_hash": str, "first_hash": str}}
-        self._agents: dict[str, dict] = {}
+        self._agents: OrderedDict[str, dict] = OrderedDict()
 
     def record(self, agent_id: str, config_hash: str) -> None:
         """Record a heartbeat from an agent."""
@@ -25,7 +28,11 @@ class HeartbeatMonitor:
                 "config_hash": config_hash,
                 "first_hash": config_hash,
             }
+            # LRU eviction: pop oldest entry when over capacity
+            while len(self._agents) > MAX_AGENTS:
+                self._agents.popitem(last=False)
         else:
+            self._agents.move_to_end(agent_id)
             self._agents[agent_id]["last_seen"] = now
             self._agents[agent_id]["config_hash"] = config_hash
 

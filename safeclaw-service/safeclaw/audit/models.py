@@ -39,7 +39,7 @@ class DecisionRecord(BaseModel):
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     session_id: str
     user_id: str
-    agent_id: str = ""
+    agent_id: str | None = None
     action: ActionDetail
     decision: str  # "allowed" | "blocked"
     constraint_step: str = ""  # pipeline step that caused the block, e.g. "policy_check"

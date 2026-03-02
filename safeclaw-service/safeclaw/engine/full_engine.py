@@ -273,7 +273,7 @@ class FullEngine(SafeClawEngine):
         self, event: ToolCallEvent, params_sig: str | None = None
     ) -> None:
         """Record a block for delegation detection if this is an agent action."""
-        if event.agent_id:
+        if event.agent_id is not None:
             sig = (
                 params_sig
                 if params_sig is not None
@@ -308,28 +308,7 @@ class FullEngine(SafeClawEngine):
         """Run the full constraint checking pipeline."""
         lock = self._get_session_lock(event.session_id)
         async with lock:
-            decision = await self._evaluate_tool_call_locked(event)
-            mode = getattr(event, "enforcement_mode", "enforce") or "enforce"
-            return self._apply_enforcement_mode(decision, mode)
-
-    def _apply_enforcement_mode(self, decision: Decision, mode: str) -> Decision:
-        """Apply enforcement_mode to a BLOCK decision, potentially downgrading it to ALLOW."""
-        if not decision.block:
-            return decision
-        if mode == "warn-only":
-            return Decision(
-                block=False,
-                reason=f"[SafeClaw][WARN] {decision.reason}",
-                audit_id=decision.audit_id,
-            )
-        if mode == "audit-only":
-            logger.info("Audit-only mode — would have blocked: %s", decision.reason)
-            return Decision(
-                block=False,
-                reason="",
-                audit_id=decision.audit_id,
-            )
-        return decision
+            return await self._evaluate_tool_call_locked(event)
 
     async def _evaluate_tool_call_locked(self, event: ToolCallEvent) -> Decision:
         """Internal: runs the constraint pipeline under the session lock."""
@@ -337,24 +316,11 @@ class FullEngine(SafeClawEngine):
         checks: list[ConstraintCheck] = []
         prefs_applied: list[PreferenceApplied] = []
 
-        # Handle enforcement_mode
-        mode = getattr(event, "enforcement_mode", "enforce") or "enforce"
-
-        # "disabled" mode: skip all checks, return ALLOW immediately
-        if mode == "disabled":
-            action = self.classifier.classify(event.tool_name, event.params)
-            decision = Decision(
-                block=False,
-                reason="[SafeClaw] Enforcement disabled — all checks skipped",
-            )
-            self._log_decision(event, action, decision, checks, prefs_applied, start)
-            return decision
-
         # Compute params signature once for reuse
-        params_sig = DelegationDetector.make_signature(event.params) if event.agent_id else None
+        params_sig = DelegationDetector.make_signature(event.params) if event.agent_id is not None else None
 
         # 0. Agent governance checks (before main pipeline)
-        if event.agent_id:
+        if event.agent_id is not None:
             # 0a. Verify agent token
             if self._require_token_auth:
                 if not event.agent_token or not self.agent_registry.verify_token(
@@ -381,7 +347,7 @@ class FullEngine(SafeClawEngine):
         action = self.classifier.classify(event.tool_name, event.params)
 
         # 1b. Role-based action check
-        if event.agent_id:
+        if event.agent_id is not None:
             agent_record = self.agent_registry.get_agent(event.agent_id)
             if agent_record:
                 role = self.role_manager.get_role(agent_record.role)
@@ -583,7 +549,7 @@ class FullEngine(SafeClawEngine):
             return decision
 
         # 9. Hierarchy rate limit check (multi-agent)
-        if event.agent_id:
+        if event.agent_id is not None:
             hierarchy_ids = self.agent_registry.get_hierarchy_ids(event.agent_id)
             hierarchy_result = self.rate_limiter.check_hierarchy(action, hierarchy_ids)
             if hierarchy_result.exceeded:
@@ -625,7 +591,7 @@ class FullEngine(SafeClawEngine):
         start = time.monotonic()
 
         # Agent governance checks
-        if event.agent_id:
+        if event.agent_id is not None:
             # Verify agent token
             if self._require_token_auth:
                 if not event.agent_token or not self.agent_registry.verify_token(
@@ -716,7 +682,7 @@ class FullEngine(SafeClawEngine):
         )
 
         # Append agent role info if applicable
-        if event.agent_id:
+        if event.agent_id is not None:
             agent_record = self.agent_registry.get_agent(event.agent_id)
             if agent_record:
                 role = self.role_manager.get_role(agent_record.role)
