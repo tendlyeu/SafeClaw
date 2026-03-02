@@ -24,6 +24,8 @@ def DashboardNav(user, active="overview"):
 
 def DashboardLayout(title, *content, user=None, active="overview"):
     """Wrap dashboard content in the shared layout."""
+    # Force light color scheme regardless of OS preference
+    light_override = Style(":root, html { color-scheme: light !important; }")
     sidebar = Div(
         Div(
             DivLAligned(
@@ -50,4 +52,4 @@ def DashboardLayout(title, *content, user=None, active="overview"):
         cls="space-y-6",
         style="flex:1; padding:24px; max-width:900px;",
     )
-    return Div(sidebar, main_content, style="display:flex; min-height:100vh;")
+    return Div(light_override, sidebar, main_content, style="display:flex; min-height:100vh;")
