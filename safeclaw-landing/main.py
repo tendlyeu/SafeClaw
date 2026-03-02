@@ -1483,7 +1483,7 @@ def dashboard(req, sess):
     key_count = len(api_keys(where="user_id = ? AND is_active = 1", where_args=[user.id]))
     return (
         Title("Dashboard — SafeClaw"),
-        *MUITheme.blue.headers(),
+        *MUITheme.blue.headers(mode='light'),
         DashboardLayout("Overview",
                         *OverviewContent(user, key_count, has_mistral_key=bool(user.mistral_api_key)),
                         user=user, active="overview"),
@@ -1534,7 +1534,7 @@ def dashboard_keys(req, sess):
     user = req.scope.get("user")
     return (
         Title("API Keys — SafeClaw"),
-        *MUITheme.blue.headers(),
+        *MUITheme.blue.headers(mode='light'),
         DashboardLayout("API Keys", *KeysContent(user.id), user=user, active="keys"),
     )
 
@@ -1579,7 +1579,7 @@ def dashboard_onboard(req, sess):
         return RedirectResponse("/dashboard", status_code=303)
     return (
         Title("Get Started — SafeClaw"),
-        *MUITheme.blue.headers(),
+        *MUITheme.blue.headers(mode='light'),
         DashboardLayout("Get Started", OnboardStep1(), user=user, active="onboard"),
     )
 
@@ -1641,7 +1641,7 @@ def dashboard_agents(req, sess):
         content = HostedAgentsContent()
     return (
         Title("Agents — SafeClaw"),
-        *MUITheme.blue.headers(),
+        *MUITheme.blue.headers(mode='light'),
         DashboardLayout("Agents", *content, user=user, active="agents"),
     )
 
@@ -1739,7 +1739,7 @@ async def dashboard_prefs(req, sess):
 
     return (
         Title("Preferences — SafeClaw"),
-        *MUITheme.blue.headers(),
+        *MUITheme.blue.headers(mode='light'),
         DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key), user=user, active="prefs"),
     )
 
@@ -1783,7 +1783,7 @@ def dashboard_audit(req, sess):
     rows = audit_log(where="user_id = ?", where_args=[user.id], order_by="-id", limit=50)
     return (
         Title("Audit Log — SafeClaw"),
-        *MUITheme.blue.headers(),
+        *MUITheme.blue.headers(mode='light'),
         DashboardLayout("Audit Log", *AuditContent(rows), user=user, active="audit"),
     )
 
