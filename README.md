@@ -4,6 +4,8 @@
 
 Neurosymbolic governance layer for autonomous AI agents. SafeClaw validates every tool call, message, and action against OWL ontologies and SHACL constraints before execution.
 
+[![Watch the video](https://github.com/user-attachments/assets/1b4c45ae-0ce3-417b-b60e-694249cedaaf)](https://youtu.be/l8jKjaWD7hQ)
+
 ## Architecture
 
 ```
