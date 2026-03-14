@@ -137,7 +137,7 @@ def remove_policy(
     import re
 
     pattern = re.compile(
-        rf"(^sp:{re.escape(name)}\s[^\n]*(?:\n[ \t]+[^\n]*)*\.)\s*$",
+        rf"(?:^# Added via CLI\n)?^sp:{re.escape(name)}\s[^\n]*(?:\n[ \t]+[^\n]*)*\s*\.\n?",
         re.MULTILINE,
     )
     new_content = pattern.sub(

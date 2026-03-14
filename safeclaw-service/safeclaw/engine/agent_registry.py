@@ -1,5 +1,6 @@
 """Agent registration with per-agent tokens."""
 
+import hashlib
 import hmac
 import logging
 import os
@@ -34,7 +35,7 @@ class AgentRegistry:
         self._server_secret = os.urandom(32)
 
     def _hash_token(self, token: str) -> str:
-        return hmac.new(self._server_secret, token.encode(), 'sha256').hexdigest()
+        return hmac.new(self._server_secret, token.encode(), hashlib.sha256).hexdigest()
 
     def register_agent(
         self,

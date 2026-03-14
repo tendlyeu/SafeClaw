@@ -71,6 +71,7 @@ class FullEngine(SafeClawEngine):
         self.config = config
         self.api_key_manager = api_key_manager
         self.event_bus = EventBus()
+        self._bg_tasks: set[asyncio.Task] = set()
         # BUG-001/075/076: Lock to prevent concurrent reloads
         self._reload_lock = asyncio.Lock()
         self._init_components(config)
@@ -820,16 +821,20 @@ class FullEngine(SafeClawEngine):
                     for c in checks
                 ],
             )
-            asyncio.create_task(self._run_security_review(review_event))
+            task = asyncio.create_task(self._run_security_review(review_event))
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
 
         if (
             self.classification_observer
             and self.config.llm_classification_observe
             and action.ontology_class == "Action"
         ):
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._run_classification_observer(event.tool_name, event.params, action)
             )
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
 
     async def _run_security_review(self, review_event) -> None:
         """Background task: run security review and handle findings."""

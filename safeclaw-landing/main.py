@@ -1766,7 +1766,8 @@ def logout(sess):
 
 # ── Dashboard Routes ──
 
-from monsterui.all import Theme as MUITheme, DivLAligned
+from monsterui.all import Theme as MUITheme, DivLAligned, TextPresets
+from starlette.responses import JSONResponse
 from dashboard.layout import DashboardLayout
 from dashboard.overview import OverviewContent
 from dashboard.audit import AuditContent, AuditTable
@@ -2177,6 +2178,6 @@ if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
     os.environ.setdefault("SAFECLAW_REQUIRE_AUTH", "true")
 
     from safeclaw.main import app as safeclaw_api
-    app.mount("/", safeclaw_api)
+    app.mount("/api/v1", safeclaw_api)
 
 serve(port=5002)
