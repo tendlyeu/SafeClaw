@@ -17,7 +17,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     """
 
     SKIP_PATHS = {"/api/v1/health", "/api/v1/heartbeat", "/openapi.json"}
-    SKIP_PREFIXES = ["/docs", "/admin"]
+    SKIP_PREFIXES = ["/docs"]
 
     def __init__(self, app, api_key_manager=None, require_auth: bool = False):
         super().__init__(app)
@@ -55,7 +55,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         # Enforce API key scope restrictions
         SCOPE_ALLOWED = {
-            "evaluate_only": {"/api/v1/evaluate/", "/api/v1/handshake", "/api/v1/heartbeat", "/api/v1/health"},
+            "evaluate_only": {
+                "/api/v1/evaluate/", "/api/v1/handshake", "/api/v1/heartbeat",
+                "/api/v1/health", "/api/v1/record/", "/api/v1/log/",
+            },
             "read_only": {"/api/v1/evaluate/", "/api/v1/context/", "/api/v1/handshake",
                           "/api/v1/heartbeat", "/api/v1/health", "/api/v1/audit"},
         }

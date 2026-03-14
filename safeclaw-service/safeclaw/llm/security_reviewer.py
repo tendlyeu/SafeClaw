@@ -17,6 +17,7 @@ class ReviewEvent:
     symbolic_decision: str
     session_history: list[str]
     constraints_checked: list[dict]
+    agent_id: str | None = None
 
 
 @dataclass
@@ -59,7 +60,33 @@ class SecurityReviewer:
         )
         if result is None:
             return None
-        return self._parse_finding(result)
+        finding = self._parse_finding(result)
+        if finding is not None:
+            self._execute_recommendation(finding, event)
+        return finding
+
+    def _execute_recommendation(self, finding: SecurityFinding, event: ReviewEvent) -> None:
+        """Execute the recommended action from a security finding."""
+        if finding.recommended_action == "kill_switch":
+            agent_id = event.agent_id
+            if agent_id and self.engine and hasattr(self.engine, "agent_registry"):
+                killed = self.engine.agent_registry.kill_agent(agent_id)
+                if killed:
+                    logger.warning(
+                        "Kill switch activated for agent %s: %s",
+                        agent_id,
+                        finding.description,
+                    )
+                else:
+                    logger.warning(
+                        "Kill switch requested for agent %s but agent not found",
+                        agent_id,
+                    )
+            else:
+                logger.warning(
+                    "Kill switch recommended but no agent_id available: %s",
+                    finding.description,
+                )
 
     def _parse_finding(self, data: dict) -> SecurityFinding | None:
         try:

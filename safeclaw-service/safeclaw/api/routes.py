@@ -1,6 +1,7 @@
 """FastAPI route definitions for SafeClaw API."""
 
 import logging
+import re
 import secrets
 
 from typing import Literal
@@ -36,6 +37,35 @@ from safeclaw.engine.core import (
 )
 
 logger = logging.getLogger("safeclaw.api")
+
+# Regex to strip control characters (keep printable + whitespace)
+_CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+_MAX_RESULT_LEN = 100_000
+
+
+def _sanitize_string(value: str) -> str:
+    """Strip control characters and limit length to prevent prompt injection."""
+    sanitized = _CONTROL_CHAR_RE.sub('', value)
+    return sanitized[:_MAX_RESULT_LEN]
+
+
+def _sanitize_params(params: dict) -> dict:
+    """Recursively sanitize string values in params dict."""
+    sanitized = {}
+    for k, v in params.items():
+        key = _sanitize_string(str(k))
+        if isinstance(v, str):
+            sanitized[key] = _sanitize_string(v)
+        elif isinstance(v, dict):
+            sanitized[key] = _sanitize_params(v)
+        elif isinstance(v, list):
+            sanitized[key] = [
+                _sanitize_string(i) if isinstance(i, str) else i for i in v
+            ]
+        else:
+            sanitized[key] = v
+    return sanitized
+
 
 router = APIRouter()
 
@@ -88,6 +118,7 @@ def _verify_agent_token(engine, agent_id: str | None, agent_token: str | None):
 @router.post("/evaluate/tool-call", response_model=DecisionResponse)
 async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     # Use org_id from API key auth (numeric DB user ID) if available,
     # otherwise fall back to client-supplied userId
     user_id = getattr(req.state, "org_id", None) or request.userId
@@ -111,6 +142,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
 @router.post("/evaluate/message", response_model=DecisionResponse)
 async def evaluate_message(request: MessageRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     user_id = getattr(req.state, "org_id", None) or request.userId
     event = MessageEvent(
         session_id=request.sessionId,
@@ -153,15 +185,21 @@ async def end_session(request: SessionEndRequest, req: Request):
 
 
 @router.post("/record/tool-result")
-async def record_tool_result(request: ToolResultRequest):
+async def record_tool_result(request: ToolResultRequest, req: Request):
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    # Sanitize params: strip control characters from string values that could be
+    # used for prompt injection when session history is injected into LLM context
+    sanitized_params = _sanitize_params(request.params)
+    sanitized_result = _sanitize_string(request.result)
     event = ToolResultEvent(
         session_id=request.sessionId,
         tool_name=request.toolName,
-        params=request.params,
-        result=request.result,
+        params=sanitized_params,
+        result=sanitized_result,
         success=request.success,
+        user_id=user_id,
         agent_id=request.agentId,
         agent_token=request.agentToken,
     )
@@ -227,11 +265,11 @@ async def get_preferences(user_id: str):
     engine = _get_engine()
     prefs = engine.preference_checker.get_preferences(user_id)
     return {
-        "autonomy_level": prefs.autonomy_level,
-        "confirm_before_delete": prefs.confirm_before_delete,
-        "confirm_before_push": prefs.confirm_before_push,
-        "confirm_before_send": prefs.confirm_before_send,
-        "max_files_per_commit": prefs.max_files_per_commit,
+        "autonomyLevel": prefs.autonomy_level,
+        "confirmBeforeDelete": prefs.confirm_before_delete,
+        "confirmBeforePush": prefs.confirm_before_push,
+        "confirmBeforeSend": prefs.confirm_before_send,
+        "maxFilesPerCommit": prefs.max_files_per_commit,
     }
 
 
@@ -546,14 +584,17 @@ async def event_stream():
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-@router.get("/llm/findings")
+@router.get("/llm/findings", dependencies=[Depends(require_admin)])
 async def get_findings():
     # Findings are currently logged but not persisted to a queryable store.
     return {"findings": []}
 
 
-@router.get("/llm/suggestions")
-async def get_suggestions():
+@router.get("/llm/suggestions", dependencies=[Depends(require_admin)])
+async def get_suggestions(
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
     import json
 
     engine = _get_engine()
@@ -561,14 +602,26 @@ async def get_suggestions():
     suggestions_file = config.data_dir / "llm" / "classification_suggestions.jsonl"
 
     if not suggestions_file.exists():
-        return {"suggestions": []}
+        return {"suggestions": [], "total": 0}
 
+    # Stream the file line-by-line instead of reading the entire file into memory.
+    # Use a deque with maxlen to keep only the tail (most recent entries).
     suggestions = []
-    for line in suggestions_file.read_text().strip().split("\n"):
-        if line.strip():
+    total = 0
+    with open(suggestions_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            total += 1
+            if total <= offset:
+                continue
+            if len(suggestions) >= limit:
+                # Keep counting total but stop collecting
+                continue
             try:
                 suggestions.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
 
-    return {"suggestions": suggestions}
+    return {"suggestions": suggestions, "total": total}
