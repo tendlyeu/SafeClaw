@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import secrets
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -91,6 +92,7 @@ class SQLiteAPIKeyManager:
         import sqlite3
 
         self._db_path = db_path
+        self._write_lock = threading.Lock()
         # Keep a connection for writes (audit logging) but read operations
         # open fresh connections to always see the latest data from the
         # landing site's WAL writes.
@@ -208,14 +210,15 @@ class SQLiteAPIKeyManager:
         if not self.is_audit_logging_enabled(user_id):
             return
         try:
-            self._conn.execute(
-                "INSERT INTO audit_log (user_id, timestamp, session_id, tool_name, "
-                "params_summary, decision, risk_level, reason, elapsed_ms) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (int(user_id), timestamp, session_id, tool_name,
-                 params_summary[:500], decision, risk_level, reason, elapsed_ms),
-            )
-            self._conn.commit()
+            with self._write_lock:
+                self._conn.execute(
+                    "INSERT INTO audit_log (user_id, timestamp, session_id, tool_name, "
+                    "params_summary, decision, risk_level, reason, elapsed_ms) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (int(user_id), timestamp, session_id, tool_name,
+                     params_summary[:500], decision, risk_level, reason, elapsed_ms),
+                )
+                self._conn.commit()
         except (sqlite3.OperationalError, ValueError):
             pass  # DB read-only, table missing, or non-numeric user_id — skip
 

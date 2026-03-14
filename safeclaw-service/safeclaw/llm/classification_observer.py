@@ -1,5 +1,7 @@
 """Classification Observer — suggests better classifications when regex falls back to defaults."""
 
+import asyncio
+import fcntl
 import json
 import logging
 from dataclasses import dataclass, asdict
@@ -58,9 +60,9 @@ class ClassificationObserver:
         )
         if result is None:
             return None
-        return self._parse_and_save(result, tool_name, params, symbolic_result)
+        return await self._parse_and_save(result, tool_name, params, symbolic_result)
 
-    def _parse_and_save(self, data, tool_name, params, symbolic_result):
+    async def _parse_and_save(self, data, tool_name, params, symbolic_result):
         try:
             summary = ", ".join(f"{k}={str(v)[:50]}" for k, v in list(params.items())[:5])
             suggestion = ClassificationSuggestion(
@@ -72,9 +74,10 @@ class ClassificationObserver:
                 reasoning=data.get("reasoning", ""),
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
-            self.suggestions_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.suggestions_file, "a") as f:
-                f.write(json.dumps(asdict(suggestion)) + "\n")
+            # Offload synchronous file I/O with file locking to a thread
+            # to avoid blocking the async event loop (#114, #115)
+            line = json.dumps(asdict(suggestion)) + "\n"
+            await asyncio.to_thread(self._write_line, line)
             logger.info(
                 "Classification suggestion: %s -> %s (%s)",
                 tool_name,
@@ -85,3 +88,14 @@ class ClassificationObserver:
         except (KeyError, TypeError, ValueError):
             logger.warning("Failed to parse classification suggestion", exc_info=True)
             return None
+
+    def _write_line(self, line: str) -> None:
+        """Write a single JSONL line with file locking for multi-worker safety."""
+        self.suggestions_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.suggestions_file, "a") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(line)
+                f.flush()
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)

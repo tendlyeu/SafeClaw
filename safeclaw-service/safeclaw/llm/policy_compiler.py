@@ -128,11 +128,22 @@ class PolicyCompiler:
         return match.group(1) if match else "UnknownPolicy"
 
     def _extract_policy_type(self, turtle: str) -> str:
-        """Extract the policy type (Prohibition/Obligation/Permission)."""
-        if "sp:Prohibition" in turtle:
+        """Extract the policy type (Prohibition/Obligation/Permission).
+
+        Uses regex to match 'a sp:Type' patterns in RDF type declarations,
+        avoiding false matches from string literals containing type names.
+        """
+        # Match RDF type declarations like "a sp:Prohibition" or "rdf:type sp:Prohibition"
+        if re.search(r"\ba\s+sp:Prohibition\b", turtle) or re.search(
+            r"rdf:type\s+sp:Prohibition\b", turtle
+        ):
             return "prohibition"
-        elif "sp:Obligation" in turtle:
+        elif re.search(r"\ba\s+sp:Obligation\b", turtle) or re.search(
+            r"rdf:type\s+sp:Obligation\b", turtle
+        ):
             return "obligation"
-        elif "sp:Permission" in turtle:
+        elif re.search(r"\ba\s+sp:Permission\b", turtle) or re.search(
+            r"rdf:type\s+sp:Permission\b", turtle
+        ):
             return "permission"
         return "unknown"

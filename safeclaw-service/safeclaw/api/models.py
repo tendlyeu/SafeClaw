@@ -52,7 +52,7 @@ class MessageRequest(BaseModel):
     sessionId: str = ""
     userId: str = "default"
     to: str
-    content: str
+    content: str = Field(..., max_length=1_000_000)
     agentId: str | None = None
     agentToken: str = ""
 
@@ -66,6 +66,7 @@ class AgentStartRequest(BaseModel):
 
 class ToolResultRequest(BaseModel):
     sessionId: str = ""
+    userId: str = ""
     toolName: str
     params: dict = {}
     result: str = ""
@@ -81,7 +82,7 @@ class ToolResultRequest(BaseModel):
 
 class LlmIORequest(BaseModel):
     sessionId: str = ""
-    content: str = ""
+    content: str = Field("", max_length=1_000_000)
     agentId: str = ""
     agentToken: str = ""
 
@@ -170,7 +171,7 @@ class PolicyApplyRequest(BaseModel):
 class PreferencesRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    autonomy_level: Literal["cautious", "moderate", "autonomous"] = Field(
+    autonomy_level: Literal["cautious", "moderate", "autonomous", "supervised", "full"] = Field(
         "moderate", alias="autonomyLevel"
     )
     confirm_before_delete: bool = Field(True, alias="confirmBeforeDelete")
