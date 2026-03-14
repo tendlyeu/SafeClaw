@@ -9,7 +9,7 @@ def _field_group(*children):
     return Div(*children, cls="space-y-1")
 
 
-def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
+def PrefsForm(prefs: dict | None = None, mistral_api_key: str = "", csrf_token=""):
     """Preference editing form."""
     if prefs is None:
         prefs = {
@@ -27,6 +27,7 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
     self_hosted = prefs.get("self_hosted", False)
 
     return Form(
+        Input(type="hidden", name="_csrf_token", value=csrf_token),
         # ── Autonomy Level ──
         _field_group(
             LabelSelect(
@@ -196,11 +197,11 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
                     "Admin Password",
                     id="admin_password",
                     type="password",
-                    value=prefs.get("admin_password", ""),
-                    placeholder="Leave empty if not set",
+                    value="",
+                    placeholder="Enter new password or leave empty",
                 ),
                 P("Required if you set ", Code("SAFECLAW_ADMIN_PASSWORD"),
-                  " on your service.",
+                  " on your service. Leave empty to keep current password.",
                   cls=TextPresets.muted_sm),
             ),
             id="self-hosted-fields",
@@ -226,7 +227,7 @@ def PrefsForm(prefs: dict | None = None, mistral_api_key: str = ""):
     )
 
 
-def PrefsContent(prefs: dict | None = None, mistral_api_key: str = ""):
+def PrefsContent(prefs: dict | None = None, mistral_api_key: str = "", csrf_token=""):
     """Full preferences page content."""
     return (
         Card(
@@ -236,7 +237,7 @@ def PrefsContent(prefs: dict | None = None, mistral_api_key: str = ""):
                 "Changes take effect immediately.",
                 cls=TextPresets.muted_sm,
             ),
-            PrefsForm(prefs, mistral_api_key=mistral_api_key),
+            PrefsForm(prefs, mistral_api_key=mistral_api_key, csrf_token=csrf_token),
         ),
         Div(id="prefs-status"),
     )

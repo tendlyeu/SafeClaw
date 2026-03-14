@@ -4,7 +4,7 @@ from fasthtml.common import *
 from monsterui.all import *
 
 
-def OnboardStep1():
+def OnboardStep1(csrf_token=""):
     """Step 1: Choose autonomy level."""
     levels = [
         ("cautious", "Cautious",
@@ -48,6 +48,7 @@ def OnboardStep1():
               "You can change this anytime from the Preferences page.",
               cls=TextPresets.muted_sm),
             Form(
+                Input(type="hidden", name="_csrf_token", value=csrf_token),
                 Div(*cards, cls="space-y-4"),
                 Button("Next", cls=ButtonT.primary, type="submit"),
                 hx_post="/dashboard/onboard/step1",
@@ -62,7 +63,7 @@ def OnboardStep1():
     )
 
 
-def OnboardStep2Mistral():
+def OnboardStep2Mistral(csrf_token=""):
     """Step 2: Optional Mistral API key for LLM features."""
     return Div(
         Div(
@@ -90,6 +91,7 @@ def OnboardStep2Mistral():
         ),
         Divider(),
         Form(
+            Input(type="hidden", name="_csrf_token", value=csrf_token),
             Div(
                 LabelInput(
                     "Mistral API Key",
@@ -105,9 +107,9 @@ def OnboardStep2Mistral():
             ),
             DivLAligned(
                 Button("Next", cls=ButtonT.primary, type="submit"),
-                A("Skip for now", hx_post="/dashboard/onboard/step2",
-                  hx_target="#onboard-content", hx_swap="innerHTML",
-                  cls="uk-link-muted", style="margin-left:1rem;"),
+                Button("Skip for now", type="submit",
+                       cls="uk-link-muted",
+                       style="margin-left:1rem; background:none; border:none; cursor:pointer; text-decoration:underline;"),
             ),
             hx_post="/dashboard/onboard/step2",
             hx_target="#onboard-content",
@@ -119,7 +121,7 @@ def OnboardStep2Mistral():
     )
 
 
-def OnboardStep3(raw_key: str):
+def OnboardStep3(raw_key: str, csrf_token=""):
     """Step 3: Show generated API key + connection instructions."""
     return Div(
         Div(
@@ -170,6 +172,7 @@ def OnboardStep3(raw_key: str):
               "validated by SafeClaw before execution.",
               cls=TextPresets.muted_sm),
             Form(
+                Input(type="hidden", name="_csrf_token", value=csrf_token),
                 Button("Go to Dashboard", cls=ButtonT.primary, type="submit"),
                 action="/dashboard/onboard/done",
                 method="post",
