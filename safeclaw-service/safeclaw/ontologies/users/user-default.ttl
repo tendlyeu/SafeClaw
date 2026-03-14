@@ -103,6 +103,11 @@ su:DefaultUser a su:User ;
     rdfs:label "Default User" ;
     su:hasPreference su:DefaultSafetyPrefs .
 
+# Alias for code that queries su:user-{user_id} with user_id="default"
+su:user-default a su:User ;
+    rdfs:label "Default User" ;
+    su:hasPreference su:DefaultSafetyPrefs .
+
 su:DefaultSafetyPrefs a su:SafetyPreference ;
     su:autonomyLevel "moderate" ;
     su:confirmBeforeDelete true ;

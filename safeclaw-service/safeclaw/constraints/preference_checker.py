@@ -63,7 +63,7 @@ class PreferenceChecker:
                 prefs.confirm_before_push = val.lower() == "true"
             elif prop == "confirmBeforeSend":
                 prefs.confirm_before_send = val.lower() == "true"
-            elif prop == "neverModifyPath":
+            elif prop == "neverModifyPaths":
                 if prefs.never_modify_paths is None:
                     prefs.never_modify_paths = []
                 prefs.never_modify_paths.append(val)

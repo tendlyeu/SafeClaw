@@ -26,6 +26,7 @@ class SHACLValidator:
 
     def __init__(self):
         self.shapes_graph = Graph()
+        self._ont_graph = Graph()
 
     def load_shapes(self, shapes_dir: Path) -> None:
         for shape_file in shapes_dir.glob("*.ttl"):
@@ -33,18 +34,34 @@ class SHACLValidator:
             self.shapes_graph.parse(str(shape_file), format="turtle")
         logger.info(f"Loaded {len(self.shapes_graph)} SHACL triples")
 
+        # Load the agent ontology so RDFS inference can resolve subClassOf
+        # relationships for sh:targetClass matching
+        ontology_dir = shapes_dir.parent
+        agent_ttl = ontology_dir / "safeclaw-agent.ttl"
+        if agent_ttl.exists():
+            self._ont_graph.parse(str(agent_ttl), format="turtle")
+            logger.info("Loaded agent ontology for SHACL RDFS inference")
+
     def validate(self, data_graph: Graph) -> SHACLResult:
         """Validate an RDF data graph against loaded SHACL shapes."""
         if len(self.shapes_graph) == 0:
+            logger.warning(
+                "No SHACL shapes loaded — validation is a no-op. "
+                "Ensure shapes directory exists and contains .ttl files."
+            )
             return SHACLResult(conforms=True)
 
         try:
             from pyshacl import validate
 
+            # Use ont_graph to provide the class hierarchy so sh:targetClass
+            # on parent classes (e.g. sc:ShellAction) fires for subclass
+            # instances (e.g. sc:GitPush) without requiring full OWL inference.
             conforms, results_graph, results_text = validate(
                 data_graph=data_graph,
                 shacl_graph=self.shapes_graph,
-                inference="none",
+                ont_graph=self._ont_graph,
+                inference="rdfs",
             )
 
             violations = []

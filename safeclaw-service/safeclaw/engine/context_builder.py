@@ -108,9 +108,17 @@ class ContextBuilder:
                 ?type rdfs:subClassOf sp:Constraint .
             }}
         """)
+        # Deduplicate: a policy may have multiple types that are subclasses of
+        # sp:Constraint, producing multiple rows. Keep only the first type seen
+        # per policy URI.
+        seen_policies: set[str] = set()
         policies = []
         for row in results:
-            policy_name = str(row["policy"]).split("#")[-1]
+            policy_uri = str(row["policy"])
+            if policy_uri in seen_policies:
+                continue
+            seen_policies.add(policy_uri)
+            policy_name = policy_uri.split("#")[-1]
             policy_type = str(row["type"]).split("#")[-1]
             reason = str(row["reason"])
             policies.append(f"{policy_type.upper()}: {policy_name} (reason: {reason})")
