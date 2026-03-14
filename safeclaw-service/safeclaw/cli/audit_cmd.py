@@ -165,8 +165,7 @@ def explain(
         raise typer.Exit(1)
 
     audit_logger = AuditLogger(config.get_audit_dir())
-    records = audit_logger.get_recent_records(limit=200)
-    record = next((r for r in records if r.id == audit_id), None)
+    record = audit_logger.get_record_by_id(audit_id)
 
     if record is None:
         console.print(f"[red]Audit record '{audit_id}' not found[/red]")

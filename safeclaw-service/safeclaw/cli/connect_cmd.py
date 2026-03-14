@@ -36,9 +36,13 @@ def connect_cmd(
     config["remote"]["apiKey"] = api_key
     config["remote"]["serviceUrl"] = service_url
 
-    # Write config with owner-only permissions (contains API key)
+    # Write config with owner-only permissions atomically (contains API key)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
-    os.chmod(config_path, 0o600)
+    config_content = json.dumps(config, indent=2) + "\n"
+    fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, config_content.encode("utf-8"))
+    finally:
+        os.close(fd)
 
     typer.echo(f"Connected! Your API key has been saved to {config_path}")

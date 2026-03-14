@@ -24,8 +24,20 @@ echo "Found Python $PY_VERSION"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+cd "$PROJECT_DIR"
+
+# Create virtualenv if it doesn't exist
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv .venv
+fi
+
+# Activate virtualenv
+# shellcheck disable=SC1091
+source .venv/bin/activate
+
 echo "Installing safeclaw..."
-pip install -e "$PROJECT_DIR"
+pip install -e .
 
 # Generate default config
 echo "Setting up default config..."
@@ -33,6 +45,9 @@ python3 "$SCRIPT_DIR/setup-config.py"
 
 echo ""
 echo "=== SafeClaw installed successfully ==="
+echo ""
+echo "To activate the virtual environment:"
+echo "  source $PROJECT_DIR/.venv/bin/activate"
 echo ""
 echo "Next steps:"
 echo "  safeclaw serve          # Start the governance service"

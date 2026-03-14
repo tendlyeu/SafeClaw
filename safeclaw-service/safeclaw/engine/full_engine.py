@@ -133,7 +133,7 @@ class FullEngine(SafeClawEngine):
         self.temp_permissions = TempPermissionManager(hierarchy=self.hierarchy)
         self.heartbeat_monitor = HeartbeatMonitor(self.event_bus)
         self._require_token_auth = (
-            raw.get("agents", {}).get("requireTokenAuth", False) if raw else False
+            raw.get("agents", {}).get("requireTokenAuth", True) if raw else True
         )
 
         # Per-session locks for TOCTOU prevention (bounded)

@@ -1,6 +1,7 @@
 services:
   safeclaw:
     build: .
+    restart: unless-stopped
     ports:
       - "8420:8420"
     volumes:

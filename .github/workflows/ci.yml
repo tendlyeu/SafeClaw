@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: safeclaw-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest tests/ -v
+
+  python-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: safeclaw-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check safeclaw/ tests/
+      - run: ruff format --check safeclaw/ tests/
+
+  typescript-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: openclaw-safeclaw-plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run typecheck
