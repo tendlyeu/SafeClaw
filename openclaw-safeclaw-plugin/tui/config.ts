@@ -62,7 +62,14 @@ export function loadConfig(): SafeClawConfig {
   // Env vars override config file
   if (process.env.SAFECLAW_URL) defaults.serviceUrl = process.env.SAFECLAW_URL;
   if (process.env.SAFECLAW_API_KEY) defaults.apiKey = process.env.SAFECLAW_API_KEY;
-  if (process.env.SAFECLAW_TIMEOUT_MS) defaults.timeoutMs = parseInt(process.env.SAFECLAW_TIMEOUT_MS, 10);
+  if (process.env.SAFECLAW_TIMEOUT_MS) {
+    const parsed = parseInt(process.env.SAFECLAW_TIMEOUT_MS, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      defaults.timeoutMs = parsed;
+    } else {
+      console.warn(`[SafeClaw] Invalid SAFECLAW_TIMEOUT_MS="${process.env.SAFECLAW_TIMEOUT_MS}", using default ${defaults.timeoutMs}ms`);
+    }
+  }
   if (process.env.SAFECLAW_ENABLED === 'false') defaults.enabled = false;
   if (process.env.SAFECLAW_ENFORCEMENT) defaults.enforcement = process.env.SAFECLAW_ENFORCEMENT as SafeClawConfig['enforcement'];
   if (process.env.SAFECLAW_FAIL_MODE) defaults.failMode = process.env.SAFECLAW_FAIL_MODE as SafeClawConfig['failMode'];
@@ -87,6 +94,19 @@ export function loadConfig(): SafeClawConfig {
 }
 
 /**
+ * Check whether a URL is a valid http:// or https:// URL.
+ */
+export function isValidServiceUrl(url: string): boolean {
+  if (!url || url.trim() === '') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Persist managed config fields back to ~/.safeclaw/config.json.
  * Reads the existing file (if any), merges the fields SafeClaw manages,
  * and writes the result. Fields not managed by SafeClaw are preserved.
@@ -99,6 +119,14 @@ export function saveConfig(config: SafeClawConfig): void {
     } catch {
       // Unreadable — start fresh
     }
+  }
+
+  // Normalize serviceUrl: strip trailing slashes (consistent with loadConfig)
+  config.serviceUrl = config.serviceUrl.replace(/\/+$/, '');
+
+  // Validate serviceUrl before saving
+  if (!isValidServiceUrl(config.serviceUrl)) {
+    throw new Error(`Invalid service URL: "${config.serviceUrl}" — must be a valid http:// or https:// URL`);
   }
 
   // Merge managed fields into existing structure

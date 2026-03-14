@@ -8,6 +8,11 @@
  */
 
 import { loadConfig, configHash } from './tui/config.js';
+import crypto from 'crypto';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { version: PLUGIN_VERSION } = require('./package.json') as { version: string };
 
 // --- Configuration ---
 
@@ -89,7 +94,7 @@ async function performHandshake(): Promise<boolean> {
   }
 
   const r = await post('/handshake', {
-    pluginVersion: '0.1.3',
+    pluginVersion: PLUGIN_VERSION,
     configHash: configHash(config),
   });
 
@@ -131,7 +136,7 @@ async function checkConnection(): Promise<void> {
 export default {
   id: 'safeclaw',
   name: 'SafeClaw Neurosymbolic Governance',
-  version: '0.1.3',
+  version: PLUGIN_VERSION,
 
   register(api: PluginApi) {
     if (!config.enabled) {
@@ -139,11 +144,14 @@ export default {
       return;
     }
 
+    // Generate a unique instance ID for this plugin run (fallback when agentId is not configured)
+    const instanceId = config.agentId || `instance-${crypto.randomUUID()}`;
+
     // Heartbeat watchdog — send config hash to service every 30s
     const sendHeartbeat = async () => {
       try {
         await post('/heartbeat', {
-          agentId: config.agentId || 'default',
+          agentId: instanceId,
           configHash: configHash(config),
           status: 'alive',
         });
@@ -152,30 +160,35 @@ export default {
       }
     };
 
-    // Start heartbeat after connection check + handshake
+    // Start heartbeat only after connection check + handshake completes (#84)
+    let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
     checkConnection()
       .then(() => performHandshake())
       .then((ok) => {
         if (!ok && config.failMode === 'closed') {
-          console.warn('[SafeClaw] ⚠ Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
+          console.warn('[SafeClaw] Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
         }
+        heartbeatInterval = setInterval(sendHeartbeat, 30000);
         return sendHeartbeat();
       })
       .catch(() => {});
-    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
 
     // Clean shutdown: send shutdown heartbeat and clear interval
-    const shutdown = () => {
-      clearInterval(heartbeatInterval);
-      post('/heartbeat', {
-        agentId: config.agentId || 'default',
-        configHash: configHash(config),
-        status: 'shutdown',
-      }).catch(() => {});
+    // Use async shutdown for SIGINT/SIGTERM where async is supported (#55)
+    const shutdown = async () => {
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      try {
+        await post('/heartbeat', {
+          agentId: instanceId,
+          configHash: configHash(config),
+          status: 'shutdown',
+        });
+      } catch {
+        // Best-effort shutdown notification
+      }
     };
-    process.on('exit', shutdown);
-    process.on('SIGINT', () => { shutdown(); process.exit(0); });
-    process.on('SIGTERM', () => { shutdown(); process.exit(0); });
+    process.on('SIGINT', async () => { await shutdown(); process.exit(0); });
+    process.on('SIGTERM', async () => { await shutdown(); process.exit(0); });
 
     // THE GATE — constraint checking on every tool call
     api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
@@ -199,11 +212,12 @@ export default {
         console.warn(`[SafeClaw] Service unavailable at ${config.serviceUrl} (fail-closed mode, audit-only)`);
       }
       if (r?.block) {
+        const blockReason = (r.reason as string) || 'Blocked by SafeClaw (no reason provided)';
         if (config.enforcement === 'enforce') {
-          return { block: true, blockReason: r.reason as string };
+          return { block: true, blockReason };
         }
         if (config.enforcement === 'warn-only') {
-          console.warn(`[SafeClaw] Warning: ${r.reason}`);
+          console.warn(`[SafeClaw] Warning: ${blockReason}`);
         }
         // audit-only: logged server-side, no action here
       }
@@ -234,13 +248,16 @@ export default {
         return { cancel: true };
       } else if (r === null && config.failMode === 'closed' && config.enforcement === 'warn-only') {
         console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
+      } else if (r === null && config.failMode === 'closed' && config.enforcement === 'audit-only') {
+        console.info('[SafeClaw] audit-only: service unreachable, allowing message (fail-closed)');
       }
       if (r?.block) {
+        const blockReason = (r.reason as string) || 'Blocked by SafeClaw (no reason provided)';
         if (config.enforcement === 'enforce') {
           return { cancel: true };
         }
         if (config.enforcement === 'warn-only') {
-          console.warn(`[SafeClaw] Warning: ${r.reason}`);
+          console.warn(`[SafeClaw] Warning: ${blockReason}`);
         }
         // audit-only: logged server-side, no action here
       }
