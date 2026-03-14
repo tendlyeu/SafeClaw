@@ -2,22 +2,35 @@
 
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP, SU
 
+# Class-level cache keyed by (knowledge graph id, triple count) so that
+# the cache survives across per-request GraphBuilder instances while still
+# invalidating when the underlying graph changes (e.g. after /reload).
+_graph_cache: dict[tuple[int, int], dict] = {}
+
 
 class GraphBuilder:
     """Walks the knowledge graph and produces a D3-compatible node/edge structure."""
 
     def __init__(self, knowledge_graph: KnowledgeGraph):
         self.kg = knowledge_graph
-        self._cached_graph: dict | None = None
 
     def invalidate_cache(self) -> None:
         """Invalidate the cached graph so it will be rebuilt on next access."""
-        self._cached_graph = None
+        cache_key = (id(self.kg), len(self.kg))
+        _graph_cache.pop(cache_key, None)
+
+    @staticmethod
+    def invalidate_all_caches() -> None:
+        """Invalidate all cached graphs."""
+        _graph_cache.clear()
 
     def build_graph(self) -> dict:
         """Build a D3-compatible graph from the knowledge graph."""
-        if self._cached_graph is not None:
-            return self._cached_graph
+        cache_key = (id(self.kg), len(self.kg))
+        cached = _graph_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         nodes: list[dict] = []
         edges: list[dict] = []
         seen_nodes: set[str] = set()
@@ -103,7 +116,7 @@ class GraphBuilder:
                 "type": "instanceOf",
             })
 
-        self._cached_graph = {
+        result = {
             "nodes": nodes,
             "edges": edges,
             "stats": {
@@ -112,7 +125,8 @@ class GraphBuilder:
                 "total_triples": len(self.kg),
             },
         }
-        return self._cached_graph
+        _graph_cache[cache_key] = result
+        return result
 
     def search_nodes(self, query: str) -> list[dict]:
         """Fuzzy search for nodes by name or label."""

@@ -49,6 +49,10 @@ class TempPermissionManager:
             raise ValueError(
                 "At least one of duration_seconds or task_id is required"
             )
+        if duration_seconds is not None and duration_seconds <= 0:
+            raise ValueError(
+                "duration_seconds must be positive"
+            )
 
         now = monotonic()
         grant_id = str(uuid4())

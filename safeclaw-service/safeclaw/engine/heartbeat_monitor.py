@@ -14,10 +14,26 @@ MAX_AGENTS = 1000
 class HeartbeatMonitor:
     """Tracks agent heartbeats and detects staleness or config drift."""
 
-    def __init__(self, event_bus: EventBus):
+    def __init__(self, event_bus: EventBus, agent_registry=None):
         self._event_bus = event_bus
-        # {agent_id: {"last_seen": monotonic, "config_hash": str, "first_hash": str}}
+        self._agent_registry = agent_registry
+        # {agent_id: {"last_seen": monotonic, "config_hash": str, "first_hash": str, "stale_notified": bool}}
         self._agents: OrderedDict[str, dict] = OrderedDict()
+
+    def verify_heartbeat_token(self, agent_id: str, agent_token: str | None) -> bool:
+        """Verify the agent token for heartbeat authentication.
+
+        If no agent_registry is configured or the agent is not registered,
+        allows the heartbeat for backwards compatibility.
+        """
+        if self._agent_registry is None:
+            return True
+        record = self._agent_registry.get_agent(agent_id)
+        if record is None:
+            return True  # unregistered agent — backwards compat
+        if not agent_token:
+            return False
+        return self._agent_registry.verify_token(agent_id, agent_token)
 
     def record(self, agent_id: str, config_hash: str) -> None:
         """Record a heartbeat from an agent."""
@@ -27,6 +43,7 @@ class HeartbeatMonitor:
                 "last_seen": now,
                 "config_hash": config_hash,
                 "first_hash": config_hash,
+                "stale_notified": False,
             }
             # LRU eviction: pop oldest entry when over capacity
             while len(self._agents) > MAX_AGENTS:
@@ -35,6 +52,7 @@ class HeartbeatMonitor:
             self._agents.move_to_end(agent_id)
             self._agents[agent_id]["last_seen"] = now
             self._agents[agent_id]["config_hash"] = config_hash
+            self._agents[agent_id]["stale_notified"] = False  # Reset on new heartbeat
 
     def check_stale(self, threshold: float = 90.0) -> list[str]:
         """Return agent IDs that haven't sent a heartbeat within threshold seconds."""
@@ -43,16 +61,18 @@ class HeartbeatMonitor:
         for agent_id, info in self._agents.items():
             if now - info["last_seen"] > threshold:
                 stale.append(agent_id)
-                self._event_bus.publish(
-                    SafeClawEvent(
-                        event_type="heartbeat_lost",
-                        severity="critical",
-                        title=f"Agent {agent_id} heartbeat lost",
-                        detail=f"No heartbeat for {int(now - info['last_seen'])}s "
-                        f"(threshold: {int(threshold)}s). "
-                        "Plugin may have been disabled or uninstalled.",
+                if not info.get("stale_notified"):
+                    self._event_bus.publish(
+                        SafeClawEvent(
+                            event_type="heartbeat_lost",
+                            severity="critical",
+                            title=f"Agent {agent_id} heartbeat lost",
+                            detail=f"No heartbeat for {int(now - info['last_seen'])}s "
+                            f"(threshold: {int(threshold)}s). "
+                            "Plugin may have been disabled or uninstalled.",
+                        )
                     )
-                )
+                    info["stale_notified"] = True
         return stale
 
     def check_config_drift(self, agent_id: str, current_hash: str) -> bool:

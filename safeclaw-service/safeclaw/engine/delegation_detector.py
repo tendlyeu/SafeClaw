@@ -42,11 +42,14 @@ class DelegationDetector:
         Args:
             mode: "strict", "permissive", or "disabled".
         """
-        valid_modes = {"strict", "permissive", "disabled"}
+        valid_modes = {"strict", "permissive", "disabled", "configurable"}
         if mode not in valid_modes:
             logger.warning(
                 f"Invalid delegation detection mode '{mode}', defaulting to 'strict'"
             )
+            mode = "strict"
+        # "configurable" is the default from the config template; treat it as "strict"
+        if mode == "configurable":
             mode = "strict"
         self.mode = mode
         self._blocks: deque[BlockRecord] = deque(maxlen=MAX_BLOCKS)

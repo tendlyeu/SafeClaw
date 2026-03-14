@@ -266,7 +266,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
         if verify_csrf and not verify_csrf(sess, _csrf):
             return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
-        engine.agent_registry.revive_agent(agent_id)
+        engine.agent_registry.revive_agent(agent_id)  # new token discarded in dashboard
         return RedirectResponse(f"{_comp.MOUNT_PREFIX}/agents", status_code=303)
 
     @rt("/agents/{agent_id}/temp-grant", methods=["post"])
