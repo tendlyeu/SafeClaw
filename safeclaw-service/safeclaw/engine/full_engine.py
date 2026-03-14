@@ -58,13 +58,14 @@ class FullEngine(SafeClawEngine):
     """Complete engine with pySHACL + RDFLib + ClassHierarchy."""
 
     @staticmethod
-    def _extract_resource_path(params: dict) -> str:
-        """Extract resource path from params, checking common key variants."""
+    def _extract_resource_paths(params: dict) -> list[str]:
+        """Extract all resource paths from params, checking common key variants."""
+        paths = []
         for key in _PATH_PARAM_KEYS:
             val = params.get(key, "")
             if val and isinstance(val, str):
-                return val
-        return ""
+                paths.append(val)
+        return paths
 
     def __init__(self, config: SafeClawConfig, api_key_manager=None):
         self.config = config
@@ -216,46 +217,67 @@ class FullEngine(SafeClawEngine):
         reset session locks, session tracker, rate limiter, and other runtime
         state. This method only reinitializes components that depend on the
         knowledge graph, preserving per-session state across hot-reloads.
+
+        All new components are built first, then swapped in atomically to avoid
+        concurrent evaluations seeing a mix of old and new checkers.
         """
         ontology_dir = self.config.get_ontology_dir()
 
-        # Rebuild knowledge graph
-        self.kg = KnowledgeGraph()
-        self.kg.load_directory(ontology_dir)
-        logger.info(f"Loaded {len(self.kg)} triples from ontologies")
+        # Build all new components into local variables first
+        new_kg = KnowledgeGraph()
+        new_kg.load_directory(ontology_dir)
+        logger.info(f"Loaded {len(new_kg)} triples from ontologies")
 
-        # Rebuild SHACL validator
-        self.shacl = SHACLValidator()
+        new_shacl = SHACLValidator()
         shapes_dir = ontology_dir / "shapes"
         if shapes_dir.exists():
-            self.shacl.load_shapes(shapes_dir)
+            new_shacl.load_shapes(shapes_dir)
 
-        # Rebuild class hierarchy
-        self.hierarchy = ClassHierarchy(self.kg)
+        new_hierarchy = ClassHierarchy(new_kg)
 
         # Ontology consistency validation (advisory)
-        validator = OntologyValidator(self.kg, self.hierarchy)
+        validator = OntologyValidator(new_kg, new_hierarchy)
         for warning in validator.validate():
             logger.warning("Ontology: %s", warning)
 
-        # Reinitialize KG-dependent constraint checkers
-        self.classifier = ActionClassifier(hierarchy=self.hierarchy)
-        self.policy_checker = PolicyChecker(self.kg, hierarchy=self.hierarchy)
-        self.preference_checker = PreferenceChecker(self.kg)
-        self.dependency_checker = DependencyChecker(self.kg, hierarchy=self.hierarchy)
-        self.derived_checker = DerivedConstraintChecker(self.kg, hierarchy=self.hierarchy)
-        self.message_gate = MessageGate(self.kg)
-        self.context_builder = ContextBuilder(self.kg)
+        new_classifier = ActionClassifier(hierarchy=new_hierarchy)
+        new_policy_checker = PolicyChecker(new_kg, hierarchy=new_hierarchy)
+        new_preference_checker = PreferenceChecker(new_kg)
 
-        # Reinitialize role manager with updated hierarchy
+        # Preserve dependency checker session history across reloads (#92)
+        old_dep_history = getattr(self.dependency_checker, '_session_history', {})
+        new_dependency_checker = DependencyChecker(new_kg, hierarchy=new_hierarchy)
+        new_dependency_checker._session_history = old_dep_history
+
+        new_derived_checker = DerivedConstraintChecker(new_kg, hierarchy=new_hierarchy)
+        new_message_gate = MessageGate(new_kg)
+        new_context_builder = ContextBuilder(new_kg)
+
+        # Preserve context builder violation history across reloads
+        new_context_builder._violation_history = self.context_builder._violation_history
+
         try:
             raw = self.config.raw
         except (json.JSONDecodeError, AttributeError, OSError, UnicodeDecodeError):
             raw = {}
-        self.role_manager = RoleManager(raw, hierarchy=self.hierarchy, knowledge_graph=self.kg)
+        new_role_manager = RoleManager(raw, hierarchy=new_hierarchy, knowledge_graph=new_kg)
+
+        # Swap all components atomically — concurrent evaluations will see
+        # either all-old or all-new, never a mix
+        self.kg = new_kg
+        self.shacl = new_shacl
+        self.hierarchy = new_hierarchy
+        self.classifier = new_classifier
+        self.policy_checker = new_policy_checker
+        self.preference_checker = new_preference_checker
+        self.dependency_checker = new_dependency_checker
+        self.derived_checker = new_derived_checker
+        self.message_gate = new_message_gate
+        self.context_builder = new_context_builder
+        self.role_manager = new_role_manager
 
         # Update temp_permissions hierarchy reference (preserve active grants)
-        self.temp_permissions._hierarchy = self.hierarchy
+        self.temp_permissions._hierarchy = new_hierarchy
 
     async def reload(self) -> None:
         """Hot-reload: re-read ontologies and reinitialize KG-dependent components.
@@ -360,31 +382,46 @@ class FullEngine(SafeClawEngine):
                         role, action.ontology_class
                     ):
                         reason = f"[SafeClaw] Role '{role.name}' does not allow action '{action.ontology_class}'"
-                        decision = Decision(block=True, reason=reason)
-                        self.delegation_detector.record_block(
-                            event.session_id, event.agent_id, event.tool_name, params_sig
-                        )
-                        self._record_violation_and_log(
-                            event, action, decision, checks, prefs_applied, start,
-                            constraint_step="role_check",
-                        )
-                        return decision
+                        if role.enforcement_mode == "warn-only":
+                            logger.warning(
+                                "Role '%s' would block '%s' but enforcement_mode is warn-only",
+                                role.name,
+                                action.ontology_class,
+                            )
+                        else:
+                            decision = Decision(block=True, reason=reason)
+                            self.delegation_detector.record_block(
+                                event.session_id, event.agent_id, event.tool_name, params_sig
+                            )
+                            self._record_violation_and_log(
+                                event, action, decision, checks, prefs_applied, start,
+                                constraint_step="role_check",
+                            )
+                            return decision
 
-                    # Check resource access if params have a path
-                    resource_path = self._extract_resource_path(event.params)
-                    if resource_path and not self.role_manager.is_resource_allowed(
-                        role, resource_path
-                    ):
-                        reason = f"[SafeClaw] Role '{role.name}' denied access to '{resource_path}'"
-                        decision = Decision(block=True, reason=reason)
-                        self.delegation_detector.record_block(
-                            event.session_id, event.agent_id, event.tool_name, params_sig
-                        )
-                        self._record_violation_and_log(
-                            event, action, decision, checks, prefs_applied, start,
-                            constraint_step="role_check",
-                        )
-                        return decision
+                    # Check resource access for all path parameters
+                    resource_paths = self._extract_resource_paths(event.params)
+                    for resource_path in resource_paths:
+                        if not self.role_manager.is_resource_allowed(
+                            role, resource_path
+                        ):
+                            reason = f"[SafeClaw] Role '{role.name}' denied access to '{resource_path}'"
+                            if role.enforcement_mode == "warn-only":
+                                logger.warning(
+                                    "Role '%s' would deny access to '%s' but enforcement_mode is warn-only",
+                                    role.name,
+                                    resource_path,
+                                )
+                            else:
+                                decision = Decision(block=True, reason=reason)
+                                self.delegation_detector.record_block(
+                                    event.session_id, event.agent_id, event.tool_name, params_sig
+                                )
+                                self._record_violation_and_log(
+                                    event, action, decision, checks, prefs_applied, start,
+                                    constraint_step="role_check",
+                                )
+                                return decision
 
         # 2. SHACL validation
         shacl_result = self.shacl.validate(action.as_rdf_graph())
@@ -528,6 +565,12 @@ class FullEngine(SafeClawEngine):
         # BUG-004/035: Use server-side session data instead of client-supplied
         # session_history for security decisions (cumulative risk check).
         server_session_history = self.session_tracker.get_risk_history(event.session_id)
+        # Include the current action's risk level so cumulative risk check
+        # is not off-by-one (the current action hasn't been recorded yet).
+        if action.risk_level:
+            server_session_history = server_session_history + [
+                f"{action.risk_level}:{action.ontology_class}"
+            ]
         derived_result = self.derived_checker.check(action, user_prefs, server_session_history)
         if derived_result.requires_confirmation:
             reason = f"[SafeClaw] {derived_result.reason}"
@@ -619,10 +662,7 @@ class FullEngine(SafeClawEngine):
             self._log_message_decision(event, decision, start, risk_level=gate_result.risk_level)
             return decision
 
-        # Record message only after gate check passes (not blocked messages)
-        self.message_gate.record_message(event.session_id)
-
-        # User preference: confirm before send
+        # User preference: confirm before send (check before recording)
         user_prefs = self.preference_checker.get_preferences(event.user_id)
         if user_prefs.confirm_before_send:
             decision = Decision(
@@ -631,6 +671,9 @@ class FullEngine(SafeClawEngine):
             )
             self._log_message_decision(event, decision, start, risk_level=gate_result.risk_level)
             return decision
+
+        # Record message only after all checks pass (not blocked messages)
+        self.message_gate.record_message(event.session_id)
 
         decision = Decision(block=False)
         self._log_message_decision(event, decision, start, risk_level=gate_result.risk_level)
@@ -697,6 +740,24 @@ class FullEngine(SafeClawEngine):
 
     async def record_action_result(self, event: ToolResultEvent) -> None:
         async with self._get_session_lock(event.session_id):
+            # Agent governance checks (same as evaluate_tool_call/evaluate_message)
+            if event.agent_id is not None:
+                if self._require_token_auth:
+                    if not event.agent_token or not self.agent_registry.verify_token(
+                        event.agent_id, event.agent_token
+                    ):
+                        logger.warning(
+                            "record_action_result rejected: invalid token for agent %s",
+                            event.agent_id,
+                        )
+                        return
+                if self.agent_registry.is_killed(event.agent_id):
+                    logger.warning(
+                        "record_action_result rejected: agent %s is killed",
+                        event.agent_id,
+                    )
+                    return
+
             action = self.classifier.classify(event.tool_name, event.params)
 
             # Record in session tracker (Phase 3: KG feedback loop)

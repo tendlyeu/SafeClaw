@@ -74,8 +74,16 @@ class ClassHierarchy:
         )
 
     def get_superclasses(self, cls: str) -> set[str]:
-        """All ancestors including self."""
-        return self._superclasses.get(cls, {cls})
+        """All ancestors including self.
+
+        For unknown classes not in the hierarchy, returns {cls, "Action"}
+        so that prohibitions on the root Action class still apply.
+        """
+        if cls in self._superclasses:
+            return self._superclasses[cls]
+        # Unknown class: include "Action" as implicit superclass so that
+        # hierarchy-aware prohibitions on Action are not bypassed.
+        return {cls, "Action"}
 
     def get_subclasses(self, cls: str) -> set[str]:
         """All descendants including self."""

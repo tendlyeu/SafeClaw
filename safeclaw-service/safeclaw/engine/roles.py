@@ -6,6 +6,7 @@ import copy
 import fnmatch
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,30 @@ if TYPE_CHECKING:
     from safeclaw.engine.knowledge_graph import KnowledgeGraph
 
 logger = logging.getLogger(__name__)
+
+
+def _glob_match(path: str, pattern: str) -> bool:
+    """Match a path against a glob pattern, supporting ** across path separators.
+
+    fnmatch.fnmatch treats * and ** identically (single-segment only).
+    This function converts ** to a regex that crosses directory boundaries.
+    """
+    # Split pattern on ** to handle recursive matching separately
+    segments = pattern.split("**")
+    # Convert each segment using fnmatch.translate, strip its anchoring,
+    # then join with .* (which matches across path separators)
+    regex_parts = []
+    for seg in segments:
+        translated = fnmatch.translate(seg)
+        # fnmatch.translate returns '(?s:...)\\z' — extract the inner pattern
+        # by removing the wrapper and the \z anchor
+        if translated.startswith("(?s:") and translated.endswith(r"\z"):
+            inner = translated[4:-3]  # strip '(?s:' prefix and ')\\z' suffix
+        else:
+            inner = translated
+        regex_parts.append(inner)
+    full_regex = "(?s:" + ".*".join(regex_parts) + r")\z"
+    return re.match(full_regex, path) is not None
 
 
 @dataclass
@@ -39,7 +64,6 @@ BUILTIN_ROLES = {
             "ReadFile",
             "ListFiles",
             "SearchFiles",
-            "WebSearch",
         },
         denied_action_classes={
             "WriteFile",
@@ -47,7 +71,7 @@ BUILTIN_ROLES = {
             "DeleteFile",
             "GitPush",
             "ForcePush",
-            "ExecuteCommand",
+            "ShellAction",
             "SendMessage",
         },
         resource_patterns={"allow": ["**"], "deny": []},
@@ -242,16 +266,16 @@ class RoleManager:
         resource_path = os.path.normpath(resource_path)
         if ".." in resource_path.split(os.sep):
             return False
-        # Strip leading / for consistent fnmatch matching
+        # Strip leading / for consistent matching
         norm = resource_path.lstrip("/")
         patterns = role.resource_patterns
         for deny_pat in patterns.get("deny", []):
-            if fnmatch.fnmatch(norm, deny_pat.lstrip("/")):
+            if _glob_match(norm, deny_pat.lstrip("/")):
                 return False
         allow_pats = patterns.get("allow", [])
         if not allow_pats:
             return False
-        return any(fnmatch.fnmatch(norm, pat.lstrip("/")) for pat in allow_pats)
+        return any(_glob_match(norm, pat.lstrip("/")) for pat in allow_pats)
 
     def get_effective_constraints(
         self,

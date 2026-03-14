@@ -75,9 +75,9 @@ class TestClassHierarchy:
     def test_defaults_none_for_unknown(self, hierarchy):
         assert hierarchy.get_defaults("NonexistentClass") is None
 
-    def test_unknown_class_returns_self(self, hierarchy):
+    def test_unknown_class_returns_self_and_action(self, hierarchy):
         supers = hierarchy.get_superclasses("UnknownThing")
-        assert supers == {"UnknownThing"}
+        assert supers == {"UnknownThing", "Action"}
 
 
 # ── Ontology-Enriched Classification Tests ──
