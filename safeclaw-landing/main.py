@@ -2,6 +2,7 @@ import ipaddress
 import os
 import re
 import secrets
+import socket
 from datetime import date
 from urllib.parse import urlparse
 
@@ -15,9 +16,10 @@ from db import users, upsert_user
 
 
 def _validate_service_url(url: str) -> bool:
-    """Validate a service URL against SSRF attacks.
+    """Validate a service URL against SSRF attacks (#73).
 
-    Rejects non-http(s) schemes and private/loopback IP addresses.
+    Rejects non-http(s) schemes, private/loopback IP addresses,
+    and hostnames that resolve to private/loopback IPs.
     Returns True if valid, raises ValueError otherwise.
     """
     parsed = urlparse(url)
@@ -26,15 +28,46 @@ def _validate_service_url(url: str) -> bool:
     hostname = parsed.hostname
     if not hostname:
         raise ValueError("No hostname in URL.")
+
+    # Block known dangerous hostnames (#73)
+    blocked_suffixes = (".internal", ".local", ".localhost")
+    if hostname == "localhost" or hostname.endswith(blocked_suffixes):
+        raise ValueError(f"Hostname '{hostname}' is not allowed.")
+
+    # Check IP literals directly
     try:
         addr = ipaddress.ip_address(hostname)
         if addr.is_loopback or addr.is_private or addr.is_reserved or addr.is_link_local:
             raise ValueError(f"Private/loopback addresses are not allowed: {hostname}")
+        return True
     except ValueError as e:
-        if "Private" in str(e) or "loopback" in str(e):
+        if "Private" in str(e) or "loopback" in str(e) or "not allowed" in str(e):
             raise
-        # hostname is not an IP literal — that's fine (it's a DNS name)
+        # hostname is not an IP literal — resolve it via DNS
+
+    # Resolve DNS and check all resulting IPs (#73)
+    try:
+        addrinfo = socket.getaddrinfo(hostname, parsed.port or 443)
+        for family, type_, proto, canonname, sockaddr in addrinfo:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                raise ValueError(
+                    f"Hostname '{hostname}' resolves to private/loopback address {sockaddr[0]}"
+                )
+    except socket.gaierror:
+        raise ValueError(f"Cannot resolve hostname: {hostname}")
+
     return True
+
+
+# ── CSRF token helpers (#39) ──
+
+
+def _generate_csrf_token(sess) -> str:
+    """Generate and store a CSRF token in the session."""
+    token = secrets.token_urlsafe(32)
+    sess["_csrf_token"] = token
+    return token
 
 GITHUB_URL = "https://github.com/tendlyeu/SafeClaw"
 DOCS_URL = "/docs"
@@ -48,6 +81,7 @@ app, rt = fast_app(
     pico=False,
     static_path="static",
     before=bware,
+    secret_key=os.environ.get("SAFECLAW_SECRET_KEY", secrets.token_hex(32)),
     hdrs=(
         Link(rel="stylesheet", href="/style.css"),
         Link(rel="icon", href="/favicon.ico", type="image/x-icon"),
@@ -1724,7 +1758,7 @@ def auth_callback(req, sess, code: str = "", state: str = ""):
     return RedirectResponse("/dashboard", status_code=303)
 
 
-@rt("/logout")
+@rt("/logout", methods=["POST"])
 def logout(sess):
     sess.pop("auth", None)
     return RedirectResponse("/", status_code=303)
@@ -1766,7 +1800,12 @@ async def health_check(req, sess):
         service_url = user.service_url or "http://localhost:8420"
         _validate_service_url(service_url)
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f"{service_url}/health")
+            # Normalize the health URL: append /api/v1/health if not already present (#87)
+            if service_url.rstrip("/").endswith("/api/v1"):
+                health_url = f"{service_url.rstrip('/')}/health"
+            else:
+                health_url = f"{service_url.rstrip('/')}/api/v1/health"
+            r = await client.get(health_url)
             data = r.json()
             status = data.get("status", "unknown")
             if status == "ok":
@@ -1794,16 +1833,22 @@ from dashboard.onboard import OnboardStep1, OnboardStep2Mistral, OnboardStep3
 @rt("/dashboard/keys")
 def dashboard_keys(req, sess):
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
     return (
         Title("API Keys — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("API Keys", *KeysContent(user.id), user=user, active="keys"),
+        DashboardLayout("API Keys", *KeysContent(user.id, csrf_token=token), user=user, active="keys"),
     )
 
 
 @rt("/dashboard/keys/create", methods=["POST"])
 def create_key(req, sess, label: str = "", scope: str = "full"):
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
+    # Validate scope server-side (#106)
+    valid_scopes = {"full", "evaluate_only"}
+    if scope not in valid_scopes:
+        scope = "full"
     raw_key, key_id = generate_api_key()
     api_keys.insert(
         user_id=user.id,
@@ -1814,24 +1859,26 @@ def create_key(req, sess, label: str = "", scope: str = "full"):
         created_at=datetime.now(timezone.utc).isoformat(),
         is_active=True,
     )
-    return Div(
-        NewKeyModal(raw_key),
-        KeyTable(user.id),
+    # Return OOB swap for the alert area + update key list in place (#102)
+    return (
+        Div(NewKeyModal(raw_key), id="new-key-alert", hx_swap_oob="true"),
+        KeyTable(user.id, csrf_token=token),
     )
 
 
 @rt("/dashboard/keys/{key_pk}/revoke", methods=["POST"])
 def revoke_key(req, sess, key_pk: int):
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
     try:
         key = api_keys[key_pk]
     except Exception:
-        return KeyTable(user.id)
+        return KeyTable(user.id, csrf_token=token)
     if key.user_id != user.id:
-        return KeyTable(user.id)
+        return KeyTable(user.id, csrf_token=token)
     key.is_active = False
     api_keys.update(key)
-    return KeyTable(user.id)
+    return KeyTable(user.id, csrf_token=token)
 
 
 @rt("/dashboard/onboard")
@@ -1839,29 +1886,32 @@ def dashboard_onboard(req, sess):
     user = req.scope.get("user")
     if user.onboarded:
         return RedirectResponse("/dashboard", status_code=303)
+    token = _generate_csrf_token(sess)
     return (
         Title("Get Started — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Get Started", OnboardStep1(), user=user, active="onboard"),
+        DashboardLayout("Get Started", OnboardStep1(csrf_token=token), user=user, active="onboard"),
     )
 
 
 _VALID_AUTONOMY_LEVELS = {"cautious", "moderate", "autonomous"}
 
 
-@rt("/dashboard/onboard/step1")
+@rt("/dashboard/onboard/step1", methods=["POST"])
 def onboard_step1(req, sess, autonomy_level: str = "moderate"):
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
     if autonomy_level not in _VALID_AUTONOMY_LEVELS:
         autonomy_level = "moderate"
     user.autonomy_level = autonomy_level
     users.update(user)
-    return OnboardStep2Mistral()
+    return OnboardStep2Mistral(csrf_token=token)
 
 
-@rt("/dashboard/onboard/step2")
+@rt("/dashboard/onboard/step2", methods=["POST"])
 def onboard_step2(req, sess, mistral_api_key: str = ""):
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
     if mistral_api_key.strip():
         user.mistral_api_key = mistral_api_key.strip()
         users.update(user)
@@ -1869,7 +1919,7 @@ def onboard_step2(req, sess, mistral_api_key: str = ""):
     existing = api_keys(where="user_id = ? AND label = ? AND is_active = 1",
                         where_args=[user.id, "Default"])
     if existing:
-        return OnboardStep3("(key already generated — check your API Keys page)")
+        return OnboardStep3("(key already generated — check your API Keys page)", csrf_token=token)
     raw_key, key_id = generate_api_key()
     api_keys.insert(
         user_id=user.id,
@@ -1880,10 +1930,10 @@ def onboard_step2(req, sess, mistral_api_key: str = ""):
         created_at=datetime.now(timezone.utc).isoformat(),
         is_active=True,
     )
-    return OnboardStep3(raw_key)
+    return OnboardStep3(raw_key, csrf_token=token)
 
 
-@rt("/dashboard/onboard/done")
+@rt("/dashboard/onboard/done", methods=["POST"])
 def onboard_done(req, sess):
     user = req.scope.get("user")
     user.onboarded = True
@@ -1897,8 +1947,9 @@ from dashboard.agents import HostedAgentsContent, SelfHostedAgentsContent, Agent
 @rt("/dashboard/agents")
 def dashboard_agents(req, sess):
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
     if user.self_hosted:
-        content = SelfHostedAgentsContent(service_url=user.service_url)
+        content = SelfHostedAgentsContent(service_url=user.service_url, csrf_token=token)
     else:
         content = HostedAgentsContent()
     return (
@@ -1908,10 +1959,11 @@ def dashboard_agents(req, sess):
     )
 
 
-@rt("/dashboard/agents/load")
+@rt("/dashboard/agents/load", methods=["POST"])
 async def load_agents(req, sess, service_url: str = "", admin_password: str = ""):
     """Fetch agents from the self-hosted service API."""
     user = req.scope.get("user")
+    token = _generate_csrf_token(sess)
     url = (service_url or user.service_url or "http://localhost:8420").rstrip("/")
     try:
         _validate_service_url(url)
@@ -1925,7 +1977,7 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
             r = await client.get(f"{url}/api/v1/agents", headers=headers)
             r.raise_for_status()
             agents = r.json().get("agents", [])
-            return AgentTable(agents)
+            return AgentTable(agents, csrf_token=token)
     except Exception as e:
         return P(f"Could not connect: {e}", cls=TextPresets.muted_sm)
 
@@ -1934,9 +1986,15 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
 async def kill_agent_proxy(req, sess, agent_id: str):
     """Proxy kill request to self-hosted service."""
     if not re.match(r'^[a-zA-Z0-9_\-\.]+$', agent_id):
-        return JSONResponse(status_code=400, content={"error": "Invalid agent_id"})
+        return P("Invalid agent ID.", cls=TextPresets.muted_sm)
     user = req.scope.get("user")
-    url = (user.service_url or "http://localhost:8420").rstrip("/")
+    token = _generate_csrf_token(sess)
+    # Guard: only self-hosted users can proxy to a service (#103)
+    if not user.self_hosted:
+        return P("Agent management requires self-hosted mode.", cls=TextPresets.muted_sm)
+    if not user.service_url:
+        return P("No service URL configured. Set it in Preferences.", cls=TextPresets.muted_sm)
+    url = user.service_url.rstrip("/")
     try:
         _validate_service_url(url)
     except ValueError as e:
@@ -1946,9 +2004,13 @@ async def kill_agent_proxy(req, sess, agent_id: str):
         headers["X-Admin-Password"] = user.admin_password
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{url}/api/v1/agents/{agent_id}/kill", headers=headers)
+            kill_r = await client.post(f"{url}/api/v1/agents/{agent_id}/kill", headers=headers)
+            # Check response status to surface errors (#104)
+            if kill_r.status_code >= 400:
+                detail = kill_r.json().get("detail", kill_r.text) if kill_r.text else f"HTTP {kill_r.status_code}"
+                return P(f"Kill failed: {detail}", style="color:#f87171;")
             r = await client.get(f"{url}/api/v1/agents", headers=headers)
-            return AgentTable(r.json().get("agents", []))
+            return AgentTable(r.json().get("agents", []), csrf_token=token)
     except Exception as e:
         return P(f"Error: {e}", cls=TextPresets.muted_sm)
 
@@ -1957,9 +2019,15 @@ async def kill_agent_proxy(req, sess, agent_id: str):
 async def revive_agent_proxy(req, sess, agent_id: str):
     """Proxy revive request to self-hosted service."""
     if not re.match(r'^[a-zA-Z0-9_\-\.]+$', agent_id):
-        return JSONResponse(status_code=400, content={"error": "Invalid agent_id"})
+        return P("Invalid agent ID.", cls=TextPresets.muted_sm)
     user = req.scope.get("user")
-    url = (user.service_url or "http://localhost:8420").rstrip("/")
+    token = _generate_csrf_token(sess)
+    # Guard: only self-hosted users can proxy to a service (#103)
+    if not user.self_hosted:
+        return P("Agent management requires self-hosted mode.", cls=TextPresets.muted_sm)
+    if not user.service_url:
+        return P("No service URL configured. Set it in Preferences.", cls=TextPresets.muted_sm)
+    url = user.service_url.rstrip("/")
     try:
         _validate_service_url(url)
     except ValueError as e:
@@ -1969,9 +2037,13 @@ async def revive_agent_proxy(req, sess, agent_id: str):
         headers["X-Admin-Password"] = user.admin_password
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{url}/api/v1/agents/{agent_id}/revive", headers=headers)
+            revive_r = await client.post(f"{url}/api/v1/agents/{agent_id}/revive", headers=headers)
+            # Check response status to surface errors (#104)
+            if revive_r.status_code >= 400:
+                detail = revive_r.json().get("detail", revive_r.text) if revive_r.text else f"HTTP {revive_r.status_code}"
+                return P(f"Revive failed: {detail}", style="color:#f87171;")
             r = await client.get(f"{url}/api/v1/agents", headers=headers)
-            return AgentTable(r.json().get("agents", []))
+            return AgentTable(r.json().get("agents", []), csrf_token=token)
     except Exception as e:
         return P(f"Error: {e}", cls=TextPresets.muted_sm)
 
@@ -1990,7 +2062,7 @@ async def dashboard_prefs(req, sess):
         "max_files_per_commit": user.max_files_per_commit,
         "self_hosted": bool(user.self_hosted),
         "service_url": user.service_url,
-        "admin_password": user.admin_password,
+        "admin_password": "",  # Never echo password back in HTML (#99)
         "audit_logging": bool(user.audit_logging),
     }
 
@@ -1999,10 +2071,11 @@ async def dashboard_prefs(req, sess):
     if user.mistral_api_key:
         masked_key = "••••" + user.mistral_api_key[-4:]
 
+    token = _generate_csrf_token(sess)
     return (
         Title("Preferences — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key), user=user, active="prefs"),
+        DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key, csrf_token=token), user=user, active="prefs"),
     )
 
 
@@ -2015,12 +2088,22 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
                      audit_logging: str = ""):
     user = req.scope.get("user")
 
+    # Validate autonomy_level against allowed values (#83)
+    if autonomy_level not in _VALID_AUTONOMY_LEVELS:
+        return P("Invalid autonomy level. Must be one of: cautious, moderate, autonomous.",
+                 style="color:#f87171;")
     user.autonomy_level = autonomy_level
+
     # HTML checkboxes send "on" when checked, nothing when unchecked
     user.confirm_before_delete = confirm_before_delete == "on"
     user.confirm_before_push = confirm_before_push == "on"
     user.confirm_before_send = confirm_before_send == "on"
+
+    # Validate max_files_per_commit server-side (#107)
+    if max_files_per_commit < 1 or max_files_per_commit > 100:
+        return P("Max files per commit must be between 1 and 100.", style="color:#f87171;")
     user.max_files_per_commit = max_files_per_commit
+
     user.self_hosted = self_hosted == "on"
     user.audit_logging = audit_logging == "on"
     if service_url.strip():
@@ -2029,11 +2112,19 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
         except ValueError as e:
             return P(f"Invalid service URL: {e}", style="color:#f87171;")
     user.service_url = service_url.strip()
-    user.admin_password = admin_password
 
-    # Save Mistral key if changed (not the masked placeholder)
-    if mistral_api_key and not mistral_api_key.startswith("••••"):
+    # Only update admin password if the user entered a new one (#99)
+    # The password is stored to proxy requests to the self-hosted service,
+    # so we keep the value but never echo it back in HTML.
+    if admin_password:
+        user.admin_password = admin_password
+
+    # Save Mistral key if changed (not the masked placeholder) (#105)
+    if mistral_api_key and not mistral_api_key.startswith("\u2022\u2022\u2022\u2022"):
         user.mistral_api_key = mistral_api_key.strip()
+    elif not mistral_api_key:
+        # Empty string means user wants to clear the key (#105)
+        user.mistral_api_key = ""
 
     users.update(user)
     return P("Preferences saved.", style="color:#4ade80;")

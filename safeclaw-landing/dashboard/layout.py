@@ -51,7 +51,11 @@ def DashboardLayout(title, *content, user=None, active="overview"):
         Divider(),
         DashboardNav(user, active),
         Div(
-            A(DivLAligned(UkIcon("log-out", height=16), Span("Sign out")), href="/logout"),
+            Form(
+                Button(DivLAligned(UkIcon("log-out", height=16), Span("Sign out")),
+                       type="submit", style="background:none;border:none;color:inherit;cursor:pointer;padding:0;"),
+                action="/logout", method="post",
+            ),
             cls="mt-6",
         ),
         cls="space-y-4",

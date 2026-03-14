@@ -22,7 +22,7 @@ def hash_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
 
 
-def KeyTable(user_id: int):
+def KeyTable(user_id: int, csrf_token=""):
     """Table of existing API keys for this user."""
     keys = api_keys(where="user_id = ?", where_args=[user_id], order_by="-id")
     if not keys:
@@ -32,11 +32,15 @@ def KeyTable(user_id: int):
     for k in keys:
         status = Label("Active", cls=LabelT.primary) if k.is_active else Label("Revoked", cls=LabelT.destructive)
         revoke_btn = (
-            Button("Revoke", cls=ButtonT.destructive + " " + ButtonT.xs,
-                   hx_post=f"/dashboard/keys/{k.id}/revoke",
-                   hx_target="#key-list", hx_swap="innerHTML",
-                   hx_confirm="Revoke this key? This cannot be undone.")
-            if k.is_active else Span("—", cls=TextPresets.muted_sm)
+            Form(
+                Input(type="hidden", name="_csrf_token", value=csrf_token),
+                Button("Revoke", cls=ButtonT.destructive + " " + ButtonT.xs, type="submit"),
+                hx_post=f"/dashboard/keys/{k.id}/revoke",
+                hx_target="#key-list", hx_swap="innerHTML",
+                hx_confirm="Revoke this key? This cannot be undone.",
+                style="display:inline;",
+            )
+            if k.is_active else Span("\u2014", cls=TextPresets.muted_sm)
         )
         rows.append(Tr(
             Td(k.label),
@@ -54,7 +58,7 @@ def KeyTable(user_id: int):
     )
 
 
-def CreateKeyForm():
+def CreateKeyForm(csrf_token=""):
     """Form to create a new API key."""
     return Card(
         H3("Create New Key"),
@@ -63,6 +67,7 @@ def CreateKeyForm():
           cls=TextPresets.muted_sm),
         Divider(),
         Form(
+            Input(type="hidden", name="_csrf_token", value=csrf_token),
             Div(
                 LabelInput("Label", id="label", placeholder="e.g. My dev key", required=True),
                 P("A name to help you identify this key later.",
@@ -107,17 +112,17 @@ def NewKeyModal(raw_key: str):
     )
 
 
-def KeysContent(user_id: int):
+def KeysContent(user_id: int, csrf_token=""):
     """Full keys page content."""
     return (
         Div(id="new-key-alert"),
-        CreateKeyForm(),
+        CreateKeyForm(csrf_token=csrf_token),
         Card(
             H3("Your API Keys"),
             P("These keys are used by the SafeClaw plugin running alongside your AI agent. "
               "Revoking a key immediately disconnects any agent using it.",
               cls=TextPresets.muted_sm),
             Divider(),
-            Div(KeyTable(user_id), id="key-list"),
+            Div(KeyTable(user_id, csrf_token=csrf_token), id="key-list"),
         ),
     )

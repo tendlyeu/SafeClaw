@@ -1,5 +1,6 @@
 """GitHub OAuth authentication for safeclaw-landing."""
 
+import hmac
 import os
 
 from fasthtml.common import *
@@ -30,8 +31,8 @@ def get_current_user(sess):
         return None
 
 
-def user_auth_before(req, sess):
-    """Beforeware: protect /dashboard/* routes."""
+async def user_auth_before(req, sess):
+    """Beforeware: protect /dashboard/* routes and verify CSRF on POST (#39)."""
     path = req.url.path
     if not path.startswith("/dashboard"):
         return  # Public routes — allow
@@ -39,3 +40,11 @@ def user_auth_before(req, sess):
     if not user:
         return RedirectResponse("/login", status_code=303)
     req.scope["user"] = user
+
+    # CSRF verification for all dashboard POST requests (#39)
+    if req.method == "POST":
+        form = await req.form()
+        token = form.get("_csrf_token", "")
+        expected = sess.get("_csrf_token", "")
+        if not expected or not token or not hmac.compare_digest(expected, token):
+            return Response("CSRF token missing or invalid.", status_code=403)

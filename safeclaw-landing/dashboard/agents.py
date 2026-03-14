@@ -1,26 +1,38 @@
 """Agent management page."""
 
+from urllib.parse import quote
+
 from fasthtml.common import *
 from monsterui.all import *
 
 
-def AgentTable(agents: list[dict]):
+def AgentTable(agents: list[dict], csrf_token=""):
     """Table of registered agents."""
     if not agents:
         return P("No agents registered on the connected service.", cls=TextPresets.muted_sm)
 
     rows = []
     for a in agents:
+        # URL-encode agentId to prevent path traversal / attribute injection (#93)
+        safe_id = quote(a["agentId"], safe="")
         status = Label("Killed", cls=LabelT.destructive) if a.get("killed") else Label("Active", cls=LabelT.primary)
         action_btn = (
-            Button("Revive", cls=ButtonT.primary + " " + ButtonT.xs,
-                   hx_post=f"/dashboard/agents/{a['agentId']}/revive",
-                   hx_target="#agent-list", hx_swap="innerHTML")
+            Form(
+                Input(type="hidden", name="_csrf_token", value=csrf_token),
+                Button("Revive", cls=ButtonT.primary + " " + ButtonT.xs, type="submit"),
+                hx_post=f"/dashboard/agents/{safe_id}/revive",
+                hx_target="#agent-list", hx_swap="innerHTML",
+                style="display:inline;",
+            )
             if a.get("killed") else
-            Button("Kill", cls=ButtonT.destructive + " " + ButtonT.xs,
-                   hx_post=f"/dashboard/agents/{a['agentId']}/kill",
-                   hx_target="#agent-list", hx_swap="innerHTML",
-                   hx_confirm="Kill this agent?")
+            Form(
+                Input(type="hidden", name="_csrf_token", value=csrf_token),
+                Button("Kill", cls=ButtonT.destructive + " " + ButtonT.xs, type="submit"),
+                hx_post=f"/dashboard/agents/{safe_id}/kill",
+                hx_target="#agent-list", hx_swap="innerHTML",
+                hx_confirm="Kill this agent?",
+                style="display:inline;",
+            )
         )
         rows.append(Tr(
             Td(Code(a["agentId"])),
@@ -66,7 +78,7 @@ def HostedAgentsContent():
     )
 
 
-def SelfHostedAgentsContent(service_url: str = ""):
+def SelfHostedAgentsContent(service_url: str = "", csrf_token=""):
     """Agents page content for self-hosted users."""
     return (
         Card(
@@ -75,6 +87,7 @@ def SelfHostedAgentsContent(service_url: str = ""):
               cls=TextPresets.muted_sm),
             Divider(),
             Form(
+                Input(type="hidden", name="_csrf_token", value=csrf_token),
                 Div(
                     LabelInput("Service URL", id="service_url",
                                value=service_url or "http://localhost:8420",
