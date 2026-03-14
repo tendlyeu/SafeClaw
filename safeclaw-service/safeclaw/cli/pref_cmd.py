@@ -1,5 +1,7 @@
 """CLI preference commands - manage user preferences."""
 
+import re as _re
+
 import typer
 from rich.console import Console
 
@@ -13,10 +15,17 @@ VALID_PREFS = {
     "confirmBeforeSend": ("true", "false"),
 }
 
+# Pattern for valid user IDs: alphanumeric, hyphens, underscores only
+_SAFE_USER_ID = _re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 @pref_app.command("show")
 def show(user_id: str = typer.Option("default", help="User ID")):
     """Show user preferences."""
+    if not _SAFE_USER_ID.match(user_id):
+        console.print("[red]Invalid user_id: must contain only alphanumeric, hyphens, underscores[/red]")
+        raise typer.Exit(1)
+
     from safeclaw.config import SafeClawConfig
     from safeclaw.engine.knowledge_graph import KnowledgeGraph
     from safeclaw.constraints.preference_checker import PreferenceChecker
@@ -45,6 +54,11 @@ def set_pref(
     """Set a user preference value."""
     from safeclaw.config import SafeClawConfig
 
+    # Validate user_id to prevent path traversal
+    if not _SAFE_USER_ID.match(user_id):
+        console.print("[red]Invalid user_id: must contain only alphanumeric, hyphens, underscores[/red]")
+        raise typer.Exit(1)
+
     if key not in VALID_PREFS:
         console.print(f"[red]Unknown preference: {key}[/red]")
         console.print(f"Valid preferences: {', '.join(VALID_PREFS.keys())}")
@@ -57,12 +71,19 @@ def set_pref(
         raise typer.Exit(1)
 
     config = SafeClawConfig()
-    users_dir = config.get_ontology_dir() / "users"
+    # Write to user data directory (~/.safeclaw/ontologies/users/), not the bundled package dir
+    users_dir = config.data_dir / "ontologies" / "users"
+    users_dir.mkdir(parents=True, exist_ok=True)
 
     # Find or create user file
     user_file = users_dir / f"user-{user_id}.ttl"
     if not user_file.exists():
+        # Look for default template in the bundled ontology directory
         default_file = users_dir / "user-default.ttl"
+        if not default_file.exists():
+            bundled_default = config.get_ontology_dir() / "users" / "user-default.ttl"
+            if bundled_default.exists():
+                default_file = bundled_default
         if default_file.exists():
             import shutil
             shutil.copy2(default_file, user_file)
@@ -70,6 +91,11 @@ def set_pref(
         else:
             console.print("No default preferences file found", err=True)
             raise typer.Exit(1)
+
+    # Double-check resolved path stays within users_dir (defense in depth)
+    if not user_file.resolve().is_relative_to(users_dir.resolve()):
+        console.print("[red]Invalid user_id: path escapes users directory[/red]")
+        raise typer.Exit(1)
 
     content = user_file.read_text()
 

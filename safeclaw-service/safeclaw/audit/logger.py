@@ -1,7 +1,10 @@
 """Audit logger - append-only JSONL writer with daily rotation."""
 
+import hashlib
 import logging
+import os
 import re
+import stat
 import threading
 from datetime import date
 from pathlib import Path
@@ -10,32 +13,75 @@ from safeclaw.audit.models import DecisionRecord
 
 logger = logging.getLogger("safeclaw.audit")
 
+# Permissions: owner read/write only (0o600 for files, 0o700 for dirs)
+_DIR_MODE = 0o700
+_FILE_MODE = 0o600
+
 
 class AuditLogger:
-    """Thread-safe, append-only JSONL audit logger."""
+    """Thread-safe, append-only JSONL audit logger with tamper detection."""
 
     def __init__(self, audit_dir: Path):
         self.audit_dir = audit_dir
         self._lock = threading.Lock()
+        self._prev_hash: str | None = None
 
     @staticmethod
     def _safe_id(session_id: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_-]", "_", session_id)
 
+    def _ensure_dir(self, dir_path: Path) -> None:
+        """Create directory with restricted permissions (owner-only)."""
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True, exist_ok=True)
+            # Set restrictive permissions on the directory and all parents up to audit_dir
+            try:
+                os.chmod(dir_path, _DIR_MODE)
+            except OSError:
+                pass
+        elif not stat.S_IMODE(dir_path.stat().st_mode) & ~_DIR_MODE == 0:
+            # Fix overly-permissive existing directory
+            try:
+                os.chmod(dir_path, _DIR_MODE)
+            except OSError:
+                pass
+
     def _get_session_file(self, session_id: str) -> Path:
         today = date.today().isoformat()
         day_dir = self.audit_dir / today
-        day_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_dir(self.audit_dir)
+        self._ensure_dir(day_dir)
         safe_id = self._safe_id(session_id)
         return day_dir / f"session-{safe_id}.jsonl"
 
-    def log(self, record: DecisionRecord) -> None:
-        filepath = self._get_session_file(record.session_id)
-        line = record.model_dump_json() + "\n"
+    @staticmethod
+    def _compute_hash(prev_hash: str | None, record_json: str) -> str:
+        """Compute a SHA-256 hash chain entry: H(prev_hash || record_json)."""
+        h = hashlib.sha256()
+        h.update((prev_hash or "").encode("utf-8"))
+        h.update(record_json.encode("utf-8"))
+        return h.hexdigest()
 
+    def log(self, record: DecisionRecord) -> None:
+        record_json = record.model_dump_json()
+
+        # Compute integrity hash chain
+        record_hash = self._compute_hash(self._prev_hash, record_json)
+        line = f'{{"_hash":"{record_hash}","_prev_hash":"{self._prev_hash or ""}",{record_json[1:]}\n'
+
+        filepath = self._get_session_file(record.session_id)
         with self._lock:
-            with open(filepath, "a", encoding="utf-8") as f:
-                f.write(line)
+            # Open file with restricted permissions (owner read/write only)
+            fd = os.open(
+                str(filepath),
+                os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+                _FILE_MODE,
+            )
+            try:
+                os.write(fd, line.encode("utf-8"))
+            finally:
+                os.close(fd)
+            self._prev_hash = record_hash
 
         log_msg = f"[{record.decision}] {record.action.tool_name} → {record.action.ontology_class}"
         if record.decision == "blocked":
