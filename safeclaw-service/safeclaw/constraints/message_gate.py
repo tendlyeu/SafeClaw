@@ -67,7 +67,7 @@ class MessageGate:
             PREFIX su: <{SU}>
             SELECT ?contact WHERE {{
                 ?user su:hasPreference ?pref .
-                ?pref su:neverContact ?contact .
+                ?pref su:neverContactList ?contact .
             }}
         """)
         for row in results:

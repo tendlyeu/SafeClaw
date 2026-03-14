@@ -106,18 +106,16 @@ sp:NoCredentialFiles a sp:Prohibition, sp:PathConstraint ;
 sp:NoForcePush a sp:Prohibition, sp:CommandConstraint ;
     sp:forbiddenCommandPattern "git push.*--force" ;
     sp:reason "Force push can destroy shared history" ;
-    sp:appliesTo sc:ForcePush ;
     rdfs:label "No force push" .
 
 sp:NoRootDelete a sp:Prohibition, sp:CommandConstraint ;
-    sp:forbiddenCommandPattern "rm\\s+.*(-r|-R|--recursive).*\\s+/" ;
+    sp:forbiddenCommandPattern "rm\\s+.*(-r|-R|--recursive).*\\s*/" ;
     sp:reason "Recursive deletion of root paths is prohibited" ;
     rdfs:label "No recursive root deletion" .
 
 sp:NoResetHard a sp:Prohibition, sp:CommandConstraint ;
     sp:forbiddenCommandPattern "git reset --hard" ;
     sp:reason "Hard reset can destroy uncommitted work" ;
-    sp:appliesTo sc:GitResetHard ;
     rdfs:label "No git reset --hard" .
 
 # --- Dependency Constraints ---

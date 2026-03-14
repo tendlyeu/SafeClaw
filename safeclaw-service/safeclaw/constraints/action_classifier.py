@@ -43,16 +43,25 @@ class ClassifiedAction:
 
 
 # Shell command patterns for subclass detection
+# Patterns use _CMD to match commands invoked with optional path prefix
+# (e.g. /usr/bin/rm) or command wrappers (command, env, exec).
+_CMD = r"(?:(?:/[\w./]*/|(?:command|env|exec)\s+)*)"
+
 SHELL_PATTERNS = [
-    (r"\brm\s+(-[rRf]+\s+|.*--force)", "DeleteFile", "CriticalRisk", False, "LocalOnly"),
-    (r"\brm\s+", "DeleteFile", "HighRisk", False, "LocalOnly"),
-    (r"\bgit\s+push\b.*--force", "ForcePush", "CriticalRisk", False, "SharedState"),
-    (r"\bgit\s+push\b", "GitPush", "HighRisk", False, "SharedState"),
-    (r"\bgit\s+commit\b", "GitCommit", "MediumRisk", True, "LocalOnly"),
-    (r"\bgit\s+reset\s+--hard", "GitResetHard", "CriticalRisk", False, "LocalOnly"),
-    (r"\bdocker\s+(rm|rmi|prune)", "DockerCleanup", "HighRisk", False, "LocalOnly"),
-    (r"\bcurl\b|\bwget\b", "NetworkRequest", "MediumRisk", True, "ExternalWorld"),
-    (r"\bnpm\s+publish\b", "PackagePublish", "CriticalRisk", False, "ExternalWorld"),
+    (_CMD + r"rm\s+(-[rRf]+\s+|.*--force)", "DeleteFile", "CriticalRisk", False, "LocalOnly"),
+    (_CMD + r"rm\s+", "DeleteFile", "HighRisk", False, "LocalOnly"),
+    (_CMD + r"git\s+push\b.*--force", "ForcePush", "CriticalRisk", False, "SharedState"),
+    (_CMD + r"git\s+push\b", "GitPush", "HighRisk", False, "SharedState"),
+    (_CMD + r"git\s+commit\b", "GitCommit", "MediumRisk", True, "LocalOnly"),
+    (_CMD + r"git\s+reset\s+--hard", "GitResetHard", "CriticalRisk", False, "LocalOnly"),
+    (_CMD + r"docker\s+(rm|rmi|prune)", "DockerCleanup", "HighRisk", False, "LocalOnly"),
+    (_CMD + r"(?:curl|wget)\b", "NetworkRequest", "MediumRisk", True, "ExternalWorld"),
+    (_CMD + r"npm\s+publish\b", "PackagePublish", "CriticalRisk", False, "ExternalWorld"),
+    # Test runner patterns (#27: RunTests must be producible for dependency checks)
+    (_CMD + r"(?:pytest|py\.test)\b", "RunTests", "LowRisk", True, "LocalOnly"),
+    (_CMD + r"python\s+(?:-m\s+)?(?:pytest|unittest)\b", "RunTests", "LowRisk", True, "LocalOnly"),
+    (_CMD + r"npm\s+(?:run\s+)?test\b", "RunTests", "LowRisk", True, "LocalOnly"),
+    (_CMD + r"(?:cargo|go|make|mvn|gradle)\s+test\b", "RunTests", "LowRisk", True, "LocalOnly"),
 ]
 
 # Default tool mappings
@@ -116,19 +125,34 @@ class ActionClassifier:
 
     @staticmethod
     def _split_chain(command: str) -> list[str]:
-        """Split command on chain operators (&&, ||, ;, |) respecting quotes."""
+        """Split command on chain operators (&&, ||, ;, |) respecting quotes.
+
+        Single-quoted strings are treated per POSIX: no escape sequences are
+        recognised inside them (unlike double-quoted strings where backslash
+        escaping is supported).
+        """
         parts: list[str] = []
         current: list[str] = []
         i = 0
         n = len(command)
         while i < n:
             ch = command[i]
-            # Skip over quoted strings
-            if ch in ('"', "'"):
-                quote = ch
+            # Skip over single-quoted strings (no escapes in bash single quotes)
+            if ch == "'":
                 current.append(ch)
                 i += 1
-                while i < n and command[i] != quote:
+                while i < n and command[i] != "'":
+                    current.append(command[i])
+                    i += 1
+                if i < n:
+                    current.append(command[i])  # closing quote
+                    i += 1
+                continue
+            # Skip over double-quoted strings (backslash escapes supported)
+            if ch == '"':
+                current.append(ch)
+                i += 1
+                while i < n and command[i] != '"':
                     if command[i] == "\\" and i + 1 < n:
                         current.append(command[i])
                         i += 1
@@ -160,7 +184,7 @@ class ActionClassifier:
         return [p.strip() for p in parts if p.strip()]
 
     def _classify_shell(self, params: dict) -> ClassifiedAction:
-        command = params.get("command", "")
+        command = params.get("command") or ""
 
         # Split on command chaining operators, respecting quoted strings
         sub_commands = self._split_chain(command)
@@ -171,6 +195,10 @@ class ActionClassifier:
             # Strip quoted strings from each sub-command before pattern matching
             # so that content inside quotes does not trigger false positives
             unquoted = re.sub(r'''(["'])(?:\\.|(?!\1).)*\1''', "", sub_cmd)
+            # Expand subshell / process substitutions so their contents are
+            # also visible to pattern matching  (#23)
+            unquoted = re.sub(r"\$\(([^)]*)\)", r" \1 ", unquoted)
+            unquoted = re.sub(r"`([^`]*)`", r" \1 ", unquoted)
             matched_cls: str | None = None
             for pattern, cls, risk, reversible, scope in SHELL_PATTERNS:
                 if re.search(pattern, unquoted, re.IGNORECASE):
