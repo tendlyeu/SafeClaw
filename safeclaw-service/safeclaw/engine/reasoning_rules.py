@@ -27,9 +27,7 @@ class DerivedConstraintChecker:
     but are implemented here in Python with RDFLib/pySHACL.
     """
 
-    def __init__(
-        self, knowledge_graph: KnowledgeGraph, hierarchy: ClassHierarchy | None = None
-    ):
+    def __init__(self, knowledge_graph: KnowledgeGraph, hierarchy: ClassHierarchy | None = None):
         self.kg = knowledge_graph
         self._hierarchy = hierarchy
 
@@ -46,9 +44,7 @@ class DerivedConstraintChecker:
         # Rule 1: Critical + Irreversible → requires confirmation
         if self._check_critical_irreversible(action):
             triggered_rules.append("CriticalIrreversibleRule")
-            reasons.append(
-                f"Action '{action.ontology_class}' is CriticalRisk and irreversible"
-            )
+            reasons.append(f"Action '{action.ontology_class}' is CriticalRisk and irreversible")
 
         # Rule 2: SharedState + cautious/supervised user → requires confirmation
         if self._check_shared_state_cautious(action, user_prefs):
@@ -60,9 +56,7 @@ class DerivedConstraintChecker:
         # Rule 3: Cumulative risk escalation
         if self._check_cumulative_risk(session_history):
             triggered_rules.append("CumulativeRiskRule")
-            reasons.append(
-                "Session risk threshold exceeded (3+ MediumRisk or 2+ HighRisk actions)"
-            )
+            reasons.append("Session risk threshold exceeded (3+ MediumRisk or 2+ HighRisk actions)")
 
         if triggered_rules:
             return DerivedCheckResult(
@@ -81,9 +75,9 @@ class DerivedConstraintChecker:
         self, action: ClassifiedAction, user_prefs: UserPreferences
     ) -> bool:
         """Rule 2: SharedState scope + cautious/supervised autonomy → requires confirmation."""
-        return (
-            action.affects_scope == "SharedState"
-            and user_prefs.autonomy_level in ("cautious", "supervised")
+        return action.affects_scope == "SharedState" and user_prefs.autonomy_level in (
+            "cautious",
+            "supervised",
         )
 
     def _check_cumulative_risk(self, session_history: list[str]) -> bool:
@@ -92,11 +86,11 @@ class DerivedConstraintChecker:
         high_count = 0
 
         for entry in session_history:
-            if "MediumRisk" in entry:
+            if entry.startswith("MediumRisk:"):
                 medium_count += 1
-            elif "HighRisk" in entry:
+            elif entry.startswith("HighRisk:"):
                 high_count += 1
-            elif "CriticalRisk" in entry:
+            elif entry.startswith("CriticalRisk:"):
                 high_count += 1
 
         return medium_count >= 3 or high_count >= 2

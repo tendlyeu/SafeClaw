@@ -17,6 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
       - run: pip install -e ".[dev]"
       - run: python -m pytest tests/ -v
 
@@ -30,7 +31,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install ruff
+          cache: 'pip'
+      - run: pip install ruff==0.8.6
       - run: ruff check safeclaw/ tests/
       - run: ruff format --check safeclaw/ tests/
 
@@ -44,5 +46,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: openclaw-safeclaw-plugin/package-lock.json
       - run: npm install
       - run: npm run typecheck

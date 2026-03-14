@@ -8,7 +8,7 @@ RUN useradd -m -r safeclaw && \
     chown -R safeclaw:safeclaw /home/safeclaw/.safeclaw
 
 COPY pyproject.toml .
-COPY requirements.lock ./requirements.lock
+COPY requirement*.lock ./
 COPY safeclaw/ safeclaw/
 RUN if [ -f requirements.lock ]; then \
         pip install --no-cache-dir -r requirements.lock && pip install --no-cache-dir --no-deps .; \

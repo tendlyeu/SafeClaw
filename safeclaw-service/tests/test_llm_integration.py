@@ -102,8 +102,9 @@ async def test_security_review_fires_after_allow(tmp_path):
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is False
 
-    # Give background tasks a moment to fire
-    await asyncio.sleep(0.1)
+    # Give background tasks a moment to fire. Use a generous delay to avoid
+    # flakiness on slow CI runners where 0.1s may not be enough.
+    await asyncio.sleep(0.5)
 
     engine.security_reviewer.review.assert_called_once()
 

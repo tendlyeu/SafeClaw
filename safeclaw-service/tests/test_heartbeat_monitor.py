@@ -39,12 +39,14 @@ def test_config_drift_detection():
     assert "config" in event.title.lower()
 
 
-def test_record_updates_timestamp():
+def test_record_updates_timestamp(monkeypatch):
     bus = MagicMock()
     monitor = HeartbeatMonitor(bus)
+    fake_time = [1000.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_time[0])
     monitor.record("agent-1", "hash-abc")
     t1 = monitor._agents["agent-1"]["last_seen"]
-    time.sleep(0.01)
+    fake_time[0] = 1001.0
     monitor.record("agent-1", "hash-abc")
     t2 = monitor._agents["agent-1"]["last_seen"]
     assert t2 > t1

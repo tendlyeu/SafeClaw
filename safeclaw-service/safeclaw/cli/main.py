@@ -1,5 +1,6 @@
 """SafeClaw CLI - command line interface."""
 
+from enum import Enum
 from pathlib import Path
 
 import typer
@@ -23,13 +24,20 @@ app.add_typer(pref_app, name="pref")
 app.add_typer(status_app, name="status")
 
 
+class OperatingMode(str, Enum):
+    """Valid operating modes for SafeClaw."""
+
+    embedded = "embedded"
+    remote = "remote"
+
+
 @app.command()
 def init(
     user_id: str = typer.Option("", help="User ID for the config"),
-    mode: str = typer.Option("embedded", help="Operating mode: embedded, remote, or hybrid"),
-    service_url: str = typer.Option(
-        "http://localhost:8420/api/v1", help="Remote service URL"
+    mode: OperatingMode = typer.Option(
+        OperatingMode.embedded, help="Operating mode: embedded or remote"
     ),
+    service_url: str = typer.Option("http://localhost:8420/api/v1", help="Remote service URL"),
 ):
     """Generate default ~/.safeclaw/config.json."""
     from safeclaw.config_template import generate_config, write_config
@@ -40,7 +48,7 @@ def init(
         typer.echo("Delete it first if you want to regenerate.")
         raise typer.Exit(code=1)
 
-    config = generate_config(user_id=user_id, mode=mode, service_url=service_url)
+    config = generate_config(user_id=user_id, mode=mode.value, service_url=service_url)
     write_config(config_path, config)
     typer.echo(f"SafeClaw config written to {config_path}")
 

@@ -43,6 +43,7 @@ class HeartbeatMonitor:
                 "last_seen": now,
                 "config_hash": config_hash,
                 "first_hash": config_hash,
+                "last_known_hash": config_hash,
                 "stale_notified": False,
             }
             # LRU eviction: pop oldest entry when over capacity
@@ -76,11 +77,17 @@ class HeartbeatMonitor:
         return stale
 
     def check_config_drift(self, agent_id: str, current_hash: str) -> bool:
-        """Check if an agent's config hash has changed from its first-seen value."""
+        """Check if an agent's config hash has changed since last seen.
+
+        Uses transition detection: fires a drift event only when the hash
+        changes from ``last_known_hash``, then updates ``last_known_hash``
+        so subsequent heartbeats with the same (new) hash do not re-fire.
+        """
         info = self._agents.get(agent_id)
         if info is None:
             return False
-        if info["first_hash"] != current_hash:
+        last_known = info.get("last_known_hash", info["first_hash"])
+        if last_known != current_hash:
             self._event_bus.publish(
                 SafeClawEvent(
                     event_type="config_drift",
@@ -90,6 +97,8 @@ class HeartbeatMonitor:
                     "Possible tampering detected.",
                 )
             )
+            # Update last_known_hash so we only fire once per transition
+            info["last_known_hash"] = current_hash
             return True
         return False
 

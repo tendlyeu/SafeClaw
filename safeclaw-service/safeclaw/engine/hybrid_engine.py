@@ -1,7 +1,14 @@
-"""Hybrid engine - routes between local cache and remote SafeClaw service."""
+"""Hybrid engine - routes between local cache and remote SafeClaw service.
+
+.. deprecated::
+    HybridEngine is deprecated and non-functional. Use FullEngine instead.
+    This class is never instantiated by the application and exists only for
+    backwards compatibility.
+"""
 
 import logging
 import time
+import warnings
 from dataclasses import dataclass
 
 import httpx
@@ -60,6 +67,10 @@ class CircuitBreakerState:
 class HybridEngine(SafeClawEngine):
     """Routes constraint checks between local cache and remote SafeClaw service.
 
+    .. deprecated::
+        HybridEngine is deprecated and non-functional. Use FullEngine instead.
+        This class is never instantiated by the application.
+
     When the remote service is available, it handles complex checks.
     When unavailable (circuit breaker open), falls back to local-only mode.
     """
@@ -72,6 +83,11 @@ class HybridEngine(SafeClawEngine):
         timeout: float = 0.5,
         fail_closed: bool = True,
     ):
+        warnings.warn(
+            "HybridEngine is deprecated and non-functional. Use FullEngine.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.remote_url = remote_url.rstrip("/")
         self.api_key = api_key
         self.local_engine = local_engine

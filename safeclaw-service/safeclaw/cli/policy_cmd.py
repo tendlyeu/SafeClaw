@@ -156,6 +156,81 @@ def remove_policy(
     )
 
 
+# Predicates that LLM-generated policies are allowed to use (policy data only).
+# This blocks permission-granting predicates (allowsAction, deniesAction, etc.)
+# and class hierarchy modifications (subClassOf, equivalentClass, etc.).
+_ALLOWED_POLICY_PREDICATES = {
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+    "http://www.w3.org/2000/01/rdf-schema#label",
+    "http://www.w3.org/2000/01/rdf-schema#comment",
+    "http://safeclaw.uku.ai/ontology/policy#reason",
+    "http://safeclaw.uku.ai/ontology/policy#appliesTo",
+    "http://safeclaw.uku.ai/ontology/policy#forbiddenPathPattern",
+    "http://safeclaw.uku.ai/ontology/policy#forbiddenCommandPattern",
+    "http://safeclaw.uku.ai/ontology/policy#notBefore",
+    "http://safeclaw.uku.ai/ontology/policy#notAfter",
+    "http://safeclaw.uku.ai/ontology/policy#requiresBefore",
+}
+
+# Predicates that must never appear in LLM-generated output
+_DANGEROUS_PREDICATES = {
+    "http://safeclaw.uku.ai/ontology/policy#allowsAction",
+    "http://safeclaw.uku.ai/ontology/policy#deniesAction",
+    "http://safeclaw.uku.ai/ontology/policy#deniesWritePath",
+    "http://safeclaw.uku.ai/ontology/policy#autonomyLevel",
+    "http://safeclaw.uku.ai/ontology/policy#enforcementMode",
+    "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+    "http://www.w3.org/2002/07/owl#equivalentClass",
+    "http://www.w3.org/2002/07/owl#imports",
+}
+
+
+def _validate_turtle_semantics(turtle: str) -> list[str]:
+    """Validate LLM-generated Turtle for semantic safety before writing to ontology.
+
+    Returns a list of error strings (empty if valid).
+    """
+    from rdflib import Graph
+
+    prefixes = (
+        "@prefix sp: <http://safeclaw.uku.ai/ontology/policy#> .\n"
+        "@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n"
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
+    )
+    errors = []
+
+    # Parse with RDFLib to inspect triples
+    g = Graph()
+    try:
+        g.parse(data=prefixes + turtle, format="turtle")
+    except Exception as e:
+        return [f"Turtle parse error during semantic check: {e}"]
+
+    for _s, p, _o in g:
+        pred_str = str(p)
+
+        # Explicit block on dangerous predicates
+        if pred_str in _DANGEROUS_PREDICATES:
+            short = pred_str.split("#")[-1] if "#" in pred_str else pred_str.split("/")[-1]
+            errors.append(
+                f"Forbidden predicate '{short}': "
+                "LLM-generated policies cannot modify roles or class hierarchies"
+            )
+
+        # Allowlist check: only known policy predicates are permitted
+        if pred_str not in _ALLOWED_POLICY_PREDICATES:
+            # Skip well-known RDF/OWL structural predicates that aren't in either list
+            # (e.g., rdf:type is in allowed, but we may see others from parsing)
+            if pred_str not in _DANGEROUS_PREDICATES:
+                short = pred_str.split("#")[-1] if "#" in pred_str else pred_str.split("/")[-1]
+                errors.append(f"Unexpected predicate '{short}': not in allowed policy predicates")
+
+    return errors
+
+
 @policy_app.command("add-nl")
 def add_nl(
     description: str = typer.Argument(help="Natural language policy description"),
@@ -193,6 +268,14 @@ def add_nl(
     console.print(f"\n[dim]{result.turtle}[/dim]\n")
 
     if typer.confirm("Apply this policy?"):
+        # Semantic validation: reject LLM output containing dangerous predicates
+        semantic_errors = _validate_turtle_semantics(result.turtle)
+        if semantic_errors:
+            console.print("[red]Semantic validation failed:[/red]")
+            for err in semantic_errors:
+                console.print(f"  - {err}")
+            raise typer.Exit(1)
+
         policy_file = config.get_ontology_dir() / "safeclaw-policy.ttl"
         with open(policy_file, "a") as f:
             f.write(f"\n# Added via NL compiler: {description}\n{result.turtle}\n")

@@ -1,7 +1,14 @@
-"""Cached engine for hybrid local mode - lightweight, no full reasoner."""
+"""Cached engine for hybrid local mode - lightweight, no full reasoner.
+
+.. deprecated::
+    CachedEngine is deprecated and non-functional. Use FullEngine instead.
+    This class always returns ``Decision(block=False)`` for all checks and
+    provides no real governance. It exists only for backwards compatibility.
+"""
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 from safeclaw.engine.core import (
@@ -22,8 +29,10 @@ if TYPE_CHECKING:
 class CachedEngine(SafeClawEngine):
     """Lightweight engine for hybrid local cache mode.
 
-    Uses cached SHACL shapes and preferences for fast pattern-match checks.
-    Falls through to remote service for complex reasoning.
+    .. deprecated::
+        CachedEngine is deprecated and non-functional. Use FullEngine instead.
+        This class always returns ``Decision(block=False)`` for all checks
+        and provides no real governance.
     """
 
     def __init__(
@@ -32,6 +41,11 @@ class CachedEngine(SafeClawEngine):
         cached_preferences: dict | None = None,
         agent_registry: AgentRegistry | None = None,
     ):
+        warnings.warn(
+            "CachedEngine is deprecated and non-functional. Use FullEngine.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.shapes = cached_shapes or {}
         self.preferences = cached_preferences or {}
         self._agent_registry = agent_registry

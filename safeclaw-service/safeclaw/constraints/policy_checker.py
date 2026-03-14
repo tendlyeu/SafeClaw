@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from safeclaw.constants import PATH_PARAM_KEYS
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SC, SP
 
@@ -25,27 +26,19 @@ class PolicyCheckResult:
     all_violations: list[dict] = field(default_factory=list)
 
 
-_PATH_PARAM_KEYS = (
-    "file_path", "path", "filepath", "filename", "dest", "destination",
-    "target", "source", "src", "dir", "directory", "folder",
-)
-
-
 class PolicyChecker:
     """Checks actions against policy prohibitions and obligations."""
 
     @staticmethod
     def _extract_resource_path(params: dict) -> str:
         """Extract resource path from params, checking common key variants."""
-        for key in _PATH_PARAM_KEYS:
+        for key in PATH_PARAM_KEYS:
             val = params.get(key, "")
             if val and isinstance(val, str):
                 return val
         return ""
 
-    def __init__(
-        self, knowledge_graph: KnowledgeGraph, hierarchy: ClassHierarchy | None = None
-    ):
+    def __init__(self, knowledge_graph: KnowledgeGraph, hierarchy: ClassHierarchy | None = None):
         self.kg = knowledge_graph
         self._hierarchy = hierarchy
         self._forbidden_paths: list[tuple[str, str, str]] = []
@@ -65,8 +58,7 @@ class PolicyChecker:
             }}
         """)
         self._forbidden_paths = [
-            (str(r["policy"]), str(r["pattern"]).strip("/"), str(r["reason"]))
-            for r in path_results
+            (str(r["policy"]), str(r["pattern"]).strip("/"), str(r["reason"])) for r in path_results
         ]
 
         # Command constraints
@@ -96,9 +88,7 @@ class PolicyChecker:
             target_uri = str(r["target"])
             # Extract local name from URI
             target_class = target_uri.rsplit("#", 1)[-1] if "#" in target_uri else target_uri
-            self._class_prohibitions.append(
-                (str(r["policy"]), target_class, str(r["reason"]))
-            )
+            self._class_prohibitions.append((str(r["policy"]), target_class, str(r["reason"])))
 
     def _safe_match(self, pattern: str, text: str) -> bool:
         """Safely match a regex pattern, catching malformed patterns."""
@@ -118,22 +108,26 @@ class PolicyChecker:
             normalized_path = file_path.strip("/")
             for policy_uri, pattern, reason in self._forbidden_paths:
                 if self._safe_match(pattern, normalized_path):
-                    all_violations.append({
-                        "policy_uri": policy_uri,
-                        "policy_type": "Prohibition",
-                        "reason": reason,
-                    })
+                    all_violations.append(
+                        {
+                            "policy_uri": policy_uri,
+                            "policy_type": "Prohibition",
+                            "reason": reason,
+                        }
+                    )
 
         # Check command constraints
         command = action.params.get("command", "")
         if command:
             for policy_uri, pattern, reason in self._forbidden_commands:
                 if self._safe_match(pattern, command):
-                    all_violations.append({
-                        "policy_uri": policy_uri,
-                        "policy_type": "Prohibition",
-                        "reason": reason,
-                    })
+                    all_violations.append(
+                        {
+                            "policy_uri": policy_uri,
+                            "policy_type": "Prohibition",
+                            "reason": reason,
+                        }
+                    )
 
         # Check class-level prohibitions (hierarchy-aware)
         if self._class_prohibitions:
@@ -144,11 +138,13 @@ class PolicyChecker:
             )
             for policy_uri, target_class, reason in self._class_prohibitions:
                 if target_class in action_classes:
-                    all_violations.append({
-                        "policy_uri": policy_uri,
-                        "policy_type": "Prohibition",
-                        "reason": reason,
-                    })
+                    all_violations.append(
+                        {
+                            "policy_uri": policy_uri,
+                            "policy_type": "Prohibition",
+                            "reason": reason,
+                        }
+                    )
 
         if all_violations:
             first = all_violations[0]

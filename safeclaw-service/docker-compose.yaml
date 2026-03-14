@@ -3,12 +3,19 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8420:8420"
+      - "127.0.0.1:8420:8420"
     volumes:
       - safeclaw-data:/home/safeclaw/.safeclaw
     environment:
       - SAFECLAW_LOG_LEVEL=INFO
       - SAFECLAW_ADMIN_PASSWORD=${SAFECLAW_ADMIN_PASSWORD:?Set SAFECLAW_ADMIN_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   safeclaw-data:

@@ -1,12 +1,13 @@
 """Audit logger - append-only JSONL writer with daily rotation."""
 
 import hashlib
+import json
 import logging
 import os
 import re
 import stat
 import threading
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from safeclaw.audit.models import DecisionRecord
@@ -17,14 +18,19 @@ logger = logging.getLogger("safeclaw.audit")
 _DIR_MODE = 0o700
 _FILE_MODE = 0o600
 
+# Default retention: 90 days
+DEFAULT_RETENTION_DAYS = 90
+
 
 class AuditLogger:
     """Thread-safe, append-only JSONL audit logger with tamper detection."""
 
-    def __init__(self, audit_dir: Path):
+    def __init__(self, audit_dir: Path, retention_days: int = DEFAULT_RETENTION_DAYS):
         self.audit_dir = audit_dir
+        self.retention_days = retention_days
         self._lock = threading.Lock()
-        self._prev_hash: str | None = None
+        self._prev_hash: str | None = self._load_last_hash()
+        self._rotate_logs()
 
     @staticmethod
     def _safe_id(session_id: str) -> str:
@@ -45,6 +51,89 @@ class AuditLogger:
                 os.chmod(dir_path, _DIR_MODE)
             except OSError:
                 pass
+
+    def _load_last_hash(self) -> str | None:
+        """Read the last hash from the most recent audit log file.
+
+        This preserves the hash chain across service restarts by scanning
+        day directories in reverse chronological order and reading the last
+        line of the first session file found.
+        """
+        if not self.audit_dir.exists():
+            return None
+        try:
+            for day_dir in sorted(self.audit_dir.iterdir(), reverse=True):
+                if not day_dir.is_dir():
+                    continue
+                try:
+                    date.fromisoformat(day_dir.name)
+                except ValueError:
+                    continue
+                # Find the most recently modified session file in this day
+                session_files = sorted(
+                    day_dir.glob("session-*.jsonl"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                for session_file in session_files:
+                    last_line = self._read_last_line(session_file)
+                    if last_line:
+                        try:
+                            entry = json.loads(last_line)
+                            if "_hash" in entry:
+                                return entry["_hash"]
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+        except OSError as e:
+            logger.warning(f"Could not load last audit hash: {e}")
+        return None
+
+    @staticmethod
+    def _read_last_line(filepath: Path) -> str | None:
+        """Read the last non-empty line from a file."""
+        try:
+            with open(filepath, "rb") as f:
+                # Seek to end and walk backwards to find last newline
+                f.seek(0, 2)
+                size = f.tell()
+                if size == 0:
+                    return None
+                # Read up to the last 8KB (more than enough for one JSONL line)
+                read_size = min(size, 8192)
+                f.seek(-read_size, 2)
+                lines = f.read().decode("utf-8").strip().split("\n")
+                for line in reversed(lines):
+                    stripped = line.strip()
+                    if stripped:
+                        return stripped
+        except OSError:
+            pass
+        return None
+
+    def _rotate_logs(self) -> None:
+        """Delete audit log directories older than retention_days."""
+        if not self.audit_dir.exists():
+            return
+        cutoff = date.today() - timedelta(days=self.retention_days)
+        try:
+            for day_dir in list(self.audit_dir.iterdir()):
+                if not day_dir.is_dir():
+                    continue
+                try:
+                    dir_date = date.fromisoformat(day_dir.name)
+                except ValueError:
+                    continue
+                if dir_date < cutoff:
+                    # Remove all files in the directory, then the directory itself
+                    try:
+                        for f in day_dir.iterdir():
+                            f.unlink()
+                        day_dir.rmdir()
+                        logger.info(f"Rotated old audit log directory: {day_dir.name}")
+                    except OSError as e:
+                        logger.warning(f"Failed to rotate audit directory {day_dir.name}: {e}")
+        except OSError as e:
+            logger.warning(f"Error during audit log rotation: {e}")
 
     def _get_session_file(self, session_id: str) -> Path:
         today = date.today().isoformat()

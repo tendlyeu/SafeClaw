@@ -95,6 +95,9 @@ class DecisionResponse(BaseModel):
     block: bool
     reason: str = ""
     auditId: str = ""
+    confirmationRequired: bool = False
+    constraintStep: str = ""
+    riskLevel: str = ""
 
 
 class ContextResponse(BaseModel):

@@ -7,6 +7,7 @@ import time
 from collections import OrderedDict
 
 from safeclaw.audit.logger import AuditLogger
+from safeclaw.constants import PATH_PARAM_KEYS
 from safeclaw.audit.models import (
     ActionDetail,
     ConstraintCheck,
@@ -46,12 +47,24 @@ from safeclaw.engine.shacl_validator import SHACLValidator
 from safeclaw.engine.heartbeat_monitor import HeartbeatMonitor
 from safeclaw.engine.temp_permissions import TempPermissionManager
 
+# Pipeline step constants — used in Decision.constraint_step and audit records
+# to provide structured, machine-readable identification of which pipeline step
+# produced a given decision.
+STEP_AGENT_GOVERNANCE = "agent_governance"
+STEP_ACTION_CLASSIFICATION = "action_classification"
+STEP_ROLE_CHECK = "role_check"
+STEP_SHACL_VALIDATION = "shacl_validation"
+STEP_POLICY_CHECK = "policy_check"
+STEP_PREFERENCE_CHECK = "preference_check"
+STEP_DEPENDENCY_CHECK = "dependency_check"
+STEP_TEMPORAL_CHECK = "temporal_check"
+STEP_RATE_LIMIT_CHECK = "rate_limit_check"
+STEP_DERIVED_RULES = "derived_rules"
+STEP_HIERARCHY_RATE_LIMIT = "hierarchy_rate_limit"
+
 logger = logging.getLogger("safeclaw.engine")
 
-_PATH_PARAM_KEYS = (
-    "file_path", "path", "filepath", "filename", "dest", "destination",
-    "target", "source", "src", "dir", "directory", "folder",
-)
+_PATH_PARAM_KEYS = PATH_PARAM_KEYS  # backward compat alias
 
 
 class FullEngine(SafeClawEngine):
@@ -68,12 +81,30 @@ class FullEngine(SafeClawEngine):
         return paths
 
     def __init__(self, config: SafeClawConfig, api_key_manager=None):
+        """Initialize the full SafeClaw engine.
+
+        WARNING: All governance state (session tracking, rate limiter counters,
+        agent registry, delegation history, temp permissions, per-session locks)
+        is held in-memory only. A process restart loses all accumulated state.
+        This means:
+        - Rate limits reset, allowing previously rate-limited agents to retry.
+        - Session-scoped dependency checks (e.g., "tests must pass before push")
+          lose their history of recorded actions.
+        - Temporary permission grants are lost.
+        - Kill-switched agents become un-killed.
+        - Audit logs on disk survive, but active session context does not.
+
+        For production deployments, consider persisting critical state (agent
+        registry, rate limiter windows, session tracker) to an external store.
+        """
         self.config = config
         self.api_key_manager = api_key_manager
         self.event_bus = EventBus()
         self._bg_tasks: set[asyncio.Task] = set()
         # BUG-001/075/076: Lock to prevent concurrent reloads
         self._reload_lock = asyncio.Lock()
+        # Meta-lock to synchronize creation of per-session locks
+        self._meta_lock = asyncio.Lock()
         self._init_components(config)
 
     def _init_components(self, config: SafeClawConfig) -> None:
@@ -303,16 +334,18 @@ class FullEngine(SafeClawEngine):
                 else DelegationDetector.make_signature(event.params)
             )
             self.delegation_detector.record_block(
-                event.session_id, event.agent_id, event.tool_name, sig
+                event.session_id, event.agent_id, event.tool_name, sig,
+                params=event.params,
             )
 
-    def _get_session_lock(self, session_id: str) -> asyncio.Lock:
-        if session_id not in self._session_locks:
-            self._session_locks[session_id] = asyncio.Lock()
-            self._evict_unlocked_session_locks()
-        else:
-            self._session_locks.move_to_end(session_id)
-        return self._session_locks[session_id]
+    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        async with self._meta_lock:
+            if session_id not in self._session_locks:
+                self._session_locks[session_id] = asyncio.Lock()
+                self._evict_unlocked_session_locks()
+            else:
+                self._session_locks.move_to_end(session_id)
+            return self._session_locks[session_id]
 
     def _evict_unlocked_session_locks(self) -> None:
         """Evict oldest unlocked session locks when over capacity."""
@@ -329,7 +362,7 @@ class FullEngine(SafeClawEngine):
 
     async def evaluate_tool_call(self, event: ToolCallEvent) -> Decision:
         """Run the full constraint checking pipeline."""
-        lock = self._get_session_lock(event.session_id)
+        lock = await self._get_session_lock(event.session_id)
         async with lock:
             return await self._evaluate_tool_call_locked(event)
 
@@ -349,21 +382,30 @@ class FullEngine(SafeClawEngine):
                 if not event.agent_token or not self.agent_registry.verify_token(
                     event.agent_id, event.agent_token
                 ):
-                    return Decision(block=True, reason="[SafeClaw] Invalid agent token")
+                    return Decision(
+                        block=True,
+                        reason="[SafeClaw] Invalid agent token",
+                        constraint_step=STEP_AGENT_GOVERNANCE,
+                    )
 
             # 0b. Check kill switch
             if self.agent_registry.is_killed(event.agent_id):
                 return Decision(
-                    block=True, reason=f"[SafeClaw] Agent {event.agent_id} has been killed"
+                    block=True,
+                    reason=f"[SafeClaw] Agent {event.agent_id} has been killed",
+                    constraint_step=STEP_AGENT_GOVERNANCE,
                 )
 
             # 0c. Check delegation bypass
             delegation = self.delegation_detector.check_delegation(
-                event.session_id, event.agent_id, event.tool_name, params_sig
+                event.session_id, event.agent_id, event.tool_name, params_sig,
+                params=event.params,
             )
             if delegation.is_delegation and self.delegation_detector.mode == "strict":
                 return Decision(
-                    block=True, reason=f"[SafeClaw] Delegation bypass detected: {delegation.reason}"
+                    block=True,
+                    reason=f"[SafeClaw] Delegation bypass detected: {delegation.reason}",
+                    constraint_step=STEP_AGENT_GOVERNANCE,
                 )
 
         # 1. Classify action
@@ -390,13 +432,17 @@ class FullEngine(SafeClawEngine):
                                 action.ontology_class,
                             )
                         else:
-                            decision = Decision(block=True, reason=reason)
+                            decision = Decision(
+                                block=True, reason=reason,
+                                constraint_step=STEP_ROLE_CHECK,
+                            )
                             self.delegation_detector.record_block(
-                                event.session_id, event.agent_id, event.tool_name, params_sig
+                                event.session_id, event.agent_id, event.tool_name, params_sig,
+                                params=event.params,
                             )
                             self._record_violation_and_log(
                                 event, action, decision, checks, prefs_applied, start,
-                                constraint_step="role_check",
+                                constraint_step=STEP_ROLE_CHECK,
                             )
                             return decision
 
@@ -414,13 +460,17 @@ class FullEngine(SafeClawEngine):
                                     resource_path,
                                 )
                             else:
-                                decision = Decision(block=True, reason=reason)
+                                decision = Decision(
+                                    block=True, reason=reason,
+                                    constraint_step=STEP_ROLE_CHECK,
+                                )
                                 self.delegation_detector.record_block(
-                                    event.session_id, event.agent_id, event.tool_name, params_sig
+                                    event.session_id, event.agent_id, event.tool_name, params_sig,
+                                    params=event.params,
                                 )
                                 self._record_violation_and_log(
                                     event, action, decision, checks, prefs_applied, start,
-                                    constraint_step="role_check",
+                                    constraint_step=STEP_ROLE_CHECK,
                                 )
                                 return decision
 
@@ -436,11 +486,14 @@ class FullEngine(SafeClawEngine):
                     reason=shacl_result.first_violation_message,
                 )
             )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                constraint_step=STEP_SHACL_VALIDATION,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="shacl_validation",
+                constraint_step=STEP_SHACL_VALIDATION,
             )
             return decision
 
@@ -465,11 +518,14 @@ class FullEngine(SafeClawEngine):
                     reason=policy_result.reason,
                 )
             )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                constraint_step=STEP_POLICY_CHECK,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="policy_check",
+                constraint_step=STEP_POLICY_CHECK,
             )
             return decision
 
@@ -483,10 +539,14 @@ class FullEngine(SafeClawEngine):
         )
 
         # 4. Preference check
+        # Preference violations that mention "requires confirmation" are
+        # confirmation requests, not hard policy blocks. The caller can
+        # re-submit after the user confirms.
         user_prefs = self.preference_checker.get_preferences(event.user_id)
         pref_result = self.preference_checker.check(action, user_prefs)
         if pref_result.violated:
             reason = f"[SafeClaw] {pref_result.reason}"
+            is_confirmation = "requires confirmation" in pref_result.reason.lower()
             prefs_applied.append(
                 PreferenceApplied(
                     preference_uri=pref_result.preference_uri,
@@ -494,11 +554,15 @@ class FullEngine(SafeClawEngine):
                     effect=pref_result.reason,
                 )
             )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                requires_confirmation=is_confirmation,
+                constraint_step=STEP_PREFERENCE_CHECK,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="preference_check",
+                constraint_step=STEP_PREFERENCE_CHECK,
             )
             return decision
 
@@ -514,11 +578,14 @@ class FullEngine(SafeClawEngine):
                     reason=dep_result.reason,
                 )
             )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                constraint_step=STEP_DEPENDENCY_CHECK,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="dependency_check",
+                constraint_step=STEP_DEPENDENCY_CHECK,
             )
             return decision
 
@@ -534,11 +601,14 @@ class FullEngine(SafeClawEngine):
                     reason=temporal_result.reason,
                 )
             )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                constraint_step=STEP_TEMPORAL_CHECK,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="temporal_check",
+                constraint_step=STEP_TEMPORAL_CHECK,
             )
             return decision
 
@@ -554,11 +624,14 @@ class FullEngine(SafeClawEngine):
                     reason=rate_result.reason,
                 )
             )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                constraint_step=STEP_RATE_LIMIT_CHECK,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="rate_limit_check",
+                constraint_step=STEP_RATE_LIMIT_CHECK,
             )
             return decision
 
@@ -584,11 +657,15 @@ class FullEngine(SafeClawEngine):
                         reason=derived_result.reason,
                     )
                 )
-            decision = Decision(block=True, reason=reason)
+            decision = Decision(
+                block=True, reason=reason,
+                requires_confirmation=True,
+                constraint_step=STEP_DERIVED_RULES,
+            )
             self._maybe_record_delegation_block(event, params_sig)
             self._record_violation_and_log(
                 event, action, decision, checks, prefs_applied, start,
-                constraint_step="derived_rules",
+                constraint_step=STEP_DERIVED_RULES,
             )
             return decision
 
@@ -606,17 +683,23 @@ class FullEngine(SafeClawEngine):
                         reason=hierarchy_result.reason,
                     )
                 )
-                decision = Decision(block=True, reason=reason)
+                decision = Decision(
+                    block=True, reason=reason,
+                    constraint_step=STEP_HIERARCHY_RATE_LIMIT,
+                )
                 self._maybe_record_delegation_block(event, params_sig)
                 self._record_violation_and_log(
                     event, action, decision, checks, prefs_applied, start,
-                    constraint_step="hierarchy_rate_limit",
+                    constraint_step=STEP_HIERARCHY_RATE_LIMIT,
                 )
                 return decision
 
-        # 10. All checks passed - record for rate limiting (only allowed actions)
-        self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
+        # 10. All checks passed — rate_limiter.record() is deferred to
+        # record_action_result() so we only count actions that actually execute
+        # successfully, avoiding phantom action counting for failed executions.
         decision = Decision(block=False)
+        # Attach risk level for structured API response
+        decision._risk_level = action.risk_level  # type: ignore[attr-defined]
         self._log_decision(event, action, decision, checks, prefs_applied, start)
 
         # Fire-and-forget LLM tasks (non-blocking, passive observer)
@@ -626,7 +709,7 @@ class FullEngine(SafeClawEngine):
 
     async def evaluate_message(self, event: MessageEvent) -> Decision:
         # BUG-019: Acquire session lock for message evaluation, same as tool calls
-        lock = self._get_session_lock(event.session_id)
+        lock = await self._get_session_lock(event.session_id)
         async with lock:
             return await self._evaluate_message_locked(event)
 
@@ -669,6 +752,8 @@ class FullEngine(SafeClawEngine):
             decision = Decision(
                 block=True,
                 reason="[SafeClaw] User preference requires confirmation before sending messages",
+                requires_confirmation=True,
+                constraint_step=STEP_PREFERENCE_CHECK,
             )
             self._log_message_decision(event, decision, start, risk_level=gate_result.risk_level)
             return decision
@@ -740,7 +825,8 @@ class FullEngine(SafeClawEngine):
         return ContextResult(prepend_context=context)
 
     async def record_action_result(self, event: ToolResultEvent) -> None:
-        async with self._get_session_lock(event.session_id):
+        lock = await self._get_session_lock(event.session_id)
+        async with lock:
             # Agent governance checks (same as evaluate_tool_call/evaluate_message)
             if event.agent_id is not None:
                 if self._require_token_auth:
@@ -772,9 +858,13 @@ class FullEngine(SafeClawEngine):
                 risk_level=action.risk_level,
             )
 
-            # Record successful actions in dependency tracker
+            # Record successful actions in dependency tracker and rate limiter.
+            # Rate limiter recording is done here (not in evaluate_tool_call) so
+            # we only count actions that actually executed successfully, avoiding
+            # phantom action counting for actions that were allowed but failed.
             if event.success:
                 self.dependency_checker.record_action(event.session_id, action.ontology_class)
+                self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
 
     async def clear_session(self, session_id: str) -> None:
         """Clean up all per-session state when a session ends.
@@ -782,7 +872,7 @@ class FullEngine(SafeClawEngine):
         BUG-028: Acquires the session lock before clearing to prevent races
         with in-flight evaluations, then removes the lock from the dict.
         """
-        lock = self._get_session_lock(session_id)
+        lock = await self._get_session_lock(session_id)
         async with lock:
             self.session_tracker.clear_session(session_id)
             self.rate_limiter.clear_session(session_id)
@@ -791,7 +881,8 @@ class FullEngine(SafeClawEngine):
             self.message_gate.clear_session(session_id)
             self.delegation_detector.clear_session(session_id)
         # Remove lock after releasing it (outside the async with block)
-        self._session_locks.pop(session_id, None)
+        async with self._meta_lock:
+            self._session_locks.pop(session_id, None)
         logger.info(f"Session {session_id} cleared")
 
     async def log_llm_io(self, event: LlmIOEvent) -> None:
@@ -881,6 +972,8 @@ class FullEngine(SafeClawEngine):
         constraint_step: str = "",
     ) -> None:
         """Log decision and record the violation for context injection."""
+        # Attach risk level for structured API response
+        decision._risk_level = action.risk_level  # type: ignore[attr-defined]
         self.context_builder.record_violation(event.session_id, decision.reason)
         self.session_tracker.record_violation(event.session_id, decision.reason)
         self._log_decision(

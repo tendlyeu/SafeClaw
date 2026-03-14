@@ -3,13 +3,9 @@
 import fnmatch
 from dataclasses import dataclass
 
+from safeclaw.constants import PATH_PARAM_KEYS
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SU
-
-_PATH_PARAM_KEYS = (
-    "file_path", "path", "filepath", "filename", "dest", "destination",
-    "target", "source", "src", "dir", "directory", "folder",
-)
 
 
 @dataclass
@@ -41,7 +37,8 @@ class PreferenceChecker:
 
         # Sanitize user_id to prevent SPARQL injection
         import re
-        safe_user_id = re.sub(r'[^a-zA-Z0-9_@.-]', '', user_id)
+
+        safe_user_id = re.sub(r"[^a-zA-Z0-9_@.-]", "", user_id)
         results = self.kg.query(f"""
             PREFIX su: <{SU}>
             SELECT ?property ?value WHERE {{
@@ -106,7 +103,7 @@ class PreferenceChecker:
 
         # Check never_modify_paths (check all known path param keys)
         if prefs.never_modify_paths:
-            for key in _PATH_PARAM_KEYS:
+            for key in PATH_PARAM_KEYS:
                 file_path = action.params.get(key, "")
                 if file_path and isinstance(file_path, str):
                     for pattern in prefs.never_modify_paths:

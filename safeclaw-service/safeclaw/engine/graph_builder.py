@@ -1,11 +1,35 @@
 """Graph builder - generates D3-compatible JSON from the knowledge graph."""
 
+import itertools
+
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP, SU
 
-# Class-level cache keyed by (knowledge graph id, triple count) so that
+# Monotonically increasing generation counter to avoid cache collisions
+# when a KnowledgeGraph is freed and a new one gets the same id().
+_generation_counter = itertools.count()
+
+# Class-level cache keyed by (generation, triple count) so that
 # the cache survives across per-request GraphBuilder instances while still
 # invalidating when the underlying graph changes (e.g. after /reload).
 _graph_cache: dict[tuple[int, int], dict] = {}
+
+# Maps KnowledgeGraph id() to its assigned generation number.
+# When a KG is garbage-collected and a new one gets the same address,
+# the new KG gets a different generation, preventing stale cache hits.
+_kg_generations: dict[int, int] = {}
+
+
+def _get_generation(kg: KnowledgeGraph) -> int:
+    """Get or assign a generation number for a KnowledgeGraph instance.
+
+    Each unique KnowledgeGraph object gets a unique generation number.
+    If the id() has been reused (after GC), the new instance gets a
+    fresh generation.
+    """
+    kg_id = id(kg)
+    if kg_id not in _kg_generations:
+        _kg_generations[kg_id] = next(_generation_counter)
+    return _kg_generations[kg_id]
 
 
 class GraphBuilder:
@@ -13,20 +37,25 @@ class GraphBuilder:
 
     def __init__(self, knowledge_graph: KnowledgeGraph):
         self.kg = knowledge_graph
+        self._generation = _get_generation(knowledge_graph)
 
     def invalidate_cache(self) -> None:
         """Invalidate the cached graph so it will be rebuilt on next access."""
-        cache_key = (id(self.kg), len(self.kg))
+        cache_key = (self._generation, len(self.kg))
         _graph_cache.pop(cache_key, None)
+        # Also remove the generation mapping so a new GraphBuilder for the
+        # same KG (after reload) gets a fresh generation.
+        _kg_generations.pop(id(self.kg), None)
 
     @staticmethod
     def invalidate_all_caches() -> None:
         """Invalidate all cached graphs."""
         _graph_cache.clear()
+        _kg_generations.clear()
 
     def build_graph(self) -> dict:
         """Build a D3-compatible graph from the knowledge graph."""
-        cache_key = (id(self.kg), len(self.kg))
+        cache_key = (self._generation, len(self.kg))
         cached = _graph_cache.get(cache_key)
         if cached is not None:
             return cached

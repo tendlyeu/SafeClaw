@@ -32,7 +32,7 @@ export const CONFIG_PATH = join(homedir(), '.safeclaw', 'config.json');
 
 export function loadConfig(): SafeClawConfig {
   const defaults: SafeClawConfig = {
-    serviceUrl: 'https://api.safeclaw.eu/api/v1',
+    serviceUrl: 'http://localhost:8420/api/v1',
     apiKey: '',
     timeoutMs: 5000,
     enabled: true,
@@ -57,6 +57,8 @@ export function loadConfig(): SafeClawConfig {
     } catch {
       // Config file unreadable — use defaults
     }
+  } else {
+    console.warn(`[SafeClaw] No config file found at ${CONFIG_PATH} — using defaults (serviceUrl=${defaults.serviceUrl})`);
   }
 
   // Env vars override config file
@@ -136,12 +138,22 @@ export function saveConfig(config: SafeClawConfig): void {
     existing.remote = {};
   }
   (existing.remote as Record<string, unknown>).serviceUrl = config.serviceUrl;
+  if (config.apiKey) {
+    (existing.remote as Record<string, unknown>).apiKey = config.apiKey;
+  }
 
   if (!existing.enforcement || typeof existing.enforcement !== 'object') {
     existing.enforcement = {};
   }
   (existing.enforcement as Record<string, unknown>).mode = config.enforcement;
   (existing.enforcement as Record<string, unknown>).failMode = config.failMode;
+
+  if (config.agentId) {
+    existing.agentId = config.agentId;
+  }
+  if (config.agentToken) {
+    existing.agentToken = config.agentToken;
+  }
 
   // Ensure parent directory exists
   mkdirSync(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });

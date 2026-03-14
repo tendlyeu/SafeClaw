@@ -173,7 +173,7 @@ class ActionClassifier:
                 current = []
                 i += 2
                 continue
-            if ch in (";", "|"):
+            if ch in (";", "|", "\n"):
                 parts.append("".join(current))
                 current = []
                 i += 1
@@ -194,7 +194,7 @@ class ActionClassifier:
         for sub_cmd in sub_commands:
             # Strip quoted strings from each sub-command before pattern matching
             # so that content inside quotes does not trigger false positives
-            unquoted = re.sub(r'''(["'])(?:\\.|(?!\1).)*\1''', "", sub_cmd)
+            unquoted = re.sub(r"""(["'])(?:\\.|(?!\1).)*\1""", "", sub_cmd)
             # Expand subshell / process substitutions so their contents are
             # also visible to pattern matching  (#23)
             unquoted = re.sub(r"\$\(([^)]*)\)", r" \1 ", unquoted)
@@ -211,9 +211,9 @@ class ActionClassifier:
                         tool_name="exec",
                         params=params,
                     )
-                    if highest_risk is None or RISK_ORDER.get(
-                        risk, 0
-                    ) > RISK_ORDER.get(highest_risk.risk_level, 0):
+                    if highest_risk is None or RISK_ORDER.get(risk, 0) > RISK_ORDER.get(
+                        highest_risk.risk_level, 0
+                    ):
                         highest_risk = candidate
                     break
             if matched_cls:
@@ -229,7 +229,7 @@ class ActionClassifier:
         return ClassifiedAction(
             ontology_class="ExecuteCommand",
             risk_level="HighRisk",
-            is_reversible=True,
+            is_reversible=False,
             affects_scope="LocalOnly",
             tool_name="exec",
             params=params,

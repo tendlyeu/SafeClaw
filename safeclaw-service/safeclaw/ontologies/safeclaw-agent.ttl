@@ -59,12 +59,12 @@ sc:DeleteFile a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:label "Delete File" .
 
-sc:ListFiles a owl:Class ;
+sc:ListFiles a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:comment "Action to list files in a directory" ;
     rdfs:label "List Files" .
 
-sc:SearchFiles a owl:Class ;
+sc:SearchFiles a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:FileAction ;
     rdfs:comment "Action to search file contents" ;
     rdfs:label "Search Files" .
@@ -116,13 +116,9 @@ sc:WebSearch a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:NetworkAction ;
     rdfs:label "Web Search" .
 
-sc:NetworkRequest a owl:Class ;
+sc:NetworkRequest a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:NetworkAction ;
     rdfs:label "Network Request" .
-
-sc:NetworkRequest sc:hasRiskLevel sc:MediumRisk ;
-    sc:isReversible true ;
-    sc:affectsScope sc:ExternalWorld .
 
 # --- Message Action Subclasses ---
 sc:SendMessage a owl:Class, owl:NamedIndividual ;
@@ -209,8 +205,20 @@ sc:DeleteFile sc:hasRiskLevel sc:CriticalRisk ;
     sc:isReversible false ;
     sc:affectsScope sc:LocalOnly .
 
-sc:ExecuteCommand sc:hasRiskLevel sc:HighRisk ;
+sc:ListFiles sc:hasRiskLevel sc:LowRisk ;
     sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:SearchFiles sc:hasRiskLevel sc:LowRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:ExecuteCommand sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:SystemConfigChange sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
     sc:affectsScope sc:LocalOnly .
 
 sc:GitPush sc:hasRiskLevel sc:HighRisk ;
@@ -239,6 +247,10 @@ sc:DockerCleanup sc:hasRiskLevel sc:HighRisk ;
 
 sc:PackagePublish sc:hasRiskLevel sc:CriticalRisk ;
     sc:isReversible false ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:NetworkRequest sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
     sc:affectsScope sc:ExternalWorld .
 
 sc:WebFetch sc:hasRiskLevel sc:MediumRisk ;

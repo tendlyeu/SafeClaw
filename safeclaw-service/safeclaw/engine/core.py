@@ -59,6 +59,8 @@ class Decision:
     block: bool
     reason: str = ""
     audit_id: str = ""
+    requires_confirmation: bool = False
+    constraint_step: str = ""
 
 
 @dataclass

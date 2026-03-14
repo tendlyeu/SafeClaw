@@ -30,15 +30,30 @@ def _glob_match(path: str, pattern: str) -> bool:
     regex_parts = []
     for seg in segments:
         translated = fnmatch.translate(seg)
-        # fnmatch.translate returns '(?s:...)\\z' — extract the inner pattern
-        # by removing the wrapper and the \z anchor
-        if translated.startswith("(?s:") and translated.endswith(r"\z"):
-            inner = translated[4:-3]  # strip '(?s:' prefix and ')\\z' suffix
+        # fnmatch.translate output varies by Python version:
+        #   Python 3.12+: '(?s:...)\\z'
+        #   Python 3.11:  '(?s:...)\\Z'
+        #   Older:        '...\\Z'
+        # Use re.fullmatch on the inner pattern to avoid version-specific anchoring
+        if translated.startswith("(?s:"):
+            # Strip '(?s:' prefix and ')\\z' or ')\\Z' suffix
+            if translated.endswith(r"\z"):
+                inner = translated[4:-3]
+            elif translated.endswith(r"\Z"):
+                inner = translated[4:-3]
+            else:
+                inner = translated[4:-1]
         else:
-            inner = translated
+            # Older Python without (?s:...) wrapper — strip trailing \Z or \z
+            if translated.endswith(r"\Z"):
+                inner = translated[:-2]
+            elif translated.endswith(r"\z"):
+                inner = translated[:-2]
+            else:
+                inner = translated
         regex_parts.append(inner)
-    full_regex = "(?s:" + ".*".join(regex_parts) + r")\z"
-    return re.match(full_regex, path) is not None
+    full_regex = "(?s:" + ".*".join(regex_parts) + ")"
+    return re.fullmatch(full_regex, path) is not None
 
 
 @dataclass

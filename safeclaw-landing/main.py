@@ -12,7 +12,7 @@ from fasthtml.components import Footer as FooterTag
 from fasthtml.oauth import redir_url
 
 from auth import github_client, user_auth_before, get_current_user
-from db import users, upsert_user
+from db import users, upsert_user, hash_admin_password, verify_admin_password
 
 
 def _validate_service_url(url: str) -> bool:
@@ -64,10 +64,15 @@ def _validate_service_url(url: str) -> bool:
 
 
 def _generate_csrf_token(sess) -> str:
-    """Generate and store a CSRF token in the session."""
-    token = secrets.token_urlsafe(32)
-    sess["_csrf_token"] = token
-    return token
+    """Return the session's CSRF token, generating one only if it doesn't exist yet.
+
+    Previously this generated a new token on every call, which invalidated
+    tokens in other open tabs/forms (#2).  Now the token is stable for the
+    lifetime of the session.
+    """
+    if "_csrf_token" not in sess:
+        sess["_csrf_token"] = secrets.token_urlsafe(32)
+    return sess["_csrf_token"]
 
 GITHUB_URL = "https://github.com/tendlyeu/SafeClaw"
 DOCS_URL = "/docs"
@@ -1063,12 +1068,15 @@ def DocsPage():
                     ),
 
                     H3("safeclaw audit", cls="docs-h3"),
-                    P("Manage audit records:"),
+                    P("View and query audit records:"),
                     Div(
                         Pre(
-                            "$ safeclaw audit list --limit 20\n"
-                            "$ safeclaw audit report --format markdown\n"
-                            "$ safeclaw audit clear --older-than 30",
+                            "$ safeclaw audit show --last 20\n"
+                            "$ safeclaw audit show --blocked\n"
+                            "$ safeclaw audit report <session-id> --format markdown\n"
+                            "$ safeclaw audit stats --last 100\n"
+                            "$ safeclaw audit compliance\n"
+                            "$ safeclaw audit explain <audit-id>",
                             cls="docs-pre",
                         ),
                     ),
@@ -1081,18 +1089,19 @@ def DocsPage():
                             "$ safeclaw policy add NoSecrets --type prohibition "
                             "--reason \"Secrets must not be committed\" "
                             "--path-pattern \".*\\.secret.*\"\n"
-                            "$ safeclaw policy remove NoSecrets",
+                            "$ safeclaw policy remove NoSecrets\n"
+                            "$ safeclaw policy add-nl \"Never allow deploys on weekends\"",
                             cls="docs-pre",
                         ),
                     ),
 
                     H3("safeclaw pref", cls="docs-h3"),
-                    P("Get or set user preferences:"),
+                    P("View or set user preferences:"),
                     Div(
                         Pre(
-                            "$ safeclaw pref get myuser\n"
-                            "$ safeclaw pref set myuser --autonomy-level cautious "
-                            "--confirm-before-delete true",
+                            "$ safeclaw pref show --user-id myuser\n"
+                            "$ safeclaw pref set autonomyLevel cautious --user-id myuser\n"
+                            "$ safeclaw pref set confirmBeforeDelete true",
                             cls="docs-pre",
                         ),
                     ),
@@ -1102,7 +1111,7 @@ def DocsPage():
                     Div(
                         Pre(
                             "$ safeclaw llm suggestions\n"
-                            "$ safeclaw llm review --dry-run",
+                            "$ safeclaw llm findings --last 20",
                             cls="docs-pre",
                         ),
                     ),
@@ -1974,6 +1983,10 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
         headers = {}
         if admin_password:
             headers["X-Admin-Password"] = admin_password
+            # Cache password in session for kill/revive proxy calls (#5).
+            # The DB stores a hash, so we keep the cleartext in the
+            # ephemeral server-side session only.
+            sess["_admin_password"] = admin_password
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{url}/api/v1/agents", headers=headers)
             r.raise_for_status()
@@ -2001,8 +2014,10 @@ async def kill_agent_proxy(req, sess, agent_id: str):
     except ValueError as e:
         return P(f"Invalid service URL: {e}", cls=TextPresets.muted_sm)
     headers = {}
-    if user.admin_password:
-        headers["X-Admin-Password"] = user.admin_password
+    # Read admin password from session cache, not DB (DB stores hash) (#5)
+    cached_pw = sess.get("_admin_password", "")
+    if cached_pw:
+        headers["X-Admin-Password"] = cached_pw
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             kill_r = await client.post(f"{url}/api/v1/agents/{agent_id}/kill", headers=headers)
@@ -2034,8 +2049,10 @@ async def revive_agent_proxy(req, sess, agent_id: str):
     except ValueError as e:
         return P(f"Invalid service URL: {e}", cls=TextPresets.muted_sm)
     headers = {}
-    if user.admin_password:
-        headers["X-Admin-Password"] = user.admin_password
+    # Read admin password from session cache, not DB (DB stores hash) (#5)
+    cached_pw = sess.get("_admin_password", "")
+    if cached_pw:
+        headers["X-Admin-Password"] = cached_pw
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             revive_r = await client.post(f"{url}/api/v1/agents/{agent_id}/revive", headers=headers)
@@ -2114,11 +2131,10 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
             return P(f"Invalid service URL: {e}", style="color:#f87171;")
     user.service_url = service_url.strip()
 
-    # Only update admin password if the user entered a new one (#99)
-    # The password is stored to proxy requests to the self-hosted service,
-    # so we keep the value but never echo it back in HTML.
+    # Only update admin password if the user entered a new one (#99, #5).
+    # Hash it with PBKDF2 before storing — never store plaintext (#14).
     if admin_password:
-        user.admin_password = admin_password
+        user.admin_password = hash_admin_password(admin_password)
 
     # Save Mistral key if changed (not the masked placeholder) (#105)
     if mistral_api_key and not mistral_api_key.startswith("\u2022\u2022\u2022\u2022"):

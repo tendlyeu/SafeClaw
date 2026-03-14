@@ -65,28 +65,64 @@ class SecurityReviewer:
             self._execute_recommendation(finding, event)
         return finding
 
+    # Minimum confidence threshold for acting on kill_switch recommendations.
+    # Auto-killing an agent based solely on LLM output is dangerous because
+    # LLM responses can be wrong, hallucinated, or manipulated via prompt
+    # injection. We require high confidence and still only escalate (log a
+    # critical warning) rather than executing the kill directly. A human
+    # operator should review and call the /agents/{id}/kill endpoint.
+    KILL_SWITCH_CONFIDENCE_THRESHOLD = 0.9
+
     def _execute_recommendation(self, finding: SecurityFinding, event: ReviewEvent) -> None:
-        """Execute the recommended action from a security finding."""
+        """Act on the recommended action from a security finding.
+
+        For kill_switch recommendations: instead of auto-executing the kill
+        (which would let an LLM unilaterally terminate agents), we log a
+        CRITICAL event for human review. The kill must be performed by an
+        admin via the /agents/{id}/kill API endpoint.
+        """
         if finding.recommended_action == "kill_switch":
             agent_id = event.agent_id
-            if agent_id and self.engine and hasattr(self.engine, "agent_registry"):
-                killed = self.engine.agent_registry.kill_agent(agent_id)
-                if killed:
-                    logger.warning(
-                        "Kill switch activated for agent %s: %s",
-                        agent_id,
-                        finding.description,
-                    )
-                else:
-                    logger.warning(
-                        "Kill switch requested for agent %s but agent not found",
-                        agent_id,
-                    )
-            else:
+            if finding.confidence < self.KILL_SWITCH_CONFIDENCE_THRESHOLD:
                 logger.warning(
-                    "Kill switch recommended but no agent_id available: %s",
+                    "Kill switch recommended for agent %s but confidence %.2f is below "
+                    "threshold %.2f — logging only. Finding: %s",
+                    agent_id,
+                    finding.confidence,
+                    self.KILL_SWITCH_CONFIDENCE_THRESHOLD,
                     finding.description,
                 )
+                return
+            # Escalate for human review instead of auto-killing.
+            # Log at CRITICAL level so alerting systems pick it up.
+            logger.critical(
+                "KILL SWITCH ESCALATION: LLM recommends killing agent %s "
+                "(confidence=%.2f, severity=%s, category=%s). "
+                "Reason: %s. "
+                "ACTION REQUIRED: An admin must review and call "
+                "POST /api/v1/agents/%s/kill to execute.",
+                agent_id,
+                finding.confidence,
+                finding.severity,
+                finding.category,
+                finding.description,
+                agent_id,
+            )
+            # Publish to event bus if available so dashboards can surface it
+            if self.engine and hasattr(self.engine, "event_bus"):
+                try:
+                    self.engine.event_bus.publish(
+                        {
+                            "type": "kill_switch_escalation",
+                            "agent_id": agent_id,
+                            "confidence": finding.confidence,
+                            "severity": finding.severity,
+                            "category": finding.category,
+                            "description": finding.description,
+                        }
+                    )
+                except Exception:
+                    logger.debug("Failed to publish kill_switch escalation event", exc_info=True)
 
     def _parse_finding(self, data: dict) -> SecurityFinding | None:
         try:

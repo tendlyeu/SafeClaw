@@ -2,15 +2,31 @@
 
 import hashlib
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastlite import database
 
-# Use absolute path relative to this file, not CWD (#110)
-_DB_DIR = Path(__file__).resolve().parent / "data"
+# Store database outside the web-accessible repo directory (#39).
+# Default location: ~/.safeclaw-landing/  (overridable via SAFECLAW_DB_DIR).
+_DB_DIR = Path(os.environ.get("SAFECLAW_DB_DIR", os.path.expanduser("~/.safeclaw-landing")))
 _DB_DIR.mkdir(parents=True, exist_ok=True)
+
+# Migrate from the old in-repo location if it exists and new location is empty (#39)
+_OLD_DB_DIR = Path(__file__).resolve().parent / "data"
+_OLD_DB_PATH = _OLD_DB_DIR / "safeclaw.db"
 _DB_PATH = str(_DB_DIR / "safeclaw.db")
+if _OLD_DB_PATH.exists() and not Path(_DB_PATH).exists():
+    try:
+        shutil.copy2(str(_OLD_DB_PATH), _DB_PATH)
+        # Also migrate WAL/SHM files if present
+        for suffix in ("-wal", "-shm"):
+            old_extra = _OLD_DB_DIR / f"safeclaw.db{suffix}"
+            if old_extra.exists():
+                shutil.copy2(str(old_extra), f"{_DB_PATH}{suffix}")
+    except OSError:
+        pass  # Fall through to create a fresh database
 
 db = database(_DB_PATH)
 db.execute("PRAGMA journal_mode=WAL")
@@ -84,24 +100,53 @@ audit_log = db.create(AuditLog, pk="id", transform=True)
 
 
 def hash_admin_password(password: str) -> str:
-    """Hash an admin password using SHA-256 with a salt for storage (#99)."""
+    """Hash an admin password using PBKDF2-SHA256 for storage (#99, #14).
+
+    Returns 'pbkdf2:<hex-salt>:<hex-hash>' so we can distinguish the format
+    from legacy plaintext or the old SHA-256 scheme.
+    """
     if not password:
         return ""
-    salt = os.urandom(16).hex()
-    h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
-    return f"{salt}:{h}"
+    salt = os.urandom(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations=600_000)
+    return f"pbkdf2:{salt.hex()}:{h.hex()}"
 
 
 def verify_admin_password(password: str, stored_hash: str) -> bool:
-    """Verify an admin password against a stored hash (#99)."""
+    """Verify an admin password against a stored hash (#99, #14).
+
+    Uses hmac.compare_digest for constant-time comparison.
+    Supports three formats for backward compatibility:
+      - 'pbkdf2:<salt>:<hash>'  (current PBKDF2 scheme)
+      - '<salt>:<hash>'         (legacy SHA-256 scheme)
+      - plain text              (legacy — no separator)
+    """
+    import hmac as _hmac
+
     if not stored_hash or not password:
         return not stored_hash and not password
-    if ":" not in stored_hash:
-        # Legacy plaintext — compare directly and return True to allow migration
-        return password == stored_hash
-    salt, expected = stored_hash.split(":", 1)
-    h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
-    return h == expected
+
+    # Current PBKDF2 format
+    if stored_hash.startswith("pbkdf2:"):
+        parts = stored_hash.split(":", 2)
+        if len(parts) != 3:
+            return False
+        _, salt_hex, expected_hex = parts
+        try:
+            salt = bytes.fromhex(salt_hex)
+        except ValueError:
+            return False
+        h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations=600_000)
+        return _hmac.compare_digest(h.hex(), expected_hex)
+
+    # Legacy SHA-256 format (salt:hash)
+    if ":" in stored_hash:
+        salt, expected = stored_hash.split(":", 1)
+        h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+        return _hmac.compare_digest(h, expected)
+
+    # Legacy plaintext — constant-time compare
+    return _hmac.compare_digest(password, stored_hash)
 
 
 def upsert_user(github_id: int, github_login: str, name: str, avatar_url: str, email: str = "") -> User:

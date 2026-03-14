@@ -1,6 +1,7 @@
 """SafeClaw config template - generates and manages ~/.safeclaw/config.json."""
 
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
 
@@ -74,9 +75,24 @@ def generate_config(
 
 
 def write_config(config_path: Path, config: dict) -> None:
-    """Write config dict to a JSON file, creating parent dirs if needed."""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    """Write config dict to a JSON file, creating parent dirs if needed.
+
+    Files are created with 0o600 (owner read/write only) and parent
+    directories with 0o700 (owner only) since config may contain API keys.
+    """
+    parent = config_path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    # Ensure parent directories have restrictive permissions
+    try:
+        os.chmod(str(parent), 0o700)
+    except OSError:
+        pass
+    content = json.dumps(config, indent=2) + "\n"
+    fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, content.encode())
+    finally:
+        os.close(fd)
 
 
 def load_config(config_path: Path) -> dict:

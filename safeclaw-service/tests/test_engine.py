@@ -60,8 +60,9 @@ async def test_env_file_blocked_by_policy(engine):
 
 
 @pytest.mark.asyncio
-async def test_delete_blocked_by_policy_or_preference(engine):
-    """rm -rf /tmp/old is blocked — either by root deletion policy or delete confirmation pref."""
+async def test_delete_blocked_by_shacl_missing_filepath(engine):
+    """rm -rf /tmp/old is blocked by SHACL: DeleteFile (subclass of FileAction) requires
+    a filePath property, but shell commands only set commandText in the RDF graph."""
     event = ToolCallEvent(
         session_id="test-session",
         user_id="default",
@@ -70,16 +71,16 @@ async def test_delete_blocked_by_policy_or_preference(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert (
-        "root" in decision.reason.lower()
-        or "delete" in decision.reason.lower()
-        or "file" in decision.reason.lower()  # SHACL may catch missing filePath
+    assert "file path" in decision.reason.lower(), (
+        f"Expected SHACL file path violation but got: {decision.reason}"
     )
 
 
 @pytest.mark.asyncio
-async def test_delete_non_root_blocked_by_preference(engine):
-    """rm on a non-root path should still be blocked by confirmBeforeDelete preference."""
+async def test_delete_non_root_blocked_by_shacl_missing_filepath(engine):
+    """rm -rf old_dir is blocked by SHACL: DeleteFile (subclass of FileAction) requires
+    a filePath property, but shell commands only set commandText in the RDF graph.
+    If SHACL did not fire, the confirmBeforeDelete preference would block it instead."""
     event = ToolCallEvent(
         session_id="test-session",
         user_id="default",
@@ -88,15 +89,15 @@ async def test_delete_non_root_blocked_by_preference(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert (
-        "confirm" in decision.reason.lower()
-        or "delete" in decision.reason.lower()
-        or "file" in decision.reason.lower()  # SHACL may catch missing filePath
+    assert "file path" in decision.reason.lower(), (
+        f"Expected SHACL file path violation but got: {decision.reason}"
     )
 
 
 @pytest.mark.asyncio
-async def test_git_push_blocked_without_tests(engine):
+async def test_git_push_blocked_by_preference(engine):
+    """git push is blocked by the confirmBeforePush preference (which fires before
+    the dependency checker). Default user preferences have confirmBeforePush=true."""
     event = ToolCallEvent(
         session_id="test-session",
         user_id="test-user",
@@ -104,8 +105,10 @@ async def test_git_push_blocked_without_tests(engine):
         params={"command": "git push origin main"},
     )
     decision = await engine.evaluate_tool_call(event)
-    # Should be blocked either by preference (confirmBeforePush) or dependency (tests first)
     assert decision.block is True
+    assert "confirmation before pushing" in decision.reason.lower(), (
+        f"Expected confirmBeforePush preference violation but got: {decision.reason}"
+    )
 
 
 @pytest.mark.asyncio
@@ -134,8 +137,9 @@ async def test_audit_records_written(engine, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_engine_blocks_rm_rf_root_without_shacl(engine):
-    """Verifies that the engine blocks rm -rf / even without SHACL shapes loaded."""
+async def test_engine_blocks_rm_rf_root(engine):
+    """rm -rf / is blocked by SHACL: DeleteFile (subclass of FileAction) requires
+    a filePath property, but shell commands only set commandText in the RDF graph."""
     event = ToolCallEvent(
         session_id="test-session",
         user_id="default",
@@ -144,6 +148,9 @@ async def test_engine_blocks_rm_rf_root_without_shacl(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
+    assert "file path" in decision.reason.lower(), (
+        f"Expected SHACL file path violation but got: {decision.reason}"
+    )
 
 
 def test_policy_checker_safe_match_malformed_regex():

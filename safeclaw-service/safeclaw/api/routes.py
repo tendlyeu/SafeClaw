@@ -39,18 +39,33 @@ from safeclaw.engine.core import (
 logger = logging.getLogger("safeclaw.api")
 
 # Regex to strip control characters (keep printable + whitespace)
-_CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _MAX_RESULT_LEN = 100_000
 
 
 def _sanitize_string(value: str) -> str:
     """Strip control characters and limit length to prevent prompt injection."""
-    sanitized = _CONTROL_CHAR_RE.sub('', value)
+    sanitized = _CONTROL_CHAR_RE.sub("", value)
     return sanitized[:_MAX_RESULT_LEN]
 
 
+def _sanitize_list(items: list) -> list:
+    """Recursively sanitize values in a list."""
+    result = []
+    for item in items:
+        if isinstance(item, str):
+            result.append(_sanitize_string(item))
+        elif isinstance(item, dict):
+            result.append(_sanitize_params(item))
+        elif isinstance(item, list):
+            result.append(_sanitize_list(item))
+        else:
+            result.append(item)
+    return result
+
+
 def _sanitize_params(params: dict) -> dict:
-    """Recursively sanitize string values in params dict."""
+    """Recursively sanitize string values in params dict (handles arbitrary nesting)."""
     sanitized = {}
     for k, v in params.items():
         key = _sanitize_string(str(k))
@@ -59,9 +74,7 @@ def _sanitize_params(params: dict) -> dict:
         elif isinstance(v, dict):
             sanitized[key] = _sanitize_params(v)
         elif isinstance(v, list):
-            sanitized[key] = [
-                _sanitize_string(i) if isinstance(i, str) else i for i in v
-            ]
+            sanitized[key] = _sanitize_list(v)
         else:
             sanitized[key] = v
     return sanitized
@@ -81,8 +94,12 @@ async def require_admin(request: Request):
     """
     # Layer 1: API-key scope check (when middleware sets it)
     scope = getattr(request.state, "api_key_scope", None)
-    if scope is not None and "admin" not in scope:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    if scope is not None:
+        # Use exact match or set membership (not substring) to avoid
+        # false positives like "administrator" or "notadmin"
+        scope_set = {s.strip() for s in scope.split(",")} if isinstance(scope, str) else set()
+        if "admin" not in scope_set:
+            raise HTTPException(status_code=403, detail="Admin access required")
 
     # Layer 2: X-Admin-Password header check
     engine = _get_engine()
@@ -122,11 +139,14 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
     # Use org_id from API key auth (numeric DB user ID) if available,
     # otherwise fall back to client-supplied userId
     user_id = getattr(req.state, "org_id", None) or request.userId
+    # Sanitize params to strip control characters that could be used for
+    # prompt injection when params are later included in LLM prompts
+    sanitized_params = _sanitize_params(request.params)
     event = ToolCallEvent(
         session_id=request.sessionId,
         user_id=user_id,
         tool_name=request.toolName,
-        params=request.params,
+        params=sanitized_params,
         session_history=request.sessionHistory,
         agent_id=request.agentId,
         agent_token=request.agentToken,
@@ -136,6 +156,9 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         block=decision.block,
         reason=decision.reason,
         auditId=decision.audit_id,
+        confirmationRequired=decision.requires_confirmation,
+        constraintStep=decision.constraint_step,
+        riskLevel=getattr(decision, "_risk_level", ""),
     )
 
 
@@ -144,11 +167,13 @@ async def evaluate_message(request: MessageRequest, req: Request) -> DecisionRes
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
     user_id = getattr(req.state, "org_id", None) or request.userId
+    # Sanitize message content to strip control characters
+    sanitized_content = _sanitize_string(request.content)
     event = MessageEvent(
         session_id=request.sessionId,
         user_id=user_id,
         to=request.to,
-        content=request.content,
+        content=sanitized_content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
     )
@@ -157,6 +182,8 @@ async def evaluate_message(request: MessageRequest, req: Request) -> DecisionRes
         block=decision.block,
         reason=decision.reason,
         auditId=decision.audit_id,
+        confirmationRequired=decision.requires_confirmation,
+        constraintStep=decision.constraint_step,
     )
 
 
@@ -279,7 +306,7 @@ async def update_preferences(user_id: str, request: PreferencesRequest):
     import re
 
     engine = _get_engine()
-    safe_user_id = re.sub(r'[^a-zA-Z0-9_@.-]', '', user_id)
+    safe_user_id = re.sub(r"[^a-zA-Z0-9_@.-]", "", user_id)
 
     users_dir = engine.config.data_dir / "ontologies" / "users"
     users_dir.mkdir(parents=True, exist_ok=True)
@@ -473,9 +500,7 @@ async def heartbeat(request: HeartbeatRequest):
 
     # Piggyback: check for stale agents and config drift
     stale = engine.heartbeat_monitor.check_stale()
-    drifted = engine.heartbeat_monitor.check_config_drift(
-        request.agentId, request.configHash
-    )
+    drifted = engine.heartbeat_monitor.check_config_drift(request.agentId, request.configHash)
 
     return {"ok": True, "stale": stale, "configDrift": drifted}
 
@@ -520,7 +545,9 @@ async def handshake(req: HandshakeRequest, request: Request):
 # ── LLM Layer Routes ──
 
 
-@router.post("/policies/compile", response_model=PolicyCompileResponse, dependencies=[Depends(require_admin)])
+@router.post(
+    "/policies/compile", response_model=PolicyCompileResponse, dependencies=[Depends(require_admin)]
+)
 async def compile_policy(request: PolicyCompileRequest) -> PolicyCompileResponse:
     engine = _get_engine()
     if not hasattr(engine, "llm_client") or engine.llm_client is None:
@@ -570,7 +597,7 @@ async def event_stream():
         try:
             sub = engine.event_bus.subscribe(keepalive_timeout=15.0)
         except ValueError:
-            yield "event: error\ndata: {\"error\": \"Max subscribers limit reached\"}\n\n"
+            yield 'event: error\ndata: {"error": "Max subscribers limit reached"}\n\n'
             return
         try:
             async for event in sub:
