@@ -60,6 +60,7 @@ class RateLimiter:
         records = [r for r in records if r.timestamp >= cutoff]
         if session_id in self._sessions:
             self._sessions[session_id] = records
+            self._sessions.move_to_end(session_id)  # Update LRU position
         count = sum(
             1
             for r in records

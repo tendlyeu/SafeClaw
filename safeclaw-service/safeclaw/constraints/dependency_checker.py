@@ -70,6 +70,8 @@ class DependencyChecker:
             # Evict oldest sessions to prevent memory leak
             while len(self._session_history) > MAX_SESSIONS:
                 self._session_history.popitem(last=False)
+        else:
+            self._session_history.move_to_end(session_id)  # Update LRU position
         self._session_history[session_id].append(action_class)
         if len(self._session_history[session_id]) > 1000:
             self._session_history[session_id] = self._session_history[session_id][-1000:]

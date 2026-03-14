@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SU
 
+_PATH_PARAM_KEYS = (
+    "file_path", "path", "filepath", "filename", "dest", "destination",
+    "target", "source", "src", "dir", "directory", "folder",
+)
+
 
 @dataclass
 class UserPreferences:
@@ -62,6 +67,11 @@ class PreferenceChecker:
                 if prefs.never_modify_paths is None:
                     prefs.never_modify_paths = []
                 prefs.never_modify_paths.append(val)
+            elif prop == "maxFilesPerCommit":
+                try:
+                    prefs.max_files_per_commit = int(val)
+                except (ValueError, TypeError):
+                    pass
 
         return prefs
 
@@ -94,20 +104,47 @@ class PreferenceChecker:
                     reason="User preference requires confirmation before sending messages",
                 )
 
-        # Check never_modify_paths
+        # Check never_modify_paths (check all known path param keys)
         if prefs.never_modify_paths:
-            file_path = action.params.get("file_path", "") or action.params.get("path", "")
-            if file_path:
-                for pattern in prefs.never_modify_paths:
-                    if fnmatch.fnmatch(file_path, pattern):
-                        return PreferenceCheckResult(
-                            violated=True,
-                            preference_uri=f"{SU}neverModifyPaths",
-                            reason=f"Path '{file_path}' matches never-modify pattern '{pattern}'",
-                        )
+            for key in _PATH_PARAM_KEYS:
+                file_path = action.params.get(key, "")
+                if file_path and isinstance(file_path, str):
+                    for pattern in prefs.never_modify_paths:
+                        if fnmatch.fnmatch(file_path, pattern):
+                            return PreferenceCheckResult(
+                                violated=True,
+                                preference_uri=f"{SU}neverModifyPaths",
+                                reason=f"Path '{file_path}' matches never-modify pattern '{pattern}'",
+                            )
+
+        # Check max_files_per_commit for git commit actions
+        if action.ontology_class == "GitCommit" and prefs.max_files_per_commit:
+            files = action.params.get("files") or action.params.get("file_list") or []
+            if isinstance(files, list) and len(files) > prefs.max_files_per_commit:
+                return PreferenceCheckResult(
+                    violated=True,
+                    preference_uri=f"{SU}maxFilesPerCommit",
+                    reason=(
+                        f"Commit includes {len(files)} files, exceeding the "
+                        f"limit of {prefs.max_files_per_commit}"
+                    ),
+                )
 
         # Check autonomy level
-        if prefs.autonomy_level in ("cautious", "supervised"):
+        # "autonomous" — no extra restrictions beyond explicit preferences above
+        # "moderate" — confirm irreversible actions at CriticalRisk level
+        # "cautious" / "supervised" — confirm all irreversible actions
+        if prefs.autonomy_level == "moderate":
+            if not action.is_reversible and action.risk_level == "CriticalRisk":
+                return PreferenceCheckResult(
+                    violated=True,
+                    preference_uri=f"{SU}autonomyLevel",
+                    reason=(
+                        "Autonomy level 'moderate' requires confirmation for "
+                        "irreversible critical-risk actions"
+                    ),
+                )
+        elif prefs.autonomy_level in ("cautious", "supervised"):
             if not action.is_reversible:
                 return PreferenceCheckResult(
                     violated=True,
