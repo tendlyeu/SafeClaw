@@ -360,10 +360,10 @@ async def kill_agent(agent_id: str):
 @router.post("/agents/{agent_id}/revive", dependencies=[Depends(require_admin)])
 async def revive_agent(agent_id: str):
     engine = _get_engine()
-    found = engine.agent_registry.revive_agent(agent_id)
+    found, new_token = engine.agent_registry.revive_agent(agent_id)
     if not found:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return {"ok": True, "agentId": agent_id, "killed": False}
+    return {"ok": True, "agentId": agent_id, "killed": False, "newToken": new_token}
 
 
 @router.get("/agents", dependencies=[Depends(require_admin)])

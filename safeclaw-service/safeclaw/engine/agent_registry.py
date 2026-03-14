@@ -74,9 +74,14 @@ class AgentRegistry:
         return token
 
     def verify_token(self, agent_id: str, token: str) -> bool:
-        """Verify an agent's token using constant-time comparison."""
+        """Verify an agent's token using constant-time comparison.
+
+        Returns False for killed agents (defense-in-depth).
+        """
         record = self._agents.get(agent_id)
         if record is None:
+            return False
+        if record.killed:
             return False
         return hmac.compare_digest(
             record.token_hash, self._hash_token(token)
@@ -89,17 +94,30 @@ class AgentRegistry:
             return True
         return False
 
-    def revive_agent(self, agent_id: str) -> bool:
+    def revive_agent(self, agent_id: str) -> tuple[bool, str | None]:
+        """Revive a killed agent and rotate its token.
+
+        Returns (success, new_token). The new token must be used for
+        subsequent authentication — the old token is invalidated.
+        """
         record = self._agents.get(agent_id)
-        if record:
-            record.killed = False
-            return True
-        return False
+        if not record:
+            return False, None
+        new_token = secrets.token_urlsafe(32)
+        record.token_hash = self._hash_token(new_token)
+        record.killed = False
+        return True, new_token
 
     def is_killed(self, agent_id: str) -> bool:
+        """Check if an agent has been explicitly killed.
+
+        Returns False for unregistered agents — the kill switch should
+        only apply to agents that were explicitly killed.  Registration
+        checks are handled separately by ``_require_token_auth``.
+        """
         record = self._agents.get(agent_id)
         if record is None:
-            return True  # Unknown agents are treated as killed (fail-closed)
+            return False
         return record.killed
 
     def get_agent(self, agent_id: str) -> AgentRecord | None:
@@ -109,7 +127,12 @@ class AgentRegistry:
         return list(self._agents.values())
 
     def get_hierarchy_ids(self, agent_id: str) -> set[str]:
-        """Get all agent IDs in the same hierarchy tree."""
+        """Get all agent IDs in the same hierarchy tree, scoped to the agent's session."""
+        agent_record = self._agents.get(agent_id)
+        if agent_record is None:
+            return {agent_id}
+        session_id = agent_record.session_id
+
         root = agent_id
         visited: set[str] = set()
         current = agent_id
@@ -117,8 +140,9 @@ class AgentRegistry:
             visited.add(current)
             record = self._agents.get(current)
             if record and record.parent_id:
-                # Handle dangling parent: if parent doesn't exist, stop here
-                if record.parent_id not in self._agents:
+                parent_record = self._agents.get(record.parent_id)
+                # Handle dangling parent or cross-session parent: stop here
+                if parent_record is None or parent_record.session_id != session_id:
                     root = current
                     break
                 root = record.parent_id
@@ -128,17 +152,27 @@ class AgentRegistry:
                 break
 
         result = {root}
-        result |= self._get_descendants(root)
+        result |= self._get_descendants(root, session_id=session_id)
         return result
 
-    def _get_descendants(self, agent_id: str, visited: set[str] | None = None) -> set[str]:
-        """Recursively collect all descendant agent IDs (cycle-safe)."""
+    def _get_descendants(
+        self,
+        agent_id: str,
+        visited: set[str] | None = None,
+        session_id: str | None = None,
+    ) -> set[str]:
+        """Recursively collect all descendant agent IDs (cycle-safe, session-scoped)."""
         if visited is None:
             visited = set()
         descendants: set[str] = set()
         for record in self._agents.values():
             if record.parent_id == agent_id and record.agent_id not in visited:
+                # Skip agents from different sessions
+                if session_id is not None and record.session_id != session_id:
+                    continue
                 visited.add(record.agent_id)
                 descendants.add(record.agent_id)
-                descendants |= self._get_descendants(record.agent_id, visited)
+                descendants |= self._get_descendants(
+                    record.agent_id, visited, session_id=session_id
+                )
         return descendants

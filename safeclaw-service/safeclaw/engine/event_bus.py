@@ -30,11 +30,14 @@ class EventBus:
 
     def __init__(self):
         self._subscribers: list[asyncio.Queue[SafeClawEvent]] = []
+        self._lock = asyncio.Lock()
 
     def publish(self, event: SafeClawEvent) -> None:
         """Non-blocking publish to all subscribers. Drops if queue full."""
+        # Iterate over a snapshot to avoid issues with concurrent modification
+        snapshot = list(self._subscribers)
         dead = []
-        for q in self._subscribers:
+        for q in snapshot:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
@@ -42,14 +45,13 @@ class EventBus:
             except Exception:
                 dead.append(q)
         for q in dead:
-            self._subscribers.remove(q)
+            try:
+                self._subscribers.remove(q)
+            except ValueError:
+                pass  # already removed by another coroutine
 
-    async def subscribe(self, keepalive_timeout: float | None = None):
-        """Yield events as they arrive. Use as `async for event in bus.subscribe():`.
-
-        If keepalive_timeout is set, yields None when no event arrives within
-        that many seconds (caller can use this to send keepalive pings).
-        """
+    def _add_subscriber(self) -> asyncio.Queue[SafeClawEvent]:
+        """Eagerly validate and add a subscriber queue. Raises ValueError if at limit."""
         if len(self._subscribers) >= MAX_SUBSCRIBERS_PER_EVENT:
             raise ValueError(
                 f"Max subscribers limit reached ({MAX_SUBSCRIBERS_PER_EVENT}). "
@@ -57,6 +59,17 @@ class EventBus:
             )
         q: asyncio.Queue[SafeClawEvent] = asyncio.Queue(maxsize=MAX_QUEUED_EVENTS)
         self._subscribers.append(q)
+        return q
+
+    async def subscribe(self, keepalive_timeout: float | None = None):
+        """Yield events as they arrive. Use as `async for event in bus.subscribe():`.
+
+        Raises ValueError eagerly if the subscriber limit is reached.
+
+        If keepalive_timeout is set, yields None when no event arrives within
+        that many seconds (caller can use this to send keepalive pings).
+        """
+        q = self._add_subscriber()
         try:
             while True:
                 if keepalive_timeout is not None:
@@ -69,5 +82,7 @@ class EventBus:
                     event = await q.get()
                 yield event
         finally:
-            if q in self._subscribers:
+            try:
                 self._subscribers.remove(q)
+            except ValueError:
+                pass  # already removed

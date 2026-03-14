@@ -36,6 +36,7 @@ class SessionState:
     files_modified: list[str] = field(default_factory=list)
     violation_count: int = 0
     last_violation_reason: str = ""
+    owner_id: str = ""  # agent_id or org_id that created the session
 
 
 class SessionTracker:
@@ -48,13 +49,17 @@ class SessionTracker:
     def __init__(self):
         self._sessions: OrderedDict[str, SessionState] = OrderedDict()
 
-    def _get_or_create(self, session_id: str) -> SessionState:
+    def _get_or_create(self, session_id: str, owner_id: str = "") -> SessionState:
         if session_id not in self._sessions:
-            self._sessions[session_id] = SessionState()
+            self._sessions[session_id] = SessionState(owner_id=owner_id)
             while len(self._sessions) > MAX_SESSIONS:
                 self._sessions.popitem(last=False)
         else:
             self._sessions.move_to_end(session_id)
+            # Set owner if not already set (first caller wins)
+            state = self._sessions[session_id]
+            if not state.owner_id and owner_id:
+                state.owner_id = owner_id
         return self._sessions[session_id]
 
     def record_outcome(
@@ -146,6 +151,27 @@ class SessionTracker:
         """Get raw session state."""
         return self._sessions.get(session_id)
 
-    def clear_session(self, session_id: str) -> None:
-        """Remove session data."""
+    def verify_session_owner(self, session_id: str, caller_id: str) -> bool:
+        """Check if caller_id owns the session.
+
+        Returns True if the session does not exist (nothing to protect),
+        if no owner was recorded (backwards compatibility), or if the
+        caller matches the owner.
+        """
+        state = self._sessions.get(session_id)
+        if state is None:
+            return True
+        if not state.owner_id:
+            return True  # no owner recorded — allow for backwards compat
+        return state.owner_id == caller_id
+
+    def clear_session(self, session_id: str, caller_id: str | None = None) -> bool:
+        """Remove session data.
+
+        If *caller_id* is provided, verifies ownership before clearing.
+        Returns True if the session was cleared, False if ownership check failed.
+        """
+        if caller_id is not None and not self.verify_session_owner(session_id, caller_id):
+            return False
         self._sessions.pop(session_id, None)
+        return True
