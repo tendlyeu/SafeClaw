@@ -97,20 +97,15 @@ def _glob_match(path: str, pattern: str) -> bool:
         #   "x/y/"     — no leading / (pattern starts with **)
         #   "/x/y"     — no trailing / (pattern ends with **)
         #   "x"        — single non-slash char (pattern is exactly **)
-        # A single .* covers all of these (it matches any string including
-        # empty).  However we must ensure the separator / appears when
-        # both sides are non-empty, so we use:
-        #   (?:/.+/|/.+|.+/|/|)
-        # which expands to: /content/, /content, content/, /, or empty.
-        # Simplified: (?:/?.*/?)?  — but this can match double slashes.
-        # Safest correct form that passes all cases:
-        joiner = "(?:/?.*/?)"
-        # The joiner is wrapped in (?:...)? — the whole thing is optional
-        # (for the zero-segment case).  But we only want it optional when
-        # both neighbours are non-empty; when one side is empty (pattern
-        # starts/ends with **) the .* must still be able to match.
-        # So: make it non-optional but allow .* to be empty.  The /? on
-        # each side makes the slashes optional.  This handles all cases.
+        # Limit pattern complexity to prevent ReDoS with many ** segments.
+        # Patterns with more than 4 ** separators are rejected as too complex.
+        if len(cleaned) > 5:
+            return False
+
+        # Use a non-backtracking character class instead of .* to prevent
+        # catastrophic backtracking when multiple ** joiners interact.
+        # [\\s\\S]*? (non-greedy) avoids the nested quantifier problem.
+        joiner = "(?:[\\s\\S]*?)"
         full_regex = joiner.join(cleaned)
 
     return re.fullmatch(full_regex, path) is not None
