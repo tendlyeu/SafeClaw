@@ -17,7 +17,9 @@ class HeartbeatMonitor:
     def __init__(self, event_bus: EventBus, agent_registry=None):
         self._event_bus = event_bus
         self._agent_registry = agent_registry
-        # {agent_id: {"last_seen": monotonic, "config_hash": str, "first_hash": str, "stale_notified": bool}}
+        # {agent_id: {"last_seen": monotonic, "config_hash": str,
+        #             "first_hash": str, "last_known_hash": str,
+        #             "stale_notified": bool, "drift_notified": bool}}
         self._agents: OrderedDict[str, dict] = OrderedDict()
 
     def verify_heartbeat_token(self, agent_id: str, agent_token: str | None) -> bool:
@@ -36,7 +38,13 @@ class HeartbeatMonitor:
         return self._agent_registry.verify_token(agent_id, agent_token)
 
     def record(self, agent_id: str, config_hash: str) -> None:
-        """Record a heartbeat from an agent."""
+        """Record a heartbeat from an agent.
+
+        When the config hash changes compared to ``last_known_hash``, it is
+        left for :meth:`check_config_drift` to detect and publish the event.
+        When the hash returns to matching ``last_known_hash``, the
+        ``drift_notified`` flag is reset so a future new drift is reported.
+        """
         now = time.monotonic()
         if agent_id not in self._agents:
             self._agents[agent_id] = {
@@ -45,15 +53,17 @@ class HeartbeatMonitor:
                 "first_hash": config_hash,
                 "last_known_hash": config_hash,
                 "stale_notified": False,
+                "drift_notified": False,
             }
             # LRU eviction: pop oldest entry when over capacity
             while len(self._agents) > MAX_AGENTS:
                 self._agents.popitem(last=False)
         else:
             self._agents.move_to_end(agent_id)
-            self._agents[agent_id]["last_seen"] = now
-            self._agents[agent_id]["config_hash"] = config_hash
-            self._agents[agent_id]["stale_notified"] = False  # Reset on new heartbeat
+            info = self._agents[agent_id]
+            info["last_seen"] = now
+            info["config_hash"] = config_hash
+            info["stale_notified"] = False  # Reset on new heartbeat
 
     def check_stale(self, threshold: float = 90.0) -> list[str]:
         """Return agent IDs that haven't sent a heartbeat within threshold seconds."""
@@ -79,15 +89,28 @@ class HeartbeatMonitor:
     def check_config_drift(self, agent_id: str, current_hash: str) -> bool:
         """Check if an agent's config hash has changed since last seen.
 
-        Uses transition detection: fires a drift event only when the hash
-        changes from ``last_known_hash``, then updates ``last_known_hash``
+        Uses transition detection with a ``drift_notified`` flag: fires a
+        drift event only when the hash changes from ``last_known_hash`` AND
+        the drift has not already been reported.  Updates ``last_known_hash``
         so subsequent heartbeats with the same (new) hash do not re-fire.
+
+        The ``drift_notified`` flag is reset when the hash returns to a
+        previously known value, so future genuine drifts are still reported.
         """
         info = self._agents.get(agent_id)
         if info is None:
             return False
+
         last_known = info.get("last_known_hash", info["first_hash"])
-        if last_known != current_hash:
+
+        if last_known == current_hash:
+            # Hash matches -- no drift.  Reset the flag so a future change
+            # will be reported.
+            info["drift_notified"] = False
+            return False
+
+        # Hash changed.  Only publish if we haven't already notified.
+        if not info.get("drift_notified"):
             self._event_bus.publish(
                 SafeClawEvent(
                     event_type="config_drift",
@@ -97,10 +120,11 @@ class HeartbeatMonitor:
                     "Possible tampering detected.",
                 )
             )
-            # Update last_known_hash so we only fire once per transition
-            info["last_known_hash"] = current_hash
-            return True
-        return False
+            info["drift_notified"] = True
+
+        # Update last_known_hash so we only fire once per transition
+        info["last_known_hash"] = current_hash
+        return True
 
     def remove(self, agent_id: str) -> None:
         """Remove an agent (intentional shutdown)."""
