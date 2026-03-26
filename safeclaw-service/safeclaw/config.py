@@ -1,5 +1,6 @@
 """SafeClaw configuration via Pydantic settings."""
 
+import os
 import secrets
 from pathlib import Path
 
@@ -32,6 +33,10 @@ class SafeClawConfig(BaseSettings):
     # Admin dashboard
     admin_password: str = ""
 
+    # NemoClaw integration
+    nemoclaw_enabled: bool = False
+    nemoclaw_policy_dir: Path | None = None
+
     # LLM layer (passive observer — all features gated on mistral_api_key)
     mistral_api_key: str = ""
     mistral_model: str = "mistral-small-latest"
@@ -49,6 +54,26 @@ class SafeClawConfig(BaseSettings):
         if self.audit_dir:
             return self.audit_dir
         return self.data_dir / "audit"
+
+    def get_nemoclaw_policy_dir(self) -> Path | None:
+        """Resolve NemoClaw policy directory via fallback chain."""
+        if self.nemoclaw_policy_dir and self.nemoclaw_policy_dir.exists():
+            return self.nemoclaw_policy_dir
+        home_dir = Path.home() / ".nemoclaw"
+        if home_dir.exists() and any(home_dir.glob("*.yaml")):
+            return home_dir
+        sandbox_dir = os.environ.get("OPENSHELL_SANDBOX")
+        if sandbox_dir:
+            p = Path(sandbox_dir) / "policies"
+            if p.exists():
+                return p
+        return None
+
+    @property
+    def is_nemoclaw_enabled(self) -> bool:
+        if self.nemoclaw_enabled:
+            return True
+        return self.get_nemoclaw_policy_dir() is not None
 
     @property
     def raw(self) -> dict:
