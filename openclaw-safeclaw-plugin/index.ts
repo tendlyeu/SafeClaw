@@ -90,12 +90,18 @@ interface PluginContext {
   [key: string]: unknown;
 }
 
+interface ServiceRegistration {
+  name: string;
+  stop(): Promise<void>;
+}
+
 interface PluginApi {
   on(
     event: string,
     handler: (event: PluginEvent, ctx: PluginContext) => Promise<Record<string, unknown> | void> | void,
     options?: { priority?: number },
   ): void;
+  registerService?(service: ServiceRegistration): void;
 }
 
 let handshakeCompleted = false;
@@ -175,21 +181,9 @@ export default {
       }
     };
 
-    // Start heartbeat only after connection check + handshake completes (#84)
+    // Clean shutdown: send shutdown heartbeat and clear interval (#194)
     let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
-    checkConnection()
-      .then(() => performHandshake())
-      .then((ok) => {
-        if (!ok && getConfig().failMode === 'closed') {
-          console.warn('[SafeClaw] Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
-        }
-        heartbeatInterval = setInterval(sendHeartbeat, 30000);
-        return sendHeartbeat();
-      })
-      .catch(() => {});
 
-    // Clean shutdown: send shutdown heartbeat and clear interval
-    // Use async shutdown for SIGINT/SIGTERM where async is supported (#55)
     const shutdown = async () => {
       if (heartbeatInterval) clearInterval(heartbeatInterval);
       try {
@@ -202,8 +196,35 @@ export default {
         // Best-effort shutdown notification
       }
     };
-    process.on('SIGINT', async () => { await shutdown(); process.exit(0); });
-    process.on('SIGTERM', async () => { await shutdown(); process.exit(0); });
+
+    // Start heartbeat after connection check + handshake completes (#84)
+    const startupPromise = checkConnection()
+      .then(() => performHandshake())
+      .then((ok) => {
+        if (!ok && getConfig().failMode === 'closed') {
+          console.warn('[SafeClaw] Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
+        }
+        heartbeatInterval = setInterval(sendHeartbeat, 30000);
+        return sendHeartbeat();
+      })
+      .catch(() => {});
+
+    // Register as an OpenClaw service so the gateway manages our lifecycle.
+    // The service's stop() method sends the shutdown heartbeat — no process.exit()
+    // needed, which avoids killing the entire gateway process (#194).
+    if (api.registerService) {
+      api.registerService({
+        name: 'safeclaw-governance',
+        async stop() {
+          await startupPromise;  // Ensure startup finished before tearing down
+          await shutdown();
+        },
+      });
+    } else {
+      // Fallback for older OpenClaw versions without registerService:
+      // No process.exit() — just clean up on beforeExit
+      process.on('beforeExit', () => { shutdown().catch(() => {}); });
+    }
 
     // THE GATE — constraint checking on every tool call
     api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
