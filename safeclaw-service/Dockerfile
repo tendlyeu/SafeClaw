@@ -13,7 +13,7 @@ COPY safeclaw/ safeclaw/
 RUN if [ -f requirements.lock ]; then \
         pip install --no-cache-dir -r requirements.lock && pip install --no-cache-dir --no-deps .; \
     else \
-        pip install --no-cache-dir .; \
+        pip install --no-cache-dir ".[dashboard]"; \
     fi && \
     chown -R safeclaw:safeclaw /app
 

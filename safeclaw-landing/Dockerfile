@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN groupadd -r safeclaw && useradd -r -g safeclaw safeclaw
+RUN groupadd -r safeclaw && useradd -m -r -g safeclaw safeclaw
 
 # Make app dir writable by safeclaw (FastHTML writes .sesskey at runtime)
 # and tighten data directory for SQLite
