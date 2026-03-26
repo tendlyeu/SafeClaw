@@ -16,12 +16,18 @@ def _default_host() -> str:
 def serve_cmd(
     host: str = typer.Option(
         None,
-        help="Host to bind to (default: 0.0.0.0 in containers, 127.0.0.1 otherwise)",
+        help="Host to bind to (auto-detects Docker; defaults to 0.0.0.0 in containers, 127.0.0.1 otherwise)",
     ),
     port: int = typer.Option(8420, help="Port to listen on"),
-    reload: bool = typer.Option(False, help="Enable auto-reload for development"),
+    reload: bool = typer.Option(False, help="Auto-reload on code changes (development only)"),
 ):
-    """Start the SafeClaw governance service."""
+    """Start the SafeClaw governance service (FastAPI + Uvicorn).
+
+    The service exposes the governance API at http://<host>:<port>/api/v1.
+    Agents and plugins send tool calls here for validation.
+
+    Run 'safeclaw init' first to create the config file.
+    """
     import uvicorn
 
     if host is None:

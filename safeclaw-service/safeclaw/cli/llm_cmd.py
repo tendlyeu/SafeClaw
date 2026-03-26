@@ -6,26 +6,44 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-llm_app = typer.Typer(help="LLM layer commands")
+llm_app = typer.Typer(
+    help=(
+        "Inspect the passive LLM layer — security findings and classification suggestions.\n\n"
+        "The LLM layer observes tool calls and reviews them for security issues.\n"
+        "It also suggests action classification improvements. All features require\n"
+        "SAFECLAW_MISTRAL_API_KEY to be set."
+    ),
+)
 console = Console()
 
 
 @llm_app.command("findings")
-def findings(
-    last: int = typer.Option(20, help="Number of recent findings to show"),
-):
-    """Show recent security findings from the LLM reviewer."""
+def findings():
+    """Show where to find security findings from the LLM reviewer.
+
+    The LLM security reviewer runs passively on each tool call and logs
+    findings to the safeclaw.llm.security logger. Findings are also
+    available via the API.
+    """
     console.print(
-        "[yellow]Security findings are currently logged to the safeclaw.llm.security logger.[/yellow]"
+        "[yellow]Security findings are logged to the safeclaw.llm.security logger.[/yellow]"
     )
-    console.print(
-        "Use log aggregation to review findings, or check the API: GET /api/v1/llm/findings"
-    )
+    console.print("")
+    console.print("To view findings:")
+    console.print("  - API:  GET /api/v1/llm/findings")
+    console.print("  - Logs: check your log aggregation system for 'safeclaw.llm.security'")
+    console.print("")
+    console.print("To enable: set SAFECLAW_MISTRAL_API_KEY and ensure llm_security_review_enabled=true")
 
 
 @llm_app.command("suggestions")
 def suggestions():
-    """Show classification improvement suggestions from the LLM observer."""
+    """Display LLM-generated classification improvement suggestions.
+
+    The LLM observer compares the symbolic classifier's output with its own
+    assessment and records disagreements as suggestions. These are stored
+    in ~/.safeclaw/llm/classification_suggestions.jsonl.
+    """
     from safeclaw.config import SafeClawConfig
 
     config = SafeClawConfig()

@@ -84,6 +84,47 @@ def test_audit_show_blocked_filter(mock_config, mock_logger_cls):
 
 @patch("safeclaw.cli.audit_cmd.AuditLogger")
 @patch("safeclaw.cli.audit_cmd.SafeClawConfig")
+def test_audit_show_session_and_blocked_composable(mock_config, mock_logger_cls):
+    """--session and --blocked should be composable, filtering blocked records within a session."""
+    allowed = _make_record(decision="allowed", tool_name="read_file", record_id="r1")
+    blocked = _make_record(decision="blocked", tool_name="rm_file", record_id="r2")
+    mock_logger = MagicMock()
+    mock_logger.get_session_records.return_value = [allowed, blocked]
+    mock_logger_cls.return_value = mock_logger
+    mock_config.return_value = MagicMock()
+
+    result = runner.invoke(app, ["audit", "show", "--session", "sess-1", "--blocked"])
+    assert result.exit_code == 0
+    # Should show only the blocked record, not the allowed one
+    assert "rm_file" in result.output
+    assert "read_file" not in result.output
+    mock_logger.get_session_records.assert_called_once_with("sess-1")
+
+
+@patch("safeclaw.cli.audit_cmd.AuditLogger")
+@patch("safeclaw.cli.audit_cmd.SafeClawConfig")
+def test_audit_show_session_respects_last_limit(mock_config, mock_logger_cls):
+    """--session should respect the --last limit."""
+    records = [_make_record(record_id=f"r{i}") for i in range(10)]
+    mock_logger = MagicMock()
+    mock_logger.get_session_records.return_value = records
+    mock_logger_cls.return_value = mock_logger
+    mock_config.return_value = MagicMock()
+
+    result = runner.invoke(app, ["audit", "show", "--session", "sess-1", "--last", "3"])
+    assert result.exit_code == 0
+    # The table should contain only 3 rows (the last 3 records)
+    assert result.output.count("read_file") == 3
+
+
+def test_audit_report_invalid_format():
+    """Invalid report format should be rejected by Typer's enum validation."""
+    result = runner.invoke(app, ["audit", "report", "some-session", "--format", "xml"])
+    assert result.exit_code != 0
+
+
+@patch("safeclaw.cli.audit_cmd.AuditLogger")
+@patch("safeclaw.cli.audit_cmd.SafeClawConfig")
 def test_audit_explain_uses_get_record_by_id(mock_config, mock_logger_cls):
     """Verify explain uses get_record_by_id instead of get_recent_records (issue #43)."""
     mock_logger = MagicMock()

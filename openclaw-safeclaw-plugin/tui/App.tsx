@@ -55,7 +55,7 @@ export default function App() {
             {`${i + 1}:${t}`}
           </Text>
         ))}
-        <Text dimColor> tab/1-3 to switch</Text>
+        <Text dimColor> tab/1-3 switch  q quit</Text>
       </Box>
 
       {/* Content */}

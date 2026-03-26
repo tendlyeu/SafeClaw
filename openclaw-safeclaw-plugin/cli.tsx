@@ -2,14 +2,15 @@
 import React from 'react';
 import { render } from 'ink';
 import { execSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, copyFileSync, lstatSync, unlinkSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, lstatSync, unlinkSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import App from './tui/App.js';
-import { loadConfig } from './tui/config.js';
+import { loadConfig, saveConfig, type SafeClawConfig } from './tui/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')).version as string;
 
 function readJson(path: string): Record<string, unknown> {
   try {
@@ -91,7 +92,10 @@ function registerWithOpenClaw(): boolean {
 const args = process.argv.slice(2);
 const command = args[0];
 
-if (command === 'connect') {
+// Handle --help / -h for any command position
+if (!command || command === '--help' || command === '-h' || command === 'help') {
+  // Fall through to the else block at the bottom which prints full help
+} else if (command === 'connect') {
   const apiKey = args[1];
   const serviceUrlIdx = args.indexOf('--service-url');
   const serviceUrl = serviceUrlIdx !== -1 && args[serviceUrlIdx + 1]
@@ -99,7 +103,7 @@ if (command === 'connect') {
     : 'https://api.safeclaw.eu/api/v1';
 
   if (!apiKey || apiKey.startsWith('--')) {
-    console.error('Usage: safeclaw connect <api-key> [--service-url <url>]');
+    console.error('Usage: safeclaw-plugin connect <api-key> [--service-url <url>]');
     process.exit(1);
   }
 
@@ -129,10 +133,9 @@ if (command === 'connect') {
   (config.remote as Record<string, string>).apiKey = apiKey;
   (config.remote as Record<string, string>).serviceUrl = serviceUrl;
 
-  // Write config with owner-only permissions
-  mkdirSync(configDir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
-  chmodSync(configPath, 0o600);
+  // Write config with owner-only permissions (atomic mode via writeFileSync option)
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
 
   console.log(`API key saved to ${configPath}`);
 
@@ -144,7 +147,7 @@ if (command === 'connect') {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ pluginVersion: '0.1.3', configHash: '' }),
+      body: JSON.stringify({ pluginVersion: PKG_VERSION, configHash: '' }),
       signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
@@ -163,7 +166,7 @@ if (command === 'connect') {
     }
   } catch {
     console.warn(`Warning: API key saved but could not reach ${serviceUrl}`);
-    console.warn('Run "safeclaw status" later to verify the connection.');
+    console.warn('Run "safeclaw-plugin status" later to verify the connection.');
   }
 
   // Register with OpenClaw
@@ -173,12 +176,82 @@ if (command === 'connect') {
     console.log('SafeClaw plugin registered with OpenClaw.');
     console.log('');
     console.log('Restart OpenClaw to activate:');
-    console.log('  safeclaw restart-openclaw');
+    console.log('  safeclaw-plugin restart-openclaw');
   } else {
     console.log('');
     console.log('Could not auto-register with OpenClaw.');
     console.log('Register manually:');
     console.log('  openclaw plugins install openclaw-safeclaw-plugin');
+  }
+} else if (command === 'config') {
+  const subcommand = args[1];
+
+  if (subcommand === 'show') {
+    const cfg = loadConfig();
+    console.log(`enabled:     ${cfg.enabled}`);
+    console.log(`enforcement: ${cfg.enforcement}`);
+    console.log(`failMode:    ${cfg.failMode}`);
+    console.log(`serviceUrl:  ${cfg.serviceUrl}`);
+    console.log(`apiKey:      ${cfg.apiKey ? `${cfg.apiKey.slice(0, 6)}...` : '(not set)'}`);
+    console.log(`timeoutMs:   ${cfg.timeoutMs}`);
+  } else if (subcommand === 'set') {
+    const key = args[2];
+    const value = args[3];
+
+    if (!key || !value) {
+      console.error('Usage: safeclaw-plugin config set <key> <value>');
+      console.error('');
+      console.error('Keys:');
+      console.error('  enforcement   enforce | warn-only | audit-only | disabled');
+      console.error('  failMode      open | closed');
+      console.error('  enabled       true | false');
+      console.error('  serviceUrl    https://...');
+      process.exit(1);
+    }
+
+    const cfg = loadConfig();
+    const validEnforcement = ['enforce', 'warn-only', 'audit-only', 'disabled'] as const;
+    const validFailModes = ['open', 'closed'] as const;
+
+    if (key === 'enforcement') {
+      if (!validEnforcement.includes(value as any)) {
+        console.error(`Invalid enforcement mode: "${value}". Valid: ${validEnforcement.join(', ')}`);
+        process.exit(1);
+      }
+      cfg.enforcement = value as SafeClawConfig['enforcement'];
+    } else if (key === 'failMode') {
+      if (!validFailModes.includes(value as any)) {
+        console.error(`Invalid fail mode: "${value}". Valid: ${validFailModes.join(', ')}`);
+        process.exit(1);
+      }
+      cfg.failMode = value as SafeClawConfig['failMode'];
+    } else if (key === 'enabled') {
+      if (value !== 'true' && value !== 'false') {
+        console.error('Invalid value for enabled: must be "true" or "false"');
+        process.exit(1);
+      }
+      cfg.enabled = value === 'true';
+    } else if (key === 'serviceUrl') {
+      cfg.serviceUrl = value;
+    } else {
+      console.error(`Unknown config key: "${key}"`);
+      console.error('Valid keys: enforcement, failMode, enabled, serviceUrl');
+      process.exit(1);
+    }
+
+    try {
+      saveConfig(cfg);
+    } catch (e) {
+      console.error(`Error: ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+    console.log(`Set ${key} = ${value}`);
+  } else {
+    console.error('Usage: safeclaw-plugin config <show|set>');
+    console.error('');
+    console.error('  show          Display all current config values');
+    console.error('  set <k> <v>   Set a config value (enforcement, failMode, enabled, serviceUrl)');
+    process.exit(1);
   }
 } else if (command === 'tui') {
   render(React.createElement(App));
@@ -200,8 +273,8 @@ if (command === 'connect') {
     console.log('');
     console.log('Next steps:');
     console.log('  1. Get an API key at https://safeclaw.eu/dashboard');
-    console.log('  2. Run: safeclaw connect <your-api-key>');
-    console.log('  3. Run: safeclaw restart-openclaw');
+    console.log('  2. Run: safeclaw-plugin connect <your-api-key>');
+    console.log('  3. Run: safeclaw-plugin restart-openclaw');
   } else {
     console.log('Could not auto-register.');
     console.log('Try: openclaw plugins install openclaw-safeclaw-plugin');
@@ -220,7 +293,7 @@ if (command === 'connect') {
   if (existsSync(configPath)) {
     console.log('[ok] Config file: ' + configPath);
   } else {
-    console.log('[!!] Config file not found. Run: safeclaw connect <api-key>');
+    console.log('[!!] Config file not found. Run: safeclaw-plugin connect <api-key>');
     allOk = false;
   }
 
@@ -231,7 +304,7 @@ if (command === 'connect') {
     console.log('[!!] API key: invalid (must start with sc_)');
     allOk = false;
   } else {
-    console.log('[!!] API key: not set. Run: safeclaw connect <api-key>');
+    console.log('[!!] API key: not set. Run: safeclaw-plugin connect <api-key>');
     allOk = false;
   }
 
@@ -306,7 +379,7 @@ if (command === 'connect') {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${cfg.apiKey}`,
         },
-        body: JSON.stringify({ pluginVersion: '0.1.3', configHash: '' }),
+        body: JSON.stringify({ pluginVersion: PKG_VERSION, configHash: '' }),
         signal: AbortSignal.timeout(cfg.timeoutMs),
       });
       if (res.ok) {
@@ -341,7 +414,7 @@ if (command === 'connect') {
     }
   } else if (serviceHealthy && !cfg.apiKey) {
     console.log('[!!] Handshake: skipped — no API key configured');
-    console.log('     ↳ Run: safeclaw connect <your-api-key>');
+    console.log('     ↳ Run: safeclaw-plugin connect <your-api-key>');
     allOk = false;
   }
 
@@ -363,13 +436,13 @@ if (command === 'connect') {
   } else if (existsSync(extensionDir)) {
     const stat = lstatSync(extensionDir);
     if (stat.isSymbolicLink()) {
-      console.log('[!!] Plugin: stale symlink (run safeclaw setup to fix)');
+      console.log('[!!] Plugin: stale symlink (run safeclaw-plugin setup to fix)');
     } else {
       console.log('[!!] Plugin: missing files in ' + extensionDir);
     }
     allOk = false;
   } else {
-    console.log('[!!] Plugin: not installed. Run: safeclaw setup');
+    console.log('[!!] Plugin: not installed. Run: safeclaw-plugin setup');
     allOk = false;
   }
 
@@ -399,13 +472,30 @@ if (command === 'connect') {
     console.log('Some checks failed. Fix the issues above.');
   }
 } else {
-  console.log('Usage: safeclaw <command>');
+  console.log('safeclaw-plugin — OpenClaw plugin CLI for SafeClaw governance');
   console.log('');
-  console.log('Commands:');
-  console.log('  connect <api-key>  Connect to SafeClaw and register with OpenClaw');
-  console.log('  setup              Register SafeClaw plugin with OpenClaw (no key needed)');
-  console.log('  status             Check SafeClaw + OpenClaw connection status');
-  console.log('  tui                Open the interactive SafeClaw settings TUI');
-  console.log('  restart-openclaw   Restart the OpenClaw daemon');
+  console.log('Usage: safeclaw-plugin <command> [options]');
+  console.log('');
+  console.log('Setup:');
+  console.log('  connect <api-key>    Save API key, validate via handshake, register with OpenClaw');
+  console.log('                       Keys start with "sc_". Get yours at https://safeclaw.eu/dashboard');
+  console.log('  setup                Register plugin with OpenClaw without an API key (manual setup)');
+  console.log('  restart-openclaw     Restart the OpenClaw daemon to pick up plugin changes');
+  console.log('');
+  console.log('Diagnostics:');
+  console.log('  status               Run 8 checks: config, API key, service health, evaluate endpoint,');
+  console.log('                       handshake, OpenClaw binary, plugin files, OpenClaw config');
+  console.log('');
+  console.log('Configuration:');
+  console.log('  config show          Show current enforcement, failMode, enabled, serviceUrl, apiKey');
+  console.log('  config set <k> <v>   Set a config value. Keys: enforcement, failMode, enabled, serviceUrl');
+  console.log('                       enforcement: enforce | warn-only | audit-only | disabled');
+  console.log('                       failMode:    open (allow on error) | closed (block on error)');
+  console.log('                       enabled:     true | false');
+  console.log('');
+  console.log('Interactive:');
+  console.log('  tui                  Open the interactive settings TUI (Status, Settings, About tabs)');
+  console.log('');
+  console.log('For the service CLI (serve, audit, policy, pref), use the "safeclaw" command.');
   process.exit(0);
 }

@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 
 import typer
+from rich.console import Console
+
+console = Console()
 
 
 def get_config_path() -> Path:
@@ -13,13 +16,23 @@ def get_config_path() -> Path:
 
 
 def connect_cmd(
-    api_key: str = typer.Argument(help="Your SafeClaw API key (starts with sc_)"),
+    api_key: str = typer.Argument(help="Your SafeClaw API key (starts with sc_). Get one at https://safeclaw.eu/dashboard"),
     service_url: str = typer.Option(
         "https://api.safeclaw.eu/api/v1",
-        help="SafeClaw service URL",
+        help="SafeClaw remote service URL",
     ),
 ):
-    """Connect your plugin to SafeClaw by saving your API key to ~/.safeclaw/config.json."""
+    """Save your API key for remote SafeClaw service connections.
+
+    Writes the key to ~/.safeclaw/config.json with owner-only permissions.
+    For plugin-side setup (OpenClaw registration, handshake validation),
+    use 'safeclaw-plugin connect' instead.
+    """
+    if not api_key.startswith("sc_"):
+        console.print("[red]Error: Invalid API key. Keys must start with 'sc_'.[/red]")
+        console.print("Get your key at https://safeclaw.eu/dashboard")
+        raise typer.Exit(1)
+
     config_path = get_config_path()
 
     # Load existing config or start fresh
@@ -45,4 +58,4 @@ def connect_cmd(
     finally:
         os.close(fd)
 
-    typer.echo(f"Connected! Your API key has been saved to {config_path}")
+    console.print(f"[green]Connected![/green] Your API key has been saved to {config_path}")

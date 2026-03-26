@@ -15,8 +15,8 @@ npm install -g openclaw-safeclaw-plugin
 
 ```bash
 npm install -g openclaw-safeclaw-plugin
-safeclaw connect <your-api-key>
-safeclaw restart-openclaw
+safeclaw-plugin connect <your-api-key>
+safeclaw-plugin restart-openclaw
 ```
 
 That's it. Every tool call your AI agent makes is now governed by SafeClaw.
@@ -24,10 +24,12 @@ That's it. Every tool call your AI agent makes is now governed by SafeClaw.
 ## Commands
 
 ```
-safeclaw connect <api-key>  Connect to SafeClaw and register with OpenClaw
-safeclaw setup              Register plugin with OpenClaw (no key needed)
-safeclaw tui                Open the interactive settings TUI
-safeclaw restart-openclaw   Restart the OpenClaw daemon
+safeclaw-plugin connect <api-key>  Connect to SafeClaw and register with OpenClaw
+safeclaw-plugin setup              Register plugin with OpenClaw (no key needed)
+safeclaw-plugin config show        Show current plugin configuration
+safeclaw-plugin config set <k> <v> Set a plugin configuration value
+safeclaw-plugin tui                Open the interactive settings TUI
+safeclaw-plugin restart-openclaw   Restart the OpenClaw daemon
 ```
 
 ## What It Does
@@ -55,7 +57,7 @@ Set via environment variables or `~/.safeclaw/config.json`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SAFECLAW_URL` | `https://api.safeclaw.eu/api/v1` | SafeClaw service URL |
-| `SAFECLAW_API_KEY` | *(empty)* | API key (set automatically by `safeclaw connect`) |
+| `SAFECLAW_API_KEY` | *(empty)* | API key (set automatically by `safeclaw-plugin connect`) |
 | `SAFECLAW_TIMEOUT_MS` | `5000` | Request timeout in ms |
 | `SAFECLAW_ENABLED` | `true` | Set `false` to disable |
 | `SAFECLAW_ENFORCEMENT` | `enforce` | `enforce`, `warn-only`, `audit-only`, or `disabled` |

@@ -35,6 +35,12 @@ class TestConnectCommand:
         config = json.loads(config_path.read_text())
         assert config["remote"]["serviceUrl"] == "http://localhost:8420/api/v1"
 
+    def test_connect_rejects_invalid_key_prefix(self):
+        """API keys that don't start with sc_ should be rejected."""
+        result = runner.invoke(app, ["connect", "invalid_key_12345"])
+        assert result.exit_code != 0
+        assert "sc_" in result.output
+
     def test_connect_merges_existing_config(self, tmp_path, monkeypatch):
         config_path = tmp_path / ".safeclaw" / "config.json"
         config_path.parent.mkdir(parents=True)

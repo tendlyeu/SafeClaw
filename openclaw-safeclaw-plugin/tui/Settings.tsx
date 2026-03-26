@@ -22,6 +22,7 @@ const SETTINGS: SettingItem[] = [
   { key: 'enforcement', label: 'Enforcement', type: 'cycle', values: ENFORCEMENT_MODES },
   { key: 'failMode', label: 'Fail Mode', type: 'cycle', values: FAIL_MODES },
   { key: 'serviceUrl', label: 'Service URL', type: 'text' },
+  { key: 'apiKey', label: 'API Key', type: 'text' },
 ];
 
 export default function Settings({ config, onConfigChange }: SettingsProps) {
@@ -38,7 +39,17 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
   useInput((input, key) => {
     if (editing) {
       if (key.return) {
-        updateConfig({ serviceUrl: editBuffer });
+        const editingKey = SETTINGS[selected].key;
+        if (editingKey === 'apiKey' && editBuffer && !editBuffer.startsWith('sc_')) {
+          // Reject invalid API keys — must start with sc_
+          return;
+        }
+        try {
+          updateConfig({ [editingKey]: editBuffer } as Partial<SafeClawConfig>);
+        } catch {
+          // saveConfig may throw on invalid URL — stay in edit mode
+          return;
+        }
         setEditing(false);
       } else if (key.escape) {
         setEditing(false);
@@ -67,7 +78,7 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
         updateConfig({ [currentKey]: next });
       } else if (setting.type === 'text' && key.return) {
         setEditing(true);
-        setEditBuffer(config.serviceUrl);
+        setEditBuffer(String(config[setting.key as keyof SafeClawConfig] ?? ''));
       }
     }
   });
@@ -85,8 +96,12 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
 
         if (setting.key === 'enabled') {
           value = config.enabled ? 'ON' : 'OFF';
-        } else if (setting.key === 'serviceUrl' && editing && isSelected) {
-          value = editBuffer + '█';
+        } else if (setting.type === 'text' && editing && isSelected) {
+          value = (setting.key === 'apiKey' ? '*'.repeat(editBuffer.length) : editBuffer) + '█';
+        } else if (setting.key === 'apiKey') {
+          value = config.apiKey
+            ? `${config.apiKey.slice(0, 6)}..${config.apiKey.slice(-4)}`
+            : '(not set)';
         } else {
           value = String(config[setting.key as keyof SafeClawConfig]);
         }
@@ -117,13 +132,22 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
       <Box marginTop={1}>
         <Text dimColor>
           {editing
-            ? '  type to edit · enter to save · esc to cancel'
-            : '  ↑↓ navigate · ←→ change · enter to edit URL · q quit'}
+            ? SETTINGS[selected].key === 'apiKey' && editBuffer && !editBuffer.startsWith('sc_')
+              ? '  API key must start with sc_ · esc to cancel'
+              : '  type to edit · enter to save · esc to cancel'
+            : '  ↑↓ navigate · ←→/enter cycle/toggle · enter to edit text fields · q quit'}
         </Text>
       </Box>
 
+      <Box marginTop={1}>
+        <Text dimColor>{'  Enforcement: enforce=block violations, warn-only=log only, audit-only=record only, disabled=off'}</Text>
+      </Box>
       <Box>
-        <Text dimColor>{'  Saves to ~/.safeclaw/config.json'}</Text>
+        <Text dimColor>{'  Fail Mode:   open=allow if service unreachable, closed=block if service unreachable'}</Text>
+      </Box>
+
+      <Box marginTop={1}>
+        <Text dimColor>{'  All changes save to ~/.safeclaw/config.json immediately.'}</Text>
       </Box>
     </Box>
   );

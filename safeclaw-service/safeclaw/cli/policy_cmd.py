@@ -3,7 +3,13 @@
 import typer
 from rich.console import Console
 
-policy_app = typer.Typer(help="Policy management commands")
+policy_app = typer.Typer(
+    help=(
+        "Manage governance policies (prohibitions, obligations, permissions).\n\n"
+        "Policies are stored as Turtle triples in safeclaw-policy.ttl and\n"
+        "evaluated as part of the 9-step constraint pipeline."
+    ),
+)
 console = Console()
 
 
@@ -19,7 +25,12 @@ def _escape_turtle(s: str) -> str:
 
 @policy_app.command("list")
 def list_policies():
-    """List active policies."""
+    """List all active policies from the ontology.
+
+    Shows each policy's type (Prohibition/Obligation/Permission),
+    name, and reason. Policies are loaded from the bundled and
+    user-added .ttl files.
+    """
     from safeclaw.config import SafeClawConfig
     from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP
 
@@ -51,22 +62,41 @@ def list_policies():
 
 @policy_app.command("add")
 def add_policy(
-    name: str = typer.Argument(help="Policy name (e.g., NoStagingDeploy)"),
-    policy_type: str = typer.Option(
-        "prohibition", "--type", "-t", help="Policy type: prohibition, obligation, permission"
+    name: str = typer.Argument(
+        help="Policy name — letters, digits, hyphens, underscores (e.g., NoStagingDeploy)"
     ),
-    reason: str = typer.Option(..., "--reason", "-r", help="Why this policy exists"),
-    path_pattern: str = typer.Option(None, "--path-pattern", help="Forbidden file path regex"),
-    command_pattern: str = typer.Option(None, "--command-pattern", help="Forbidden command regex"),
+    policy_type: str = typer.Option(
+        "prohibition",
+        "--type",
+        "-t",
+        help="prohibition = blocks actions, obligation = requires actions, permission = allows actions",
+    ),
+    reason: str = typer.Option(
+        ..., "--reason", "-r", help="Human-readable reason for this policy"
+    ),
+    path_pattern: str = typer.Option(
+        None, "--path-pattern", help="Regex for forbidden file paths (e.g., 'staging/.*')"
+    ),
+    command_pattern: str = typer.Option(
+        None, "--command-pattern", help="Regex for forbidden commands (e.g., 'rm -rf /')"
+    ),
 ):
-    """Add a new policy to the ontology."""
+    """Add a new policy rule to the ontology.
+
+    Example:
+      safeclaw policy add NoProdDeploy -t prohibition -r "Block production deploys" --path-pattern "prod/.*"
+
+    Changes take effect after service restart or hot-reload (POST /api/v1/reload).
+    """
     from safeclaw.config import SafeClawConfig
 
     config = SafeClawConfig()
     policy_file = config.get_ontology_dir() / "safeclaw-policy.ttl"
 
     if not policy_file.exists():
-        console.print("[red]Policy ontology file not found[/red]")
+        console.print("[red]Error: Policy ontology file not found.[/red]")
+        console.print(f"Expected: {policy_file}")
+        console.print("Run [bold]safeclaw init[/bold] first, or check SAFECLAW_ONTOLOGY_DIR.")
         raise typer.Exit(1)
 
     type_map = {
@@ -76,16 +106,17 @@ def add_policy(
     }
     owl_type = type_map.get(policy_type.lower())
     if not owl_type:
-        console.print(f"[red]Unknown policy type: {policy_type}[/red]")
+        console.print(f"[red]Error: Unknown policy type '{policy_type}'.[/red]")
+        console.print("Valid types: prohibition, obligation, permission")
         raise typer.Exit(1)
 
     # Validate name is safe for use as a Turtle IRI local name (R3-41)
     import re as _re
 
     if not _re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]*", name):
-        console.print(
-            f"[red]Invalid policy name '{name}': must match [a-zA-Z_][a-zA-Z0-9_-]*[/red]"
-        )
+        console.print(f"[red]Error: Invalid policy name '{name}'.[/red]")
+        console.print("Must start with a letter or underscore, followed by letters, digits, hyphens, or underscores.")
+        console.print("Examples: NoProdDeploy, require_tests, block-rm-rf")
         raise typer.Exit(1)
 
     # Build Turtle snippet
@@ -114,23 +145,29 @@ def add_policy(
 
 @policy_app.command("remove")
 def remove_policy(
-    name: str = typer.Argument(help="Policy name to remove"),
+    name: str = typer.Argument(help="Policy name to remove (as shown in 'policy list')"),
 ):
-    """Remove a policy by commenting it out in the ontology file."""
+    """Remove a policy by commenting it out in the ontology file.
+
+    The policy is not deleted — its Turtle block is prefixed with '# REMOVED:'.
+    This preserves an audit trail. To fully delete, edit the .ttl file directly.
+    """
     from safeclaw.config import SafeClawConfig
 
     config = SafeClawConfig()
     policy_file = config.get_ontology_dir() / "safeclaw-policy.ttl"
 
     if not policy_file.exists():
-        console.print("[red]Policy ontology file not found[/red]")
+        console.print("[red]Error: Policy ontology file not found.[/red]")
+        console.print(f"Expected: {policy_file}")
         raise typer.Exit(1)
 
     content = policy_file.read_text()
     marker = f"sp:{name} "
 
     if marker not in content:
-        console.print(f"[yellow]Policy '{name}' not found[/yellow]")
+        console.print(f"[yellow]Policy '{name}' not found in the ontology.[/yellow]")
+        console.print("Use [bold]safeclaw policy list[/bold] to see active policies.")
         raise typer.Exit(1)
 
     # Comment out the policy block (find from sp:Name to the next period+newline)
@@ -141,12 +178,14 @@ def remove_policy(
         re.MULTILINE,
     )
     new_content = pattern.sub(
-        lambda m: "\n".join("# REMOVED: " + line for line in m.group(0).splitlines()),
+        lambda m: "\n".join("# REMOVED: " + line for line in m.group(0).splitlines()) + "\n",
         content,
     )
 
     if new_content == content:
-        console.print(f"[yellow]Could not locate policy block for '{name}'[/yellow]")
+        console.print(f"[yellow]Could not locate the Turtle block for '{name}'.[/yellow]")
+        console.print("The policy name exists but its block structure could not be parsed.")
+        console.print(f"You may need to edit {policy_file} manually.")
         raise typer.Exit(1)
 
     policy_file.write_text(new_content)
@@ -233,9 +272,19 @@ def _validate_turtle_semantics(turtle: str) -> list[str]:
 
 @policy_app.command("add-nl")
 def add_nl(
-    description: str = typer.Argument(help="Natural language policy description"),
+    description: str = typer.Argument(
+        help="Natural language description of the policy (e.g., 'never allow deleting production databases')"
+    ),
 ):
-    """Add a policy using natural language (requires LLM)."""
+    """Compile a natural language description into a policy rule using the LLM.
+
+    Requires SAFECLAW_MISTRAL_API_KEY. The LLM generates a Turtle policy
+    which is validated for safety (no privilege escalation predicates) and
+    shown for confirmation before being applied.
+
+    Example:
+      safeclaw policy add-nl "block all file deletions in the /etc directory"
+    """
     import asyncio
     from safeclaw.config import SafeClawConfig
     from safeclaw.llm.client import create_client
@@ -244,7 +293,10 @@ def add_nl(
     client = create_client(config)
     if client is None:
         console.print(
-            "[red]LLM not configured. Set SAFECLAW_MISTRAL_API_KEY environment variable.[/red]"
+            "[red]Error: LLM not configured.[/red]\n"
+            "Set the SAFECLAW_MISTRAL_API_KEY environment variable:\n"
+            "  export SAFECLAW_MISTRAL_API_KEY=your-key-here\n\n"
+            "Or use [bold]safeclaw policy add[/bold] to add policies manually."
         )
         raise typer.Exit(1)
 
@@ -255,12 +307,33 @@ def add_nl(
     kg.load_directory(config.get_ontology_dir())
     compiler = PolicyCompiler(client, kg)
 
+    console.print("[dim]Compiling natural language to Turtle policy...[/dim]")
     result = asyncio.run(compiler.compile(description))
 
     if not result.success:
-        console.print("[red]Failed to compile policy:[/red]")
+        console.print("[red]Error: Failed to compile policy:[/red]")
         for err in result.validation_errors:
             console.print(f"  - {err}")
+        console.print("\nTry rephrasing your description or use [bold]safeclaw policy add[/bold] for manual entry.")
+        raise typer.Exit(1)
+
+    # Validate LLM-generated policy name is safe for Turtle IRI
+    import re as _re_nl
+
+    if not _re_nl.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]*", result.policy_name):
+        console.print(
+            f"[red]Error: LLM generated an invalid policy name: '{result.policy_name}'.[/red]\n"
+            "Try rephrasing your description or use [bold]safeclaw policy add[/bold] for manual entry."
+        )
+        raise typer.Exit(1)
+
+    # Semantic validation: reject LLM output containing dangerous predicates
+    semantic_errors = _validate_turtle_semantics(result.turtle)
+    if semantic_errors:
+        console.print("[red]Error: LLM generated unsafe policy — rejected:[/red]")
+        for err in semantic_errors:
+            console.print(f"  - {err}")
+        console.print("\nThis is a safety check. The LLM attempted to use forbidden predicates.")
         raise typer.Exit(1)
 
     console.print(f"\n[bold]Generated policy: {result.policy_name}[/bold]")
@@ -268,17 +341,10 @@ def add_nl(
     console.print(f"\n[dim]{result.turtle}[/dim]\n")
 
     if typer.confirm("Apply this policy?"):
-        # Semantic validation: reject LLM output containing dangerous predicates
-        semantic_errors = _validate_turtle_semantics(result.turtle)
-        if semantic_errors:
-            console.print("[red]Semantic validation failed:[/red]")
-            for err in semantic_errors:
-                console.print(f"  - {err}")
-            raise typer.Exit(1)
-
         policy_file = config.get_ontology_dir() / "safeclaw-policy.ttl"
+        safe_desc = description.replace("\n", " ").replace("\r", " ")
         with open(policy_file, "a") as f:
-            f.write(f"\n# Added via NL compiler: {description}\n{result.turtle}\n")
+            f.write(f"\n# Added via NL compiler: {safe_desc}\n{result.turtle}\n")
         console.print("[green]Policy applied successfully[/green]")
         console.print(
             "[yellow]Restart the service or use hot-reload for changes to take effect[/yellow]"
