@@ -23,6 +23,8 @@ from safeclaw.api.models import (
     PolicyCompileResponse,
     PreferencesRequest,
     SessionEndRequest,
+    SessionStartRequest,
+    SessionStartResponse,
     SubagentEndedRequest,
     SubagentEndedResponse,
     SubagentSpawnRequest,
@@ -162,11 +164,54 @@ async def build_context(request: AgentStartRequest) -> ContextResponse:
     return ContextResponse(prependContext=result.prepend_context)
 
 
+@router.post("/session/start", response_model=SessionStartResponse)
+async def start_session(request: SessionStartRequest, req: Request) -> SessionStartResponse:
+    """Initialize session-scoped governance state.
+
+    Pre-loads user preferences, initializes rate limit bucket, and logs
+    session start to audit.
+    """
+    engine = _get_engine()
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    owner_id = request.agentId or user_id
+
+    # Initialize session tracker state with the owner
+    engine.session_tracker._get_or_create(request.sessionId, owner_id=owner_id)
+
+    # Pre-load user preferences into cache by querying them
+    if request.userId:
+        engine.preference_checker.get_preferences(request.userId)
+
+    # Initialize rate limiter session bucket (creates entry if missing)
+    engine.rate_limiter._sessions.setdefault(request.sessionId, [])
+
+    logger.info(
+        "Session %s started: user=%s agent=%s",
+        request.sessionId,
+        user_id,
+        request.agentId,
+    )
+    return SessionStartResponse(acknowledged=True)
+
+
 @router.post("/session/end")
 async def end_session(request: SessionEndRequest, req: Request):
-    """Clean up all per-session state when a session ends."""
+    """Clean up all per-session state when a session ends.
+
+    Verifies session ownership before clearing: only the org/agent that
+    created the session (or unowned sessions) can be cleared.
+    """
     engine = _get_engine()
     org_id = getattr(req.state, "org_id", None)
+
+    # Ownership check: if the caller has an org_id, verify they own the session
+    if org_id:
+        if not engine.session_tracker.verify_session_owner(request.sessionId, org_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Session owned by a different user/agent",
+            )
+
     logger.info("Session %s cleared by org_id=%s", request.sessionId, org_id)
     await engine.clear_session(request.sessionId)
     return {"ok": True, "sessionId": request.sessionId}

@@ -235,3 +235,22 @@ class SubagentEndedRequest(BaseModel):
 
 class SubagentEndedResponse(BaseModel):
     ok: bool = True
+
+
+# --- Session lifecycle models (#189) ---
+
+
+class SessionStartRequest(BaseModel):
+    sessionId: str
+    userId: str | None = None
+    agentId: str | None = None
+    metadata: dict = {}
+
+    @field_validator("metadata")
+    @classmethod
+    def check_metadata(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class SessionStartResponse(BaseModel):
+    acknowledged: bool = True
