@@ -10,19 +10,19 @@
 sc:InboundChannel a owl:Class ;
     rdfs:label "Inbound Channel" .
 
-sc:DirectMessage rdfs:subClassOf sc:InboundChannel ;
+sc:DirectMessage a sc:InboundChannel ;
     sc:trustLevel "high" ;
     rdfs:label "Direct Message" .
 
-sc:GroupMessage rdfs:subClassOf sc:InboundChannel ;
+sc:GroupMessage a sc:InboundChannel ;
     sc:trustLevel "medium" ;
     rdfs:label "Group Message" .
 
-sc:PublicChannel rdfs:subClassOf sc:InboundChannel ;
+sc:PublicChannel a sc:InboundChannel ;
     sc:trustLevel "low" ;
     rdfs:label "Public Channel" .
 
-sc:WebhookMessage rdfs:subClassOf sc:InboundChannel ;
+sc:WebhookMessage a sc:InboundChannel ;
     sc:trustLevel "untrusted" ;
     rdfs:label "Webhook Message" .
 
