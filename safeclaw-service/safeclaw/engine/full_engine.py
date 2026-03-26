@@ -86,19 +86,17 @@ class FullEngine(SafeClawEngine):
     def __init__(self, config: SafeClawConfig, api_key_manager=None):
         """Initialize the full SafeClaw engine.
 
-        WARNING: All governance state (session tracking, rate limiter counters,
-        agent registry, delegation history, temp permissions, per-session locks)
-        is held in-memory only. A process restart loses all accumulated state.
-        This means:
-        - Rate limits reset, allowing previously rate-limited agents to retry.
-        - Session-scoped dependency checks (e.g., "tests must pass before push")
-          lose their history of recorded actions.
-        - Temporary permission grants are lost.
-        - Kill-switched agents become un-killed.
-        - Audit logs on disk survive, but active session context does not.
+        Critical governance state (agent kills, rate-limit counters, temp
+        permissions) is persisted to a SQLite-backed StateStore at
+        ``config.data_dir / "governance_state.db"``.  In-memory structures
+        remain the fast path for reads; the store ensures durability across
+        service restarts.
 
-        For production deployments, consider persisting critical state (agent
-        registry, rate limiter windows, session tracker) to an external store.
+        State that is NOT persisted (ephemeral by design):
+        - Session-scoped dependency checks and per-session locks
+        - Delegation detection history
+        - Active session context
+        - Audit logs are written separately to JSONL on disk
         """
         self.config = config
         self.api_key_manager = api_key_manager

@@ -1,5 +1,7 @@
 """Agent registration with per-agent tokens."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import logging
@@ -8,6 +10,10 @@ import secrets
 from collections import OrderedDict
 from dataclasses import dataclass
 from time import monotonic
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from safeclaw.engine.state_store import StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +36,18 @@ class AgentRecord:
 class AgentRegistry:
     """Manages agent registration and per-agent token verification."""
 
-    def __init__(self):
+    def __init__(self, state_store: StateStore | None = None):
         self._agents: OrderedDict[str, AgentRecord] = OrderedDict()
         self._server_secret = os.urandom(32)
+        self._state_store = state_store
+
+        # Restore kill state from persistent store on startup
+        if self._state_store is not None:
+            self._killed_from_store: set[str] = {
+                k.agent_id for k in self._state_store.get_all_killed_agents()
+            }
+        else:
+            self._killed_from_store: set[str] = set()
 
     def _hash_token(self, token: str) -> str:
         return hmac.new(self._server_secret, token.encode(), hashlib.sha256).hexdigest()
@@ -70,7 +85,9 @@ class AgentRegistry:
             evicted_id, evicted_record = self._agents.popitem(last=False)
             logger.warning(
                 "Evicted agent %s (role=%s, session=%s) due to MAX_AGENTS limit",
-                evicted_id, evicted_record.role, evicted_record.session_id,
+                evicted_id,
+                evicted_record.role,
+                evicted_record.session_id,
             )
         return token
 
@@ -84,14 +101,15 @@ class AgentRegistry:
             return False
         if record.killed:
             return False
-        return hmac.compare_digest(
-            record.token_hash, self._hash_token(token)
-        )
+        return hmac.compare_digest(record.token_hash, self._hash_token(token))
 
-    def kill_agent(self, agent_id: str) -> bool:
+    def kill_agent(self, agent_id: str, reason: str = "") -> bool:
         record = self._agents.get(agent_id)
         if record:
             record.killed = True
+            if self._state_store is not None:
+                self._state_store.save_agent_kill(agent_id, reason)
+            self._killed_from_store.add(agent_id)
             return True
         return False
 
@@ -107,19 +125,23 @@ class AgentRegistry:
         new_token = secrets.token_urlsafe(32)
         record.token_hash = self._hash_token(new_token)
         record.killed = False
+        if self._state_store is not None:
+            self._state_store.revive_agent(agent_id)
+        self._killed_from_store.discard(agent_id)
         return True, new_token
 
     def is_killed(self, agent_id: str) -> bool:
         """Check if an agent has been explicitly killed.
 
-        Returns False for unregistered agents — the kill switch should
-        only apply to agents that were explicitly killed.  Registration
-        checks are handled separately by ``_require_token_auth``.
+        Checks both the in-memory registry and the persistent store.
+        An agent that was killed in a previous process lifetime will
+        still be detected even if it hasn't re-registered yet.
         """
         record = self._agents.get(agent_id)
-        if record is None:
-            return False
-        return record.killed
+        if record is not None:
+            return record.killed
+        # Check persistent kill set (loaded on startup from store)
+        return agent_id in self._killed_from_store
 
     def get_agent(self, agent_id: str) -> AgentRecord | None:
         return self._agents.get(agent_id)
