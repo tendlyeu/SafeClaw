@@ -43,7 +43,7 @@ def _build_home_content(engine):
     )
 
     # ── Heartbeat overview row ────────────────────────────
-    stale_agents = engine.heartbeat_monitor.check_stale()
+    stale_agents = engine.heartbeat_monitor.get_stale_agents()
     heartbeat_agents = engine.heartbeat_monitor._agents
     total_hb = len(heartbeat_agents)
     healthy = total_hb - len(stale_agents)

@@ -65,8 +65,25 @@ class HeartbeatMonitor:
             info["config_hash"] = config_hash
             info["stale_notified"] = False  # Reset on new heartbeat
 
+    def get_stale_agents(self, threshold: float = 90.0) -> list[str]:
+        """Return agent IDs that haven't sent a heartbeat within threshold seconds.
+
+        This is a read-only query that does NOT publish events or update state.
+        Use this for dashboard polling where side effects are undesirable.
+        """
+        now = time.monotonic()
+        return [
+            agent_id
+            for agent_id, info in self._agents.items()
+            if now - info["last_seen"] > threshold
+        ]
+
     def check_stale(self, threshold: float = 90.0) -> list[str]:
-        """Return agent IDs that haven't sent a heartbeat within threshold seconds."""
+        """Return agent IDs that haven't sent a heartbeat within threshold seconds.
+
+        Publishes a heartbeat_lost event for each newly stale agent. For
+        read-only queries (e.g. dashboard polling), use get_stale_agents().
+        """
         now = time.monotonic()
         stale = []
         for agent_id, info in self._agents.items():
