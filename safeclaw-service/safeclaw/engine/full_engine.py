@@ -46,7 +46,9 @@ from safeclaw.engine.roles import RoleManager
 from safeclaw.engine.session_tracker import SessionTracker
 from safeclaw.engine.shacl_validator import SHACLValidator
 from safeclaw.engine.heartbeat_monitor import HeartbeatMonitor
+from safeclaw.engine.state_store import StateStore
 from safeclaw.engine.temp_permissions import TempPermissionManager
+from safeclaw.utils.sanitize import sanitize_string, sanitize_params
 
 # Pipeline step constants — used in Decision.constraint_step and audit records
 # to provide structured, machine-readable identification of which pipeline step
@@ -113,6 +115,10 @@ class FullEngine(SafeClawEngine):
         ontology_dir = config.get_ontology_dir()
         audit_dir = config.get_audit_dir()
 
+        # SQLite-backed state store for governance persistence
+        state_db = config.data_dir / "governance_state.db"
+        self._state_store = StateStore(state_db)
+
         # Knowledge graph
         self.kg = KnowledgeGraph()
         self.kg.load_directory(ontology_dir)
@@ -151,7 +157,7 @@ class FullEngine(SafeClawEngine):
         self.context_builder = ContextBuilder(self.kg)
 
         # Multi-agent governance (Phase: multi-agent)
-        self.agent_registry = AgentRegistry()
+        self.agent_registry = AgentRegistry(state_store=self._state_store)
         try:
             raw = config.raw
         except (json.JSONDecodeError, AttributeError, OSError, UnicodeDecodeError):
@@ -401,7 +407,14 @@ class FullEngine(SafeClawEngine):
                 break
 
     async def evaluate_tool_call(self, event: ToolCallEvent) -> Decision:
-        """Run the full constraint checking pipeline."""
+        """Run the full constraint checking pipeline.
+
+        Sanitizes tool_name and params at the engine level so that direct
+        callers (not going through the API routes) are also protected from
+        control-character injection and oversized strings.
+        """
+        event.tool_name = sanitize_string(event.tool_name)
+        event.params = sanitize_params(event.params) if event.params else {}
         async with self._session_lock(event.session_id):
             return await self._evaluate_tool_call_locked(event)
 

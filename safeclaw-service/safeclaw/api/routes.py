@@ -1,10 +1,12 @@
 """FastAPI route definitions for SafeClaw API."""
 
 import logging
-import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from safeclaw.utils.sanitize import sanitize_string as _sanitize_string
+from safeclaw.utils.sanitize import sanitize_params as _sanitize_params
 
 from safeclaw.api.models import (
     AgentRegisterRequest,
@@ -35,48 +37,6 @@ from safeclaw.engine.core import (
 )
 
 logger = logging.getLogger("safeclaw.api")
-
-# Regex to strip control characters (keep printable + whitespace)
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-_MAX_RESULT_LEN = 100_000
-
-
-def _sanitize_string(value: str) -> str:
-    """Strip control characters and limit length to prevent prompt injection."""
-    sanitized = _CONTROL_CHAR_RE.sub("", value)
-    return sanitized[:_MAX_RESULT_LEN]
-
-
-def _sanitize_list(items: list) -> list:
-    """Recursively sanitize values in a list."""
-    result = []
-    for item in items:
-        if isinstance(item, str):
-            result.append(_sanitize_string(item))
-        elif isinstance(item, dict):
-            result.append(_sanitize_params(item))
-        elif isinstance(item, list):
-            result.append(_sanitize_list(item))
-        else:
-            result.append(item)
-    return result
-
-
-def _sanitize_params(params: dict) -> dict:
-    """Recursively sanitize string values in params dict (handles arbitrary nesting)."""
-    sanitized = {}
-    for k, v in params.items():
-        key = _sanitize_string(str(k))
-        if isinstance(v, str):
-            sanitized[key] = _sanitize_string(v)
-        elif isinstance(v, dict):
-            sanitized[key] = _sanitize_params(v)
-        elif isinstance(v, list):
-            sanitized[key] = _sanitize_list(v)
-        else:
-            sanitized[key] = v
-    return sanitized
-
 
 router = APIRouter()
 
