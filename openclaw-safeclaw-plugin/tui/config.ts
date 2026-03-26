@@ -78,6 +78,14 @@ export function loadConfig(): SafeClawConfig {
   if (process.env.SAFECLAW_AGENT_ID) defaults.agentId = process.env.SAFECLAW_AGENT_ID;
   if (process.env.SAFECLAW_AGENT_TOKEN) defaults.agentToken = process.env.SAFECLAW_AGENT_TOKEN;
 
+  // NemoClaw sandbox detection
+  if (process.env.OPENSHELL_SANDBOX) {
+    // Inside NemoClaw sandbox — localhost won't work, use container-to-host bridge
+    if (!process.env.SAFECLAW_URL && defaults.serviceUrl === 'http://localhost:8420/api/v1') {
+      defaults.serviceUrl = 'http://host.containers.internal:8420/api/v1';
+    }
+  }
+
   defaults.serviceUrl = defaults.serviceUrl.replace(/\/+$/, '');
 
   const validModes = ['enforce', 'warn-only', 'audit-only', 'disabled'] as const;
@@ -158,7 +166,15 @@ export function saveConfig(config: SafeClawConfig): void {
   // Ensure parent directory exists
   mkdirSync(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });
 
-  writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+  try {
+    writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EROFS' || (e as NodeJS.ErrnoException).code === 'EACCES') {
+      // Sandbox filesystem is read-only — silently skip
+      return;
+    }
+    throw e;
+  }
 }
 
 /**
@@ -173,4 +189,14 @@ export function configHash(config: SafeClawConfig): string {
     serviceUrl: config.serviceUrl,
   });
   return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+// --- NemoClaw sandbox helpers ---
+
+export function isNemoClawSandbox(): boolean {
+  return !!process.env.OPENSHELL_SANDBOX;
+}
+
+export function getSandboxName(): string | null {
+  return process.env.OPENSHELL_SANDBOX || null;
 }

@@ -122,6 +122,18 @@ class FullEngine(SafeClawEngine):
         self.kg.load_directory(ontology_dir)
         logger.info(f"Loaded {len(self.kg)} triples from ontologies")
 
+        # NemoClaw policy ingestion (before checker creation)
+        if config.is_nemoclaw_enabled:
+            from safeclaw.nemoclaw.policy_loader import NemoClawPolicyLoader
+
+            nemo_dir = config.get_nemoclaw_policy_dir()
+            if nemo_dir:
+                loader = NemoClawPolicyLoader(nemo_dir)
+                loader.load(self.kg)
+                logger.info("NemoClaw policies loaded from %s", nemo_dir)
+            else:
+                logger.warning("NemoClaw enabled but no policy directory found")
+
         # SHACL validator
         self.shacl = SHACLValidator()
         shapes_dir = ontology_dir / "shapes"
@@ -138,7 +150,10 @@ class FullEngine(SafeClawEngine):
 
         # Constraint checkers
         self.classifier = ActionClassifier(hierarchy=self.hierarchy)
-        self.policy_checker = PolicyChecker(self.kg, hierarchy=self.hierarchy)
+        self.policy_checker = PolicyChecker(
+            self.kg, hierarchy=self.hierarchy,
+            nemoclaw_enabled=config.is_nemoclaw_enabled,
+        )
         self.preference_checker = PreferenceChecker(self.kg)
         self.dependency_checker = DependencyChecker(self.kg, hierarchy=self.hierarchy)
 
@@ -266,6 +281,16 @@ class FullEngine(SafeClawEngine):
         new_kg.load_directory(ontology_dir)
         logger.info(f"Loaded {len(new_kg)} triples from ontologies")
 
+        # NemoClaw policy re-ingestion on hot-reload
+        if self.config.is_nemoclaw_enabled:
+            from safeclaw.nemoclaw.policy_loader import NemoClawPolicyLoader
+
+            nemo_dir = self.config.get_nemoclaw_policy_dir()
+            if nemo_dir:
+                loader = NemoClawPolicyLoader(nemo_dir)
+                loader.load(new_kg)
+                logger.info("NemoClaw policies reloaded from %s", nemo_dir)
+
         new_shacl = SHACLValidator()
         shapes_dir = ontology_dir / "shapes"
         if shapes_dir.exists():
@@ -279,7 +304,10 @@ class FullEngine(SafeClawEngine):
             logger.warning("Ontology: %s", warning)
 
         new_classifier = ActionClassifier(hierarchy=new_hierarchy)
-        new_policy_checker = PolicyChecker(new_kg, hierarchy=new_hierarchy)
+        new_policy_checker = PolicyChecker(
+            new_kg, hierarchy=new_hierarchy,
+            nemoclaw_enabled=self.config.is_nemoclaw_enabled,
+        )
         new_preference_checker = PreferenceChecker(new_kg)
 
         # Preserve dependency checker session history across reloads (#92)

@@ -7,7 +7,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import App from './tui/App.js';
-import { loadConfig, saveConfig, type SafeClawConfig } from './tui/config.js';
+import { loadConfig, saveConfig, isNemoClawSandbox, getSandboxName, type SafeClawConfig } from './tui/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')).version as string;
@@ -462,6 +462,13 @@ if (!command || command === '--help' || command === '-h' || command === 'help') 
   } else {
     console.log('[!!] OpenClaw config: not found');
     allOk = false;
+  }
+
+  // 9. NemoClaw sandbox
+  if (isNemoClawSandbox()) {
+    console.log(`[ok] NemoClaw sandbox: ${getSandboxName()}`);
+  } else {
+    console.log('[--] NemoClaw: not in sandbox (standalone mode)');
   }
 
   // Summary

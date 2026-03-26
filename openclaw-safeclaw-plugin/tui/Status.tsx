@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
-import { type SafeClawConfig } from './config.js';
+import { type SafeClawConfig, isNemoClawSandbox, getSandboxName } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8')).version as string;
@@ -255,6 +255,14 @@ export default function Status({ config }: StatusProps) {
           {config.enabled ? 'ON' : 'OFF'}
         </Text>
       </Box>
+
+      {isNemoClawSandbox() && (
+        <Box>
+          <Text dimColor>{'  NemoClaw     '}</Text>
+          <Text color="green">{dot} </Text>
+          <Text>Sandbox: {getSandboxName()}</Text>
+        </Box>
+      )}
 
       {health?.version && (
         <Box marginTop={1}>

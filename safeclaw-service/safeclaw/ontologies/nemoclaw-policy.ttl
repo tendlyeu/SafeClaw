@@ -1,0 +1,54 @@
+@prefix sp: <http://safeclaw.uku.ai/ontology/policy#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# --- NemoClaw Network Rule ---
+sp:NemoNetworkRule a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "NemoClaw Network Rule" ;
+    rdfs:comment "An allowed network endpoint from NemoClaw sandbox policy" .
+
+sp:allowsHost a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "allowed host" .
+
+sp:allowsPort a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:integer ;
+    rdfs:label "allowed port" .
+
+sp:allowsProtocol a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "allowed protocol" .
+
+sp:binaryRestriction a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "binary restriction" .
+
+# --- NemoClaw Filesystem Rule ---
+sp:NemoFilesystemRule a owl:Class ;
+    rdfs:subClassOf sp:Constraint ;
+    rdfs:label "NemoClaw Filesystem Rule" ;
+    rdfs:comment "A filesystem access rule from NemoClaw sandbox policy" .
+
+sp:path a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoFilesystemRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "filesystem path" .
+
+sp:accessMode a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoFilesystemRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "access mode" ;
+    rdfs:comment "Values: read-only, read-write, denied" .
+
+# --- Provenance ---
+sp:source a owl:DatatypeProperty ;
+    rdfs:domain sp:Constraint ;
+    rdfs:range xsd:string ;
+    rdfs:label "policy source" ;
+    rdfs:comment "Origin of this constraint (e.g., 'nemoclaw', 'manual', 'nl-compiler')" .
