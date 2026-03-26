@@ -63,6 +63,7 @@ app.add_middleware(
     APIKeyAuthMiddleware,
     api_key_manager=_api_key_manager,
     require_auth=_config.require_auth,
+    mounted_app_prefixes=["/admin"],
 )
 
 # Request timing
