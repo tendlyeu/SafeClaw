@@ -5,7 +5,7 @@ from pathlib import Path
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.constraints.policy_checker import PolicyChecker
-from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP
+from safeclaw.engine.knowledge_graph import KnowledgeGraph
 from safeclaw.nemoclaw.policy_loader import NemoClawPolicyLoader
 
 
@@ -416,6 +416,78 @@ filesystem:
         result = checker.check(action)
         assert result.violated is True
         assert "denied" in result.reason
+
+
+class TestNemoPathTraversal:
+    """Verify path traversal via '..' is blocked by os.path.normpath."""
+
+    def test_path_traversal_blocked(self, kg, tmp_path):
+        """Path with .. must be normalized before matching."""
+        # /sandbox/../etc/shadow should NOT match /sandbox read-write
+        # After normpath it becomes /etc/shadow, which is outside the sandbox
+        _load_network_policy(kg, tmp_path / "policies", """
+filesystem:
+  - path: "/sandbox"
+    mode: "read-write"
+""")
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action = _make_action(
+            "WriteFile", tool_name="write", file_path="/sandbox/../etc/shadow"
+        )
+        result = checker.check(action)
+        assert result.violated is True
+        assert "outside NemoClaw sandbox" in result.reason
+
+    def test_path_traversal_within_sandbox_allowed(self, kg, tmp_path):
+        """Path with .. that stays within sandbox should be allowed."""
+        _load_network_policy(kg, tmp_path / "policies", """
+filesystem:
+  - path: "/sandbox"
+    mode: "read-write"
+""")
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        # /sandbox/sub/../file.txt normalizes to /sandbox/file.txt — still in sandbox
+        action = _make_action(
+            "WriteFile", tool_name="write", file_path="/sandbox/sub/../file.txt"
+        )
+        result = checker.check(action)
+        assert result.violated is False
+
+
+class TestNemoNetworkFailClosed:
+    """Verify that network checks fail-closed when URL cannot be extracted."""
+
+    def test_network_curl_without_scheme_blocked(self, kg, tmp_path):
+        """curl with bare IP (no http://) should be blocked when network rules exist."""
+        _load_network_policy(kg, tmp_path / "policies", """
+rules:
+  - name: example
+    host: "example.com"
+    port: 443
+    protocol: https
+    allow: true
+""")
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        # curl 10.0.0.1 has no http:// scheme, so _extract_url returns None
+        action = _make_action(
+            "ExecuteCommand",
+            tool_name="exec",
+            command="curl 10.0.0.1/sensitive-data",
+        )
+        result = checker.check(action)
+        assert result.violated is True
+        assert "could not be extracted" in result.reason
+
+    def test_network_no_url_no_rules_allows(self, kg):
+        """If no NemoClaw network rules exist, missing URL should not block."""
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action = _make_action(
+            "ExecuteCommand",
+            tool_name="exec",
+            command="curl 10.0.0.1/data",
+        )
+        result = checker.check(action)
+        assert result.violated is False
 
 
 class TestNemoClawDisabled:

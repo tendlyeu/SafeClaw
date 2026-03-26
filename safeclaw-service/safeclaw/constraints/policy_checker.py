@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import fnmatch
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -242,6 +242,20 @@ class PolicyChecker:
 
         url = self._extract_url(action)
         if not url:
+            # Fail-closed: if network rules exist but URL can't be extracted, block
+            has_rules = bool(self.kg.query(f"""
+                PREFIX sp: <{SP}>
+                SELECT ?rule WHERE {{ ?rule a sp:NemoNetworkRule }} LIMIT 1
+            """))
+            if has_rules:
+                return {
+                    "policy_uri": "nemoclaw:network-allowlist",
+                    "policy_type": "NemoNetworkRule",
+                    "reason": (
+                        "Network activity detected but URL could not be extracted "
+                        "for allowlist verification"
+                    ),
+                }
             return None
 
         # Query all NemoClaw network rules
@@ -325,7 +339,7 @@ class PolicyChecker:
         if not self._is_file_action(action):
             return None
 
-        target_path = self._extract_resource_path(action.params)
+        target_path = os.path.normpath(self._extract_resource_path(action.params))
         if not target_path:
             return None
 
