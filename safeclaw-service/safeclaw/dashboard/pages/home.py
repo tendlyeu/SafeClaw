@@ -66,7 +66,13 @@ def _build_home_content(engine):
     )
 
     # ── Risk distribution row ─────────────────────────────
-    risk_dist = stats.get("risk_distribution", {})
+    # Normalize risk_distribution keys: the reporter stores ontology class
+    # names like "CriticalRisk" but the dashboard expects lowercase labels.
+    raw_risk_dist = stats.get("risk_distribution", {})
+    risk_dist: dict[str, int] = {}
+    for k, v in raw_risk_dist.items():
+        normalized = k.lower().replace("risk", "")
+        risk_dist[normalized] = risk_dist.get(normalized, 0) + v
     risk_row = Div(
         H2("Risk Distribution"),
         Div(
