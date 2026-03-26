@@ -107,7 +107,6 @@ def NewKeyModal(raw_key: str):
           " in your terminal to link it, or set it as ",
           Code("SAFECLAW_API_KEY"), " in your environment.",
           cls=TextPresets.muted_sm),
-        id="new-key-alert",
         cls="uk-alert-success",
     )
 
