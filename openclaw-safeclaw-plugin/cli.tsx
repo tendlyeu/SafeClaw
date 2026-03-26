@@ -2,7 +2,7 @@
 import React from 'react';
 import { render } from 'ink';
 import { execSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, lstatSync, unlinkSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, lstatSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -94,7 +94,32 @@ const command = args[0];
 
 // Handle --help / -h for any command position
 if (!command || command === '--help' || command === '-h' || command === 'help') {
-  // Fall through to the else block at the bottom which prints full help
+  console.log('safeclaw-plugin — OpenClaw plugin CLI for SafeClaw governance');
+  console.log('');
+  console.log('Usage: safeclaw-plugin <command> [options]');
+  console.log('');
+  console.log('Setup:');
+  console.log('  connect <api-key>    Save API key, validate via handshake, register with OpenClaw');
+  console.log('                       Keys start with "sc_". Get yours at https://safeclaw.eu/dashboard');
+  console.log('  setup                Register plugin with OpenClaw without an API key (manual setup)');
+  console.log('  restart-openclaw     Restart the OpenClaw daemon to pick up plugin changes');
+  console.log('');
+  console.log('Diagnostics:');
+  console.log('  status               Run 9 checks: config, API key, service health, evaluate endpoint,');
+  console.log('                       handshake, OpenClaw binary, plugin files, OpenClaw config, NemoClaw');
+  console.log('');
+  console.log('Configuration:');
+  console.log('  config show          Show current enforcement, failMode, enabled, serviceUrl, apiKey');
+  console.log('  config set <k> <v>   Set a config value. Keys: enforcement, failMode, enabled, serviceUrl');
+  console.log('                       enforcement: enforce | warn-only | audit-only | disabled');
+  console.log('                       failMode:    open (allow on error) | closed (block on error)');
+  console.log('                       enabled:     true | false');
+  console.log('');
+  console.log('Interactive:');
+  console.log('  tui                  Open the interactive settings TUI (Status, Settings, About tabs)');
+  console.log('');
+  console.log('For the service CLI (serve, audit, policy, pref), use the "safeclaw" command.');
+  process.exit(0);
 } else if (command === 'connect') {
   const apiKey = args[1];
   const serviceUrlIdx = args.indexOf('--service-url');
@@ -192,7 +217,7 @@ if (!command || command === '--help' || command === '-h' || command === 'help') 
     console.log(`enforcement: ${cfg.enforcement}`);
     console.log(`failMode:    ${cfg.failMode}`);
     console.log(`serviceUrl:  ${cfg.serviceUrl}`);
-    console.log(`apiKey:      ${cfg.apiKey ? `${cfg.apiKey.slice(0, 6)}...` : '(not set)'}`);
+    console.log(`apiKey:      ${cfg.apiKey ? `${cfg.apiKey.slice(0, 6)}..${cfg.apiKey.slice(-4)}` : '(not set)'}`);
     console.log(`timeoutMs:   ${cfg.timeoutMs}`);
   } else if (subcommand === 'set') {
     const key = args[2];
@@ -479,30 +504,7 @@ if (!command || command === '--help' || command === '-h' || command === 'help') 
     console.log('Some checks failed. Fix the issues above.');
   }
 } else {
-  console.log('safeclaw-plugin — OpenClaw plugin CLI for SafeClaw governance');
-  console.log('');
-  console.log('Usage: safeclaw-plugin <command> [options]');
-  console.log('');
-  console.log('Setup:');
-  console.log('  connect <api-key>    Save API key, validate via handshake, register with OpenClaw');
-  console.log('                       Keys start with "sc_". Get yours at https://safeclaw.eu/dashboard');
-  console.log('  setup                Register plugin with OpenClaw without an API key (manual setup)');
-  console.log('  restart-openclaw     Restart the OpenClaw daemon to pick up plugin changes');
-  console.log('');
-  console.log('Diagnostics:');
-  console.log('  status               Run 9 checks: config, API key, service health, evaluate endpoint,');
-  console.log('                       handshake, OpenClaw binary, plugin files, OpenClaw config, NemoClaw');
-  console.log('');
-  console.log('Configuration:');
-  console.log('  config show          Show current enforcement, failMode, enabled, serviceUrl, apiKey');
-  console.log('  config set <k> <v>   Set a config value. Keys: enforcement, failMode, enabled, serviceUrl');
-  console.log('                       enforcement: enforce | warn-only | audit-only | disabled');
-  console.log('                       failMode:    open (allow on error) | closed (block on error)');
-  console.log('                       enabled:     true | false');
-  console.log('');
-  console.log('Interactive:');
-  console.log('  tui                  Open the interactive settings TUI (Status, Settings, About tabs)');
-  console.log('');
-  console.log('For the service CLI (serve, audit, policy, pref), use the "safeclaw" command.');
-  process.exit(0);
+  console.error(`Unknown command: "${command}"`);
+  console.error('Run "safeclaw-plugin --help" for usage information.');
+  process.exit(1);
 }

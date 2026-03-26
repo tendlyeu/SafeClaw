@@ -49,7 +49,10 @@ export function loadConfig(): SafeClawConfig {
       if (raw.enabled === false) defaults.enabled = false;
       if (raw.remote?.serviceUrl) defaults.serviceUrl = raw.remote.serviceUrl;
       if (raw.remote?.apiKey) defaults.apiKey = raw.remote.apiKey;
-      if (raw.remote?.timeoutMs) defaults.timeoutMs = raw.remote.timeoutMs;
+      if (raw.remote?.timeoutMs != null) {
+        const t = Number(raw.remote.timeoutMs);
+        if (Number.isFinite(t) && t > 0) defaults.timeoutMs = t;
+      }
       if (raw.enforcement?.mode) defaults.enforcement = raw.enforcement.mode;
       if (raw.enforcement?.failMode) defaults.failMode = raw.enforcement.failMode;
       if (raw.agentId) defaults.agentId = raw.agentId;
@@ -73,6 +76,7 @@ export function loadConfig(): SafeClawConfig {
     }
   }
   if (process.env.SAFECLAW_ENABLED === 'false') defaults.enabled = false;
+  else if (process.env.SAFECLAW_ENABLED === 'true') defaults.enabled = true;
   const enforcement = process.env.SAFECLAW_ENFORCEMENT;
   if (enforcement && ['enforce', 'warn-only', 'audit-only', 'disabled'].includes(enforcement)) {
     defaults.enforcement = enforcement as SafeClawConfig['enforcement'];
@@ -152,6 +156,7 @@ export function saveConfig(config: SafeClawConfig): void {
     existing.remote = {};
   }
   (existing.remote as Record<string, unknown>).serviceUrl = config.serviceUrl;
+  (existing.remote as Record<string, unknown>).timeoutMs = config.timeoutMs;
   if (config.apiKey) {
     (existing.remote as Record<string, unknown>).apiKey = config.apiKey;
   } else {
@@ -177,9 +182,12 @@ export function saveConfig(config: SafeClawConfig): void {
   try {
     writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'EROFS' || (e as NodeJS.ErrnoException).code === 'EACCES') {
-      // Sandbox filesystem is read-only — silently skip
-      return;
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EROFS') {
+      throw new Error('Cannot save config: filesystem is read-only (sandbox environment)');
+    }
+    if (code === 'EACCES') {
+      throw new Error(`Cannot save config: permission denied for ${CONFIG_PATH}`);
     }
     throw e;
   }

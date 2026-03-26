@@ -118,14 +118,26 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         agent_id=request.agentId,
         agent_token=request.agentToken,
     )
-    decision = await engine.evaluate_tool_call(event)
-    audit_id = decision.audit_id
+
+    # When dryRun is True, skip the full engine pipeline to avoid side effects
+    # (audit logging, session tracking, rate limit counting, etc.). Return a
+    # classification-only response instead.
     if request.dryRun:
-        audit_id = ""
+        classified = engine.action_classifier.classify(request.toolName, sanitized_params)
+        return DecisionResponse(
+            block=False,
+            reason=f"dry-run: classified as {classified.ontology_class} ({classified.risk_level})",
+            auditId="",
+            confirmationRequired=False,
+            constraintStep="",
+            riskLevel=classified.risk_level,
+        )
+
+    decision = await engine.evaluate_tool_call(event)
     return DecisionResponse(
         block=decision.block,
         reason=decision.reason,
-        auditId=audit_id,
+        auditId=decision.audit_id,
         confirmationRequired=decision.requires_confirmation,
         constraintStep=decision.constraint_step,
         riskLevel=getattr(decision, "_risk_level", ""),

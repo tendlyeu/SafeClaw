@@ -162,13 +162,13 @@ export default {
   version: PLUGIN_VERSION,
 
   register(api: OpenClawPluginApi) {
+    _ocPluginConfig = api.pluginConfig ?? {};
+    log = api.logger ?? console;
+
     if (!getConfig().enabled) {
-      console.log('[SafeClaw] Plugin disabled');
+      log.info('[SafeClaw] Plugin disabled');
       return;
     }
-
-    log = api.logger ?? console;
-    _ocPluginConfig = api.pluginConfig ?? {};
 
     // Generate a unique instance ID for this plugin run (fallback when agentId is not configured)
     const instanceId = getConfig().agentId || `instance-${crypto.randomUUID()}`;

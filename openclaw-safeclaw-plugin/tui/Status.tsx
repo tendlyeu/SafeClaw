@@ -141,7 +141,7 @@ export default function Status({ config }: StatusProps) {
       checkOpenClaw();
     }, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [config.serviceUrl, config.apiKey]);
 
   useInput((input) => {
     if (input === 'r') {
