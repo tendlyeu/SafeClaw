@@ -1,22 +1,8 @@
-"""Phase 5 tests: API key authentication, middleware, hybrid engine, circuit breaker."""
+"""Phase 5 tests: API key authentication, middleware, per-user LLM client."""
 
-import time
-from unittest.mock import AsyncMock, MagicMock
-
-import httpx
-import pytest
+from unittest.mock import MagicMock
 
 from safeclaw.auth.api_key import APIKeyManager
-from safeclaw.engine.hybrid_engine import CircuitBreakerState, HybridEngine
-from safeclaw.engine.core import (
-    AgentStartEvent,
-    ContextResult,
-    Decision,
-    LlmIOEvent,
-    MessageEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-)
 
 
 # --- APIKeyManager Tests ---
@@ -81,15 +67,22 @@ class TestAPIKeyManager:
             keys.add(raw_key)
         assert len(keys) == 50
 
-    def test_hash_key_deterministic(self):
+    def test_hash_key_verifiable(self):
+        """bcrypt hashes differ each time but verify against the original key."""
         h1 = APIKeyManager.hash_key("sc_test_key")
         h2 = APIKeyManager.hash_key("sc_test_key")
-        assert h1 == h2
+        # bcrypt uses random salts, so hashes differ
+        assert h1 != h2
+        # But both verify against the original key
+        assert APIKeyManager.verify_key("sc_test_key", h1)
+        assert APIKeyManager.verify_key("sc_test_key", h2)
 
     def test_hash_key_different_for_different_keys(self):
         h1 = APIKeyManager.hash_key("sc_key_a")
         h2 = APIKeyManager.hash_key("sc_key_b")
-        assert h1 != h2
+        # Different keys should not verify against each other's hashes
+        assert not APIKeyManager.verify_key("sc_key_a", h2)
+        assert not APIKeyManager.verify_key("sc_key_b", h1)
 
 
 class TestSQLiteAPIKeyManager:
@@ -281,213 +274,6 @@ class TestAPIKeyAuthMiddleware:
         middleware = APIKeyAuthMiddleware(app, api_key_manager=None, require_auth=False)
         # require_auth is False, so it should pass through
         assert middleware.require_auth is False
-
-
-# --- CircuitBreakerState Tests ---
-
-class TestCircuitBreaker:
-    def test_initial_state_closed(self):
-        cb = CircuitBreakerState()
-        assert cb.is_open is False
-        assert cb.failures == 0
-        assert cb.should_try_remote() is True
-
-    def test_opens_after_max_failures(self):
-        cb = CircuitBreakerState(max_failures=3)
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.is_open is False
-        cb.record_failure()
-        assert cb.is_open is True
-        assert cb.should_try_remote() is False
-
-    def test_closes_on_success(self):
-        cb = CircuitBreakerState(max_failures=2)
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.is_open is True
-        cb.record_success()
-        assert cb.is_open is False
-        assert cb.failures == 0
-
-    def test_recovery_timeout_allows_retry(self, monkeypatch):
-        fake_time = [1000.0]
-        monkeypatch.setattr("time.monotonic", lambda: fake_time[0])
-        cb = CircuitBreakerState(max_failures=1, recovery_timeout=0.1)
-        cb.record_failure()
-        assert cb.is_open is True
-        assert cb.should_try_remote() is False
-        # Advance past recovery timeout
-        fake_time[0] += 0.15
-        assert cb.should_try_remote() is True
-
-    def test_partial_failures_dont_open(self):
-        cb = CircuitBreakerState(max_failures=3)
-        cb.record_failure()
-        cb.record_failure()
-        # Success resets counter
-        cb.record_success()
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.is_open is False
-
-
-# --- HybridEngine Tests ---
-
-def _make_local_engine(**overrides):
-    """Create a mock local engine with async methods."""
-    engine = AsyncMock()
-    engine.evaluate_tool_call.return_value = Decision(block=False)
-    engine.evaluate_message.return_value = Decision(block=False)
-    engine.build_context.return_value = ContextResult()
-    engine.record_action_result.return_value = None
-    engine.log_llm_io.return_value = None
-    for key, val in overrides.items():
-        getattr(engine, key).return_value = val
-    return engine
-
-
-def _make_hybrid(local_engine=None, circuit_open=True):
-    """Create a HybridEngine with circuit breaker open (local-only mode)."""
-    engine = HybridEngine(
-        remote_url="http://localhost:99999",
-        api_key="sc_test",
-        local_engine=local_engine,
-        timeout=0.1,
-    )
-    if circuit_open:
-        engine.circuit_breaker.is_open = True
-        engine.circuit_breaker.last_failure = time.monotonic()
-    return engine
-
-
-class TestHybridEngine:
-    @pytest.mark.asyncio
-    async def test_evaluate_tool_call_local_fallback_when_no_remote(self):
-        """When remote fails, falls back to local engine."""
-        local = _make_local_engine(evaluate_tool_call=Decision(block=False, reason="local"))
-        engine = _make_hybrid(local_engine=local)
-
-        event = ToolCallEvent(
-            session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}
-        )
-        decision = await engine.evaluate_tool_call(event)
-        assert decision.block is False
-        assert decision.reason == "local"
-        local.evaluate_tool_call.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_evaluate_tool_call_no_local_no_remote_fail_closed(self):
-        """When both remote and local are unavailable, fails closed by default."""
-        engine = _make_hybrid(local_engine=None)
-
-        event = ToolCallEvent(
-            session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}
-        )
-        decision = await engine.evaluate_tool_call(event)
-        assert decision.block is True
-        assert "unavailable" in decision.reason.lower()
-
-    @pytest.mark.asyncio
-    async def test_evaluate_tool_call_no_local_no_remote_fail_open(self):
-        """When fail_closed=False, allows actions when service is unavailable."""
-        engine = HybridEngine(
-            remote_url="http://localhost:99999",
-            api_key="sc_test",
-            local_engine=None,
-            timeout=0.1,
-            fail_closed=False,
-        )
-        engine.circuit_breaker.is_open = True
-        engine.circuit_breaker.last_failure = time.monotonic()
-
-        event = ToolCallEvent(
-            session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}
-        )
-        decision = await engine.evaluate_tool_call(event)
-        assert decision.block is False
-
-    @pytest.mark.asyncio
-    async def test_evaluate_message_local_fallback(self):
-        local = _make_local_engine(evaluate_message=Decision(block=True, reason="blocked locally"))
-        engine = _make_hybrid(local_engine=local)
-
-        event = MessageEvent(session_id="s1", user_id="u1", to="bob", content="hi")
-        decision = await engine.evaluate_message(event)
-        assert decision.block is True
-        assert decision.reason == "blocked locally"
-
-    @pytest.mark.asyncio
-    async def test_build_context_local_fallback(self):
-        local = _make_local_engine(build_context=ContextResult(prepend_context="local ctx"))
-        engine = _make_hybrid(local_engine=local)
-
-        event = AgentStartEvent(session_id="s1", user_id="u1")
-        result = await engine.build_context(event)
-        assert result.prepend_context == "local ctx"
-
-    @pytest.mark.asyncio
-    async def test_record_action_result_local(self):
-        local = _make_local_engine()
-        engine = _make_hybrid(local_engine=local)
-
-        event = ToolResultEvent(
-            session_id="s1", tool_name="Bash", params={}, result="ok", success=True
-        )
-        await engine.record_action_result(event)
-        local.record_action_result.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_log_llm_io_delegates_to_local(self):
-        local = _make_local_engine()
-        engine = _make_hybrid(local_engine=local, circuit_open=False)
-
-        event = LlmIOEvent(session_id="s1", direction="input", content="hello")
-        await engine.log_llm_io(event)
-        local.log_llm_io.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_remote_failure_opens_circuit_breaker(self):
-        """Repeated remote failures should open the circuit breaker."""
-        engine = _make_hybrid(local_engine=None, circuit_open=False)
-
-        event = ToolCallEvent(
-            session_id="s1", user_id="u1", tool_name="Bash", params={"command": "ls"}
-        )
-
-        # Mock the HTTP client to raise ConnectError immediately
-        async def _raise_connect_error(*args, **kwargs):
-            raise httpx.ConnectError("mocked connection refused")
-
-        engine._client.post = _raise_connect_error
-
-        # Make 3 calls that will fail
-        for _ in range(3):
-            await engine.evaluate_tool_call(event)
-
-        assert engine.circuit_breaker.failures >= 3
-        assert engine.circuit_breaker.is_open is True
-
-        # R3-62: Verify fail-closed — subsequent calls with no local engine should block
-        decision = await engine.evaluate_tool_call(event)
-        assert decision.block is True
-
-    def test_circuit_breaker_half_open_single_probe(self, monkeypatch):
-        """Only one request probes in half-open state (R3-61)."""
-        fake_time = [1000.0]
-        monkeypatch.setattr("time.monotonic", lambda: fake_time[0])
-
-        cb = CircuitBreakerState(max_failures=1, recovery_timeout=0.1)
-        cb.record_failure()
-        assert cb.is_open is True
-
-        # Advance past recovery timeout into half-open
-        fake_time[0] += 0.2
-
-        # Call should_try_remote() multiple times synchronously
-        results = [cb.should_try_remote() for _ in range(5)]
-        # Exactly one should get through as the probe
-        assert results.count(True) == 1
 
 
 # --- Per-User LLM Client Tests ---

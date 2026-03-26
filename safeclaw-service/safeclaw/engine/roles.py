@@ -18,25 +18,37 @@ logger = logging.getLogger(__name__)
 
 
 def _glob_match(path: str, pattern: str) -> bool:
-    """Match a path against a glob pattern, supporting ** across path separators.
+    """Match a path against a glob pattern, supporting ``**`` across separators.
 
-    fnmatch.fnmatch treats * and ** identically (single-segment only).
-    This function converts ** to a regex that crosses directory boundaries.
+    ``fnmatch.fnmatch`` treats ``*`` and ``**`` identically (single-segment
+    only).  This function converts ``**`` to a regex that crosses directory
+    boundaries while ensuring a single ``*`` does **not** cross them.
+
+    Edge cases handled:
+
+    * Empty *path* never matches (a resource path must be non-empty).
+    * Empty segments produced by ``pattern.split("**")`` (e.g. leading or
+      trailing ``**``) are handled by normalising boundary ``/`` characters
+      and using a joiner regex that optionally matches any number of path
+      segments including zero.
     """
+    # Empty paths never match — a real resource path is always non-empty
+    if not path:
+        return False
+
     # Split pattern on ** to handle recursive matching separately
     segments = pattern.split("**")
-    # Convert each segment using fnmatch.translate, strip its anchoring,
-    # then join with .* (which matches across path separators)
-    regex_parts = []
+
+    # Convert each non-** segment via fnmatch.translate, strip anchoring
+    regex_parts: list[str] = []
     for seg in segments:
         translated = fnmatch.translate(seg)
         # fnmatch.translate output varies by Python version:
         #   Python 3.12+: '(?s:...)\\z'
         #   Python 3.11:  '(?s:...)\\Z'
         #   Older:        '...\\Z'
-        # Use re.fullmatch on the inner pattern to avoid version-specific anchoring
+        # Strip the wrapper and anchoring to get the inner pattern.
         if translated.startswith("(?s:"):
-            # Strip '(?s:' prefix and ')\\z' or ')\\Z' suffix
             if translated.endswith(r"\z"):
                 inner = translated[4:-3]
             elif translated.endswith(r"\Z"):
@@ -44,15 +56,58 @@ def _glob_match(path: str, pattern: str) -> bool:
             else:
                 inner = translated[4:-1]
         else:
-            # Older Python without (?s:...) wrapper — strip trailing \Z or \z
             if translated.endswith(r"\Z"):
                 inner = translated[:-2]
             elif translated.endswith(r"\z"):
                 inner = translated[:-2]
             else:
                 inner = translated
+
+        # fnmatch translates * to .* which, under the (?s:) DOTALL flag,
+        # crosses path separators.  Replace .* with [^/]* so that a single
+        # * only matches within one path segment.  This substitution is safe
+        # because we add our own cross-directory .* for ** below.
+        inner = inner.replace(".*", "[^/]*")
+
         regex_parts.append(inner)
-    full_regex = "(?s:" + ".*".join(regex_parts) + ")"
+
+    if len(regex_parts) == 1:
+        # No ** in the pattern — straightforward match
+        full_regex = regex_parts[0]
+    else:
+        # Normalise boundary slashes around ** joins.
+        # When ** matches zero segments (e.g. /a/**/d.py matching /a/d.py)
+        # the surrounding slashes would otherwise double up.  Strip the
+        # trailing / from segments before a join and the leading / from
+        # segments after a join, then reconnect via the joiner regex.
+        cleaned: list[str] = []
+        for i, part in enumerate(regex_parts):
+            p = part
+            if i < len(regex_parts) - 1 and p.endswith("/"):
+                p = p[:-1]
+            if i > 0 and p.startswith("/"):
+                p = p[1:]
+            cleaned.append(p)
+
+        # The joiner must match what ** expands to between the cleaned
+        # segments.  Possible matches:
+        #   ""          — ** matches zero segments  (/a/**/d.py -> /a/d.py)
+        #   "/"         — the absorbed separator    (/a/** -> /a/x)
+        #   "/x/y/z/"  — multiple segments          (/a/**/f -> /a/x/y/z/f)
+        #   "x/y/"     — no leading / (pattern starts with **)
+        #   "/x/y"     — no trailing / (pattern ends with **)
+        #   "x"        — single non-slash char (pattern is exactly **)
+        # Limit pattern complexity to prevent ReDoS with many ** segments.
+        # Patterns with more than 4 ** separators are rejected as too complex.
+        if len(cleaned) > 5:
+            return False
+
+        # Use a non-backtracking character class instead of .* to prevent
+        # catastrophic backtracking when multiple ** joiners interact.
+        # [\\s\\S]*? (non-greedy) avoids the nested quantifier problem.
+        joiner = "(?:[\\s\\S]*?)"
+        full_regex = joiner.join(cleaned)
+
     return re.fullmatch(full_regex, path) is not None
 
 

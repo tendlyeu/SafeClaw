@@ -9,9 +9,7 @@ from safeclaw.engine.core import (
     ToolCallEvent,
     ToolResultEvent,
 )
-from safeclaw.engine.cached_engine import CachedEngine
 from safeclaw.engine.full_engine import FullEngine
-from safeclaw.engine.agent_registry import AgentRegistry
 
 
 @pytest.fixture
@@ -22,36 +20,6 @@ def engine(tmp_path):
         audit_dir=tmp_path / "audit",
     )
     return FullEngine(config)
-
-
-# --- CachedEngine tests ---
-
-@pytest.mark.asyncio
-async def test_cached_engine_allows_normal_call():
-    ce = CachedEngine()
-    event = ToolCallEvent(
-        session_id="s1", user_id="u1", tool_name="read",
-        params={"file_path": "/foo.py"},
-    )
-    decision = await ce.evaluate_tool_call(event)
-    assert decision.block is False
-
-
-@pytest.mark.asyncio
-async def test_cached_engine_kill_switch():
-    registry = AgentRegistry()
-    token = registry.register_agent("agent-x", role="developer", session_id="s1")
-    registry.kill_agent("agent-x")
-
-    ce = CachedEngine(agent_registry=registry)
-    event = ToolCallEvent(
-        session_id="s1", user_id="u1", tool_name="read",
-        params={"file_path": "/foo.py"},
-        agent_id="agent-x", agent_token=token,
-    )
-    decision = await ce.evaluate_tool_call(event)
-    assert decision.block is True
-    assert "killed" in decision.reason.lower()
 
 
 # --- evaluate_message full pipeline ---

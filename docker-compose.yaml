@@ -38,6 +38,8 @@ services:
       - "5002:5002"
     volumes:
       - landing-data:/app/data
+    environment:
+      - SAFECLAW_DB_DIR=/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/')"]
       interval: 30s

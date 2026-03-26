@@ -1,7 +1,9 @@
 """SafeClaw configuration via Pydantic settings."""
 
+import secrets
 from pathlib import Path
 
+import bcrypt
 from pydantic_settings import BaseSettings
 
 
@@ -69,6 +71,28 @@ class SafeClawConfig(BaseSettings):
         object.__setattr__(self, "_raw_cache", data)
         object.__setattr__(self, "_raw_cache_mtime", current_mtime)
         return data
+
+    def verify_admin_password(self, candidate: str) -> bool:
+        """Verify a candidate password against the configured admin password.
+
+        Supports two storage formats:
+        - Bcrypt hashes (starting with "$2b$"): verified via bcrypt.checkpw.
+        - Legacy plaintext: verified via secrets.compare_digest for constant-time
+          comparison. This exists purely as a migration path; operators should
+          switch to bcrypt hashes.
+
+        Returns False when admin_password is empty (no password configured) or
+        the candidate is empty, to prevent accidental auth bypass.
+        """
+        stored = self.admin_password
+        if not stored or not candidate:
+            return False
+
+        if stored.startswith("$2b$"):
+            return bcrypt.checkpw(candidate.encode("utf-8"), stored.encode("utf-8"))
+
+        # Legacy plaintext fallback -- constant-time comparison
+        return secrets.compare_digest(candidate, stored)
 
     def invalidate_raw_cache(self) -> None:
         """Invalidate the cached raw config, forcing a re-read on next access."""

@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 
 MAX_PARAMS_DEPTH = 5
@@ -98,6 +98,19 @@ class DecisionResponse(BaseModel):
     confirmationRequired: bool = False
     constraintStep: str = ""
     riskLevel: str = ""
+
+    @computed_field
+    @property
+    def decision(self) -> str:
+        """Disambiguate block+confirmationRequired into a single decision string.
+
+        Returns 'allowed', 'needs_confirmation', or 'blocked'.
+        """
+        if not self.block:
+            return "allowed"
+        if self.confirmationRequired:
+            return "needs_confirmation"
+        return "blocked"
 
 
 class ContextResponse(BaseModel):

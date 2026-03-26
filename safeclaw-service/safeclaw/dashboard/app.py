@@ -135,7 +135,7 @@ def create_dashboard(get_engine_fn, mount_prefix: str = ""):
     @rt("/login", methods=["post"])
     def login_submit(password: str, sess):
         cfg = _get_config()
-        if secrets.compare_digest(password, cfg.admin_password):
+        if cfg.verify_admin_password(password):
             sess["admin_auth"] = True
             return RedirectResponse(f"{_prefix}/", status_code=303)
         return RedirectResponse(f"{_prefix}/login?error=1", status_code=303)
