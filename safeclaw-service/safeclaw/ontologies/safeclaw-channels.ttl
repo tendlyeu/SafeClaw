@@ -1,0 +1,31 @@
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# === Channel Trust Ontology ===
+# Defines inbound message channels and their trust levels for
+# prompt injection risk assessment.
+
+sc:InboundChannel a owl:Class ;
+    rdfs:label "Inbound Channel" .
+
+sc:DirectMessage rdfs:subClassOf sc:InboundChannel ;
+    sc:trustLevel "high" ;
+    rdfs:label "Direct Message" .
+
+sc:GroupMessage rdfs:subClassOf sc:InboundChannel ;
+    sc:trustLevel "medium" ;
+    rdfs:label "Group Message" .
+
+sc:PublicChannel rdfs:subClassOf sc:InboundChannel ;
+    sc:trustLevel "low" ;
+    rdfs:label "Public Channel" .
+
+sc:WebhookMessage rdfs:subClassOf sc:InboundChannel ;
+    sc:trustLevel "untrusted" ;
+    rdfs:label "Webhook Message" .
+
+sc:trustLevel a owl:DatatypeProperty ;
+    rdfs:domain sc:InboundChannel ;
+    rdfs:range xsd:string .

@@ -254,3 +254,26 @@ class SessionStartRequest(BaseModel):
 
 class SessionStartResponse(BaseModel):
     acknowledged: bool = True
+
+
+# --- Inbound message governance models (#190) ---
+
+
+class InboundMessageRequest(BaseModel):
+    sessionId: str = ""
+    userId: str | None = None
+    channel: str = ""
+    sender: str = ""
+    content: str = Field("", max_length=1_000_000)
+    metadata: dict = {}
+
+    @field_validator("metadata")
+    @classmethod
+    def check_inbound_metadata(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class InboundMessageResponse(BaseModel):
+    riskLevel: str = "low"
+    flags: list[str] = []
+    warnings: list[str] = []

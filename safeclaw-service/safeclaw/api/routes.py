@@ -23,6 +23,8 @@ from safeclaw.api.models import (
     PolicyCompileResponse,
     PreferencesRequest,
     SessionEndRequest,
+    InboundMessageRequest,
+    InboundMessageResponse,
     SessionStartRequest,
     SessionStartResponse,
     SubagentEndedRequest,
@@ -147,6 +149,101 @@ async def evaluate_message(request: MessageRequest, req: Request) -> DecisionRes
         auditId=decision.audit_id,
         confirmationRequired=decision.requires_confirmation,
         constraintStep=decision.constraint_step,
+    )
+
+
+@router.post("/evaluate/inbound-message", response_model=InboundMessageResponse)
+async def evaluate_inbound_message(request: InboundMessageRequest) -> InboundMessageResponse:
+    """Evaluate inbound messages for prompt injection risk.
+
+    Assesses risk based on:
+    - Channel trust level (from channel ontology)
+    - Content analysis for prompt injection patterns
+    - Sender metadata
+    """
+    import re
+
+    _get_engine()  # Ensure engine is ready
+    sanitized_content = _sanitize_string(request.content)
+    flags: list[str] = []
+    warnings: list[str] = []
+
+    # Channel trust mapping — derived from the channel ontology
+    channel_trust: dict[str, str] = {
+        "direct_message": "high",
+        "dm": "high",
+        "group_message": "medium",
+        "group": "medium",
+        "public_channel": "low",
+        "public": "low",
+        "webhook": "untrusted",
+        "webhook_message": "untrusted",
+        "api": "untrusted",
+    }
+    channel_key = request.channel.lower().replace("-", "_").replace(" ", "_")
+    trust_level = channel_trust.get(channel_key, "low")
+
+    # Start with risk based on channel trust
+    risk_level = "low"
+    if trust_level == "untrusted":
+        risk_level = "medium"
+        flags.append("untrusted_channel")
+    elif trust_level == "low":
+        risk_level = "low"
+        flags.append("low_trust_channel")
+
+    # Prompt injection detection patterns
+    injection_patterns = [
+        (re.compile(
+            r"(?i)ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)",
+        ), "prompt_injection_ignore_instructions"),
+        (re.compile(
+            r"(?i)you\s+are\s+now\s+(a|an|in)\s+",
+        ), "prompt_injection_role_override"),
+        (re.compile(
+            r"(?i)system\s*prompt\s*[:=]",
+        ), "prompt_injection_system_prompt"),
+        (re.compile(
+            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)\s+(rules|guidelines|instructions)",
+        ), "prompt_injection_rule_override"),
+        (re.compile(
+            r"(?i)\[/?INST\]|\[/?SYS\]|<\|im_start\|>|<\|im_end\|>",
+        ), "prompt_injection_special_tokens"),
+        (re.compile(
+            r"(?i)pretend\s+(you\s+)?(are|to\s+be)\s+",
+        ), "prompt_injection_pretend"),
+    ]
+
+    for pattern, flag in injection_patterns:
+        if pattern.search(sanitized_content):
+            flags.append(flag)
+
+    # Escalate risk level based on detected flags
+    injection_flags = [f for f in flags if f.startswith("prompt_injection_")]
+    if len(injection_flags) >= 2:
+        risk_level = "critical"
+        warnings.append(
+            f"Multiple prompt injection patterns detected: {', '.join(injection_flags)}"
+        )
+    elif len(injection_flags) == 1:
+        if trust_level in ("untrusted", "low"):
+            risk_level = "high"
+        else:
+            risk_level = "medium"
+        warnings.append(
+            f"Prompt injection pattern detected: {injection_flags[0]}"
+        )
+
+    # Empty sender from untrusted channel is suspicious
+    if not request.sender and trust_level == "untrusted":
+        flags.append("anonymous_untrusted_sender")
+        if risk_level == "low":
+            risk_level = "medium"
+
+    return InboundMessageResponse(
+        riskLevel=risk_level,
+        flags=flags,
+        warnings=warnings,
     )
 
 
