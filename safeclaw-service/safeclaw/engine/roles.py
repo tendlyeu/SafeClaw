@@ -219,8 +219,9 @@ class RoleManager:
     def _load_roles_from_kg(self, kg: KnowledgeGraph) -> None:
         """Load role definitions from the knowledge graph and merge into _roles.
 
-        Only adds roles that are not already present (builtins and config roles
-        take precedence).
+        KG (TTL) roles override Python builtins so that editing the ontology
+        has runtime effect (#46).  Roles loaded from explicit config (JSON)
+        still take priority — those are skipped here.
         """
         from safeclaw.engine.knowledge_graph import SP, SC
 
@@ -240,8 +241,9 @@ class RoleManager:
             label = str(row["label"])
             role_name = label.lower()
 
-            # Don't override builtins or already-loaded roles
-            if role_name in self._roles:
+            # Skip roles loaded from explicit JSON config (they take priority)
+            # but allow KG roles to override Python builtins
+            if role_name in self._roles and role_name not in BUILTIN_ROLES:
                 continue
 
             role_uri = row["role"]
