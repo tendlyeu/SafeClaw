@@ -58,6 +58,9 @@
   "peerDependencies": {
     "openclaw": ">=2026.1.0"
   },
+  "peerDependenciesMeta": {
+    "openclaw": { "optional": true }
+  },
   "engines": {
     "node": ">=18.0.0"
   },

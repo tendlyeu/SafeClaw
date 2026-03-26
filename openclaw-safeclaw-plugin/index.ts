@@ -87,6 +87,23 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
   }
 }
 
+async function get(path: string): Promise<Record<string, unknown> | null> {
+  const cfg = getConfig();
+  if (!cfg.enabled) return null;
+  const headers: Record<string, string> = {};
+  if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+  try {
+    const res = await fetch(`${cfg.serviceUrl}${path}`, {
+      signal: AbortSignal.timeout(cfg.timeoutMs),
+      headers,
+    });
+    if (!res.ok) return null;
+    return await res.json() as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 // --- Plugin Definition ---
 
 let handshakeCompleted = false;
@@ -395,7 +412,7 @@ export default {
         description: 'Check SafeClaw governance service status, enforcement mode, and active constraints',
         parameters: {},
         async execute(_params: Record<string, unknown>, _ctx: Record<string, unknown>) {
-          const health = await post('/health', {});
+          const health = await get('/health');
           const cfg = getConfig();
           return {
             status: health?.status ?? 'unreachable',
@@ -439,7 +456,7 @@ export default {
           .description('Show SafeClaw service status and enforcement mode')
           .action(async () => {
             const cfg = getConfig();
-            const health = await post('/health', {});
+            const health = await get('/health');
             console.log(`SafeClaw: ${health?.status ?? 'unreachable'}`);
             console.log(`  Enforcement: ${cfg.enforcement}`);
             console.log(`  Fail mode: ${cfg.failMode}`);

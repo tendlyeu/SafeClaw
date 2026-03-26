@@ -42,6 +42,7 @@ class ToolCallRequest(BaseModel):
     agentId: str | None = None
     agentToken: str = ""
     runId: str | None = None
+    dryRun: bool = False
 
     @field_validator("params")
     @classmethod
@@ -211,6 +212,8 @@ class SubagentSpawnRequest(BaseModel):
     parentAgentId: str = ""
     childConfig: dict = {}
     reason: str = ""
+    agentId: str | None = None
+    agentToken: str = ""
 
     @field_validator("childConfig")
     @classmethod
@@ -231,6 +234,8 @@ class SubagentEndedRequest(BaseModel):
     childAgentId: str = ""
     result: str = ""
     success: bool = True
+    agentId: str | None = None
+    agentToken: str = ""
 
 
 class SubagentEndedResponse(BaseModel):
@@ -244,6 +249,7 @@ class SessionStartRequest(BaseModel):
     sessionId: str
     userId: str | None = None
     agentId: str | None = None
+    agentToken: str = ""
     metadata: dict = {}
 
     @field_validator("metadata")
@@ -266,6 +272,8 @@ class InboundMessageRequest(BaseModel):
     sender: str = ""
     content: str = Field("", max_length=1_000_000)
     metadata: dict = {}
+    agentId: str | None = None
+    agentToken: str = ""
 
     @field_validator("metadata")
     @classmethod

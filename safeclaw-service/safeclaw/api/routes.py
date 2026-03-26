@@ -119,10 +119,13 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         agent_token=request.agentToken,
     )
     decision = await engine.evaluate_tool_call(event)
+    audit_id = decision.audit_id
+    if request.dryRun:
+        audit_id = ""
     return DecisionResponse(
         block=decision.block,
         reason=decision.reason,
-        auditId=decision.audit_id,
+        auditId=audit_id,
         confirmationRequired=decision.requires_confirmation,
         constraintStep=decision.constraint_step,
         riskLevel=getattr(decision, "_risk_level", ""),
@@ -155,7 +158,7 @@ async def evaluate_message(request: MessageRequest, req: Request) -> DecisionRes
 
 
 @router.post("/evaluate/inbound-message", response_model=InboundMessageResponse)
-async def evaluate_inbound_message(request: InboundMessageRequest) -> InboundMessageResponse:
+async def evaluate_inbound_message(request: InboundMessageRequest, req: Request) -> InboundMessageResponse:
     """Evaluate inbound messages for prompt injection risk.
 
     Assesses risk based on:
@@ -165,7 +168,8 @@ async def evaluate_inbound_message(request: InboundMessageRequest) -> InboundMes
     """
     import re
 
-    _get_engine()  # Ensure engine is ready
+    engine = _get_engine()
+    _verify_agent_token(engine, request.userId, getattr(request, "agentToken", None))
     sanitized_content = _sanitize_string(request.content)
     flags: list[str] = []
     warnings: list[str] = []
@@ -250,7 +254,9 @@ async def evaluate_inbound_message(request: InboundMessageRequest) -> InboundMes
 
 
 @router.post(
-    "/evaluate/sandbox-policy", response_model=SandboxPolicyValidationResponse
+    "/evaluate/sandbox-policy",
+    response_model=SandboxPolicyValidationResponse,
+    dependencies=[Depends(require_admin)],
 )
 async def evaluate_sandbox_policy(
     request: SandboxPolicyValidationRequest,
@@ -334,6 +340,7 @@ async def start_session(request: SessionStartRequest, req: Request) -> SessionSt
     session start to audit.
     """
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     user_id = getattr(req.state, "org_id", None) or request.userId or "default"
     owner_id = request.agentId or user_id
 
@@ -403,7 +410,7 @@ async def record_tool_result(request: ToolResultRequest, req: Request):
 
 
 @router.post("/evaluate/subagent-spawn", response_model=SubagentSpawnResponse)
-async def evaluate_subagent_spawn(request: SubagentSpawnRequest) -> SubagentSpawnResponse:
+async def evaluate_subagent_spawn(request: SubagentSpawnRequest, req: Request) -> SubagentSpawnResponse:
     """Evaluate whether a subagent spawn should be allowed.
 
     Checks for delegation bypass: if the parent agent has recent blocks and the
@@ -411,6 +418,7 @@ async def evaluate_subagent_spawn(request: SubagentSpawnRequest) -> SubagentSpaw
     a delegation bypass attempt.
     """
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
 
     parent_id = request.parentAgentId
     if not parent_id:
@@ -467,9 +475,10 @@ async def evaluate_subagent_spawn(request: SubagentSpawnRequest) -> SubagentSpaw
 
 
 @router.post("/record/subagent-ended", response_model=SubagentEndedResponse)
-async def record_subagent_ended(request: SubagentEndedRequest) -> SubagentEndedResponse:
+async def record_subagent_ended(request: SubagentEndedRequest, req: Request) -> SubagentEndedResponse:
     """Record subagent completion for audit trail."""
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     logger.info(
         "Subagent ended: parent=%s child=%s success=%s session=%s",
         request.parentAgentId,
