@@ -25,7 +25,8 @@
     "cli.tsx",
     "tui/",
     "SKILL.md",
-    "README.md"
+    "README.md",
+    "policies/"
   ],
   "keywords": [
     "openclaw",

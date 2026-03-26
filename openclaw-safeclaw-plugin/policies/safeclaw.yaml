@@ -1,0 +1,14 @@
+# SafeClaw governance service egress policy
+# Compatible with NemoClaw 0.1.x policy format
+# Apply with: nemoclaw policy-add safeclaw
+rules:
+  - name: safeclaw-remote
+    host: "api.safeclaw.eu"
+    port: 443
+    protocol: https
+    allow: true
+  - name: safeclaw-host-local
+    host: "host.containers.internal"
+    port: 8420
+    protocol: http
+    allow: true
