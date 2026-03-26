@@ -23,6 +23,10 @@ from safeclaw.api.models import (
     PolicyCompileResponse,
     PreferencesRequest,
     SessionEndRequest,
+    SubagentEndedRequest,
+    SubagentEndedResponse,
+    SubagentSpawnRequest,
+    SubagentSpawnResponse,
     TempGrantRequest,
     TempGrantResponse,
     ToolCallRequest,
@@ -189,6 +193,96 @@ async def record_tool_result(request: ToolResultRequest, req: Request):
     )
     await engine.record_action_result(event)
     return {"ok": True}
+
+
+@router.post("/evaluate/subagent-spawn", response_model=SubagentSpawnResponse)
+async def evaluate_subagent_spawn(request: SubagentSpawnRequest) -> SubagentSpawnResponse:
+    """Evaluate whether a subagent spawn should be allowed.
+
+    Checks for delegation bypass: if the parent agent has recent blocks and the
+    child's proposed tools overlap with those blocked actions, this is flagged as
+    a delegation bypass attempt.
+    """
+    engine = _get_engine()
+
+    parent_id = request.parentAgentId
+    if not parent_id:
+        return SubagentSpawnResponse(allowed=True)
+
+    # Check if parent agent is killed
+    parent_record = engine.agent_registry.get_agent(parent_id)
+    if parent_record is not None and parent_record.killed:
+        return SubagentSpawnResponse(
+            allowed=False,
+            block=True,
+            reason=f"Parent agent {parent_id} is killed; cannot spawn subagents",
+        )
+
+    # Check delegation bypass: if child's proposed tools overlap with parent's
+    # recently blocked actions, flag it as a potential delegation bypass.
+    # We check the detector's block records directly rather than using
+    # check_delegation(), because at spawn time we only know the tool names
+    # the child will have access to -- not the specific params it will use.
+    child_tools = request.childConfig.get("tools", [])
+    if child_tools and isinstance(child_tools, list):
+        from safeclaw.engine.delegation_detector import _normalize_tool_name
+        from time import monotonic
+
+        detector = engine.delegation_detector
+        if detector.mode != "disabled":
+            now = monotonic()
+            child_tool_set = {
+                _normalize_tool_name(t) for t in child_tools if isinstance(t, str)
+            }
+            for record in detector._blocks:
+                if (
+                    record.agent_id == parent_id
+                    and record.tool_name in child_tool_set
+                    and (now - record.timestamp) <= 300  # DETECTION_WINDOW
+                ):
+                    return SubagentSpawnResponse(
+                        allowed=False,
+                        block=True,
+                        reason=(
+                            f"Delegation bypass detected: parent {parent_id} was "
+                            f"blocked from '{record.tool_name}' and is attempting "
+                            f"to spawn a child with access to the same tool"
+                        ),
+                    )
+
+    logger.info(
+        "Subagent spawn allowed: parent=%s session=%s reason=%s",
+        parent_id,
+        request.sessionId,
+        request.reason,
+    )
+    return SubagentSpawnResponse(allowed=True)
+
+
+@router.post("/record/subagent-ended", response_model=SubagentEndedResponse)
+async def record_subagent_ended(request: SubagentEndedRequest) -> SubagentEndedResponse:
+    """Record subagent completion for audit trail."""
+    engine = _get_engine()
+    logger.info(
+        "Subagent ended: parent=%s child=%s success=%s session=%s",
+        request.parentAgentId,
+        request.childAgentId,
+        request.success,
+        request.sessionId,
+    )
+    # Record in session tracker if session exists
+    if request.sessionId:
+        engine.session_tracker.record_outcome(
+            session_id=request.sessionId,
+            action_class="SubagentEnded",
+            tool_name="__subagent__",
+            success=request.success,
+            params={
+                "parentAgentId": request.parentAgentId,
+                "childAgentId": request.childAgentId,
+            },
+        )
+    return SubagentEndedResponse(ok=True)
 
 
 @router.post("/log/llm-input")

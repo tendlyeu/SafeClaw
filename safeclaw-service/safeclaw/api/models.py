@@ -200,3 +200,38 @@ class PreferencesRequest(BaseModel):
     confirm_before_push: bool = Field(True, alias="confirmBeforePush")
     confirm_before_send: bool = Field(True, alias="confirmBeforeSend")
     max_files_per_commit: int = Field(10, ge=1, le=100, alias="maxFilesPerCommit")
+
+
+# --- Subagent governance models (#188) ---
+
+
+class SubagentSpawnRequest(BaseModel):
+    sessionId: str = ""
+    userId: str | None = None
+    parentAgentId: str = ""
+    childConfig: dict = {}
+    reason: str = ""
+
+    @field_validator("childConfig")
+    @classmethod
+    def check_child_config(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class SubagentSpawnResponse(BaseModel):
+    allowed: bool = True
+    block: bool = False
+    reason: str = ""
+
+
+class SubagentEndedRequest(BaseModel):
+    sessionId: str = ""
+    userId: str | None = None
+    parentAgentId: str = ""
+    childAgentId: str = ""
+    result: str = ""
+    success: bool = True
+
+
+class SubagentEndedResponse(BaseModel):
+    ok: bool = True
