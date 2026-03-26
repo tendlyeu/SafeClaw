@@ -209,8 +209,10 @@ class RoleManager:
                         denied_action_classes=set(raw_denied),
                         resource_patterns=rp,
                     )
+            self._json_config_roles: set[str] = set(self._roles.keys())
         else:
             self._roles = {k: copy.deepcopy(v) for k, v in BUILTIN_ROLES.items()}
+            self._json_config_roles: set[str] = set()
 
         # Load roles from knowledge graph TTL files (merge, don't override builtins)
         if knowledge_graph is not None:
@@ -242,8 +244,7 @@ class RoleManager:
             role_name = label.lower()
 
             # Skip roles loaded from explicit JSON config (they take priority)
-            # but allow KG roles to override Python builtins
-            if role_name in self._roles and role_name not in BUILTIN_ROLES:
+            if role_name in self._json_config_roles:
                 continue
 
             role_uri = row["role"]
