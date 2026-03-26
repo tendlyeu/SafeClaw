@@ -22,7 +22,7 @@ SafeClaw/
 │   │   └── cli/                   # CLI commands
 │   └── tests/                     # 500+ tests
 ├── openclaw-safeclaw-plugin/      # TypeScript bridge for OpenClaw
-│   ├── index.ts                   # Plugin hooks (~80 lines)
+│   ├── index.ts                   # Plugin hooks (~480 lines)
 │   └── SKILL.md                   # ClawHub distribution docs
 └── safeclaw-landing/              # FastHTML landing site + user dashboard
     ├── main.py                    # Routes, docs page, landing page

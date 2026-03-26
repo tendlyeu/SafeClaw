@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SafeClaw is a neurosymbolic governance layer for autonomous AI agents. It validates tool calls, messages, and actions against OWL ontologies and SHACL constraints before execution. The repo is a monorepo with two components:
 
 - **`safeclaw-service/`** — Python FastAPI service (the brain). All governance logic lives here.
-- **`openclaw-safeclaw-plugin/`** — TypeScript plugin that bridges OpenClaw agents to the SafeClaw service via HTTP. It's a thin client (~220 lines) with no governance logic of its own.
+- **`openclaw-safeclaw-plugin/`** — TypeScript plugin that bridges OpenClaw agents to the SafeClaw service via HTTP. It's a thin client (~480 lines) with no governance logic of its own.
 
 ## Build & Development Commands
 
