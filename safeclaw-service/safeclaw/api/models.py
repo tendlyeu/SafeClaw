@@ -35,12 +35,14 @@ def _validate_params(v: dict) -> dict:
 
 class ToolCallRequest(BaseModel):
     sessionId: str = ""
-    userId: str = "default"
+    userId: str | None = None
     toolName: str
     params: dict = {}
     sessionHistory: list[str] = []
     agentId: str | None = None
     agentToken: str = ""
+    runId: str | None = None
+    dryRun: bool = False
 
     @field_validator("params")
     @classmethod
@@ -50,11 +52,12 @@ class ToolCallRequest(BaseModel):
 
 class MessageRequest(BaseModel):
     sessionId: str = ""
-    userId: str = "default"
+    userId: str | None = None
     to: str
     content: str = Field(..., max_length=1_000_000)
     agentId: str | None = None
     agentToken: str = ""
+    channelId: str | None = None
 
 
 class AgentStartRequest(BaseModel):
@@ -73,6 +76,8 @@ class ToolResultRequest(BaseModel):
     success: bool = True
     agentId: str = ""
     agentToken: str = ""
+    error: str | None = None
+    durationMs: float | None = None
 
     @field_validator("params")
     @classmethod
@@ -85,6 +90,8 @@ class LlmIORequest(BaseModel):
     content: str = Field("", max_length=1_000_000)
     agentId: str = ""
     agentToken: str = ""
+    provider: str = ""
+    model: str = ""
 
 
 class SessionEndRequest(BaseModel):
@@ -194,3 +201,104 @@ class PreferencesRequest(BaseModel):
     confirm_before_push: bool = Field(True, alias="confirmBeforePush")
     confirm_before_send: bool = Field(True, alias="confirmBeforeSend")
     max_files_per_commit: int = Field(10, ge=1, le=100, alias="maxFilesPerCommit")
+
+
+# --- Subagent governance models (#188) ---
+
+
+class SubagentSpawnRequest(BaseModel):
+    sessionId: str = ""
+    userId: str | None = None
+    parentAgentId: str = ""
+    childConfig: dict = {}
+    reason: str = ""
+    agentId: str | None = None
+    agentToken: str = ""
+
+    @field_validator("childConfig")
+    @classmethod
+    def check_child_config(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class SubagentSpawnResponse(BaseModel):
+    allowed: bool = True
+    block: bool = False
+    reason: str = ""
+
+
+class SubagentEndedRequest(BaseModel):
+    sessionId: str = ""
+    userId: str | None = None
+    parentAgentId: str = ""
+    childAgentId: str = ""
+    result: str = ""
+    success: bool = True
+    agentId: str | None = None
+    agentToken: str = ""
+
+
+class SubagentEndedResponse(BaseModel):
+    ok: bool = True
+
+
+# --- Session lifecycle models (#189) ---
+
+
+class SessionStartRequest(BaseModel):
+    sessionId: str
+    userId: str | None = None
+    agentId: str | None = None
+    agentToken: str = ""
+    metadata: dict = {}
+
+    @field_validator("metadata")
+    @classmethod
+    def check_metadata(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class SessionStartResponse(BaseModel):
+    acknowledged: bool = True
+
+
+# --- Inbound message governance models (#190) ---
+
+
+class InboundMessageRequest(BaseModel):
+    sessionId: str = ""
+    userId: str | None = None
+    channel: str = ""
+    sender: str = ""
+    content: str = Field("", max_length=1_000_000)
+    metadata: dict = {}
+    agentId: str | None = None
+    agentToken: str = ""
+
+    @field_validator("metadata")
+    @classmethod
+    def check_inbound_metadata(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class InboundMessageResponse(BaseModel):
+    riskLevel: str = "low"
+    flags: list[str] = []
+    warnings: list[str] = []
+
+
+# --- Sandbox policy validation models (#193) ---
+
+
+class SandboxPolicyValidationRequest(BaseModel):
+    policy: dict
+
+    @field_validator("policy")
+    @classmethod
+    def check_policy(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class SandboxPolicyValidationResponse(BaseModel):
+    conformant: bool = True
+    violations: list[dict] = []

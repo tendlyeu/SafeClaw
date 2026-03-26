@@ -22,7 +22,17 @@ from safeclaw.api.models import (
     PolicyCompileRequest,
     PolicyCompileResponse,
     PreferencesRequest,
+    SandboxPolicyValidationRequest,
+    SandboxPolicyValidationResponse,
     SessionEndRequest,
+    InboundMessageRequest,
+    InboundMessageResponse,
+    SessionStartRequest,
+    SessionStartResponse,
+    SubagentEndedRequest,
+    SubagentEndedResponse,
+    SubagentSpawnRequest,
+    SubagentSpawnResponse,
     TempGrantRequest,
     TempGrantResponse,
     ToolCallRequest,
@@ -94,8 +104,8 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
     # Use org_id from API key auth (numeric DB user ID) if available,
-    # otherwise fall back to client-supplied userId
-    user_id = getattr(req.state, "org_id", None) or request.userId
+    # otherwise fall back to client-supplied userId, then "default"
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
     # Sanitize params to strip control characters that could be used for
     # prompt injection when params are later included in LLM prompts
     sanitized_params = _sanitize_params(request.params)
@@ -109,10 +119,13 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         agent_token=request.agentToken,
     )
     decision = await engine.evaluate_tool_call(event)
+    audit_id = decision.audit_id
+    if request.dryRun:
+        audit_id = ""
     return DecisionResponse(
         block=decision.block,
         reason=decision.reason,
-        auditId=decision.audit_id,
+        auditId=audit_id,
         confirmationRequired=decision.requires_confirmation,
         constraintStep=decision.constraint_step,
         riskLevel=getattr(decision, "_risk_level", ""),
@@ -123,7 +136,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
 async def evaluate_message(request: MessageRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = getattr(req.state, "org_id", None) or request.userId
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
     # Sanitize message content to strip control characters
     sanitized_content = _sanitize_string(request.content)
     event = MessageEvent(
@@ -144,6 +157,167 @@ async def evaluate_message(request: MessageRequest, req: Request) -> DecisionRes
     )
 
 
+@router.post("/evaluate/inbound-message", response_model=InboundMessageResponse)
+async def evaluate_inbound_message(request: InboundMessageRequest, req: Request) -> InboundMessageResponse:
+    """Evaluate inbound messages for prompt injection risk.
+
+    Assesses risk based on:
+    - Channel trust level (from channel ontology)
+    - Content analysis for prompt injection patterns
+    - Sender metadata
+    """
+    import re
+
+    engine = _get_engine()
+    _verify_agent_token(engine, request.userId, getattr(request, "agentToken", None))
+    sanitized_content = _sanitize_string(request.content)
+    flags: list[str] = []
+    warnings: list[str] = []
+
+    # Channel trust mapping — derived from the channel ontology
+    channel_trust: dict[str, str] = {
+        "direct_message": "high",
+        "dm": "high",
+        "group_message": "medium",
+        "group": "medium",
+        "public_channel": "low",
+        "public": "low",
+        "webhook": "untrusted",
+        "webhook_message": "untrusted",
+        "api": "untrusted",
+    }
+    channel_key = request.channel.lower().replace("-", "_").replace(" ", "_")
+    trust_level = channel_trust.get(channel_key, "low")
+
+    # Start with risk based on channel trust
+    risk_level = "low"
+    if trust_level == "untrusted":
+        risk_level = "medium"
+        flags.append("untrusted_channel")
+    elif trust_level == "low":
+        risk_level = "low"
+        flags.append("low_trust_channel")
+
+    # Prompt injection detection patterns
+    injection_patterns = [
+        (re.compile(
+            r"(?i)ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)",
+        ), "prompt_injection_ignore_instructions"),
+        (re.compile(
+            r"(?i)you\s+are\s+now\s+(a|an|in)\s+",
+        ), "prompt_injection_role_override"),
+        (re.compile(
+            r"(?i)system\s*prompt\s*[:=]",
+        ), "prompt_injection_system_prompt"),
+        (re.compile(
+            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)\s+(rules|guidelines|instructions)",
+        ), "prompt_injection_rule_override"),
+        (re.compile(
+            r"(?i)\[/?INST\]|\[/?SYS\]|<\|im_start\|>|<\|im_end\|>",
+        ), "prompt_injection_special_tokens"),
+        (re.compile(
+            r"(?i)pretend\s+(you\s+)?(are|to\s+be)\s+",
+        ), "prompt_injection_pretend"),
+    ]
+
+    for pattern, flag in injection_patterns:
+        if pattern.search(sanitized_content):
+            flags.append(flag)
+
+    # Escalate risk level based on detected flags
+    injection_flags = [f for f in flags if f.startswith("prompt_injection_")]
+    if len(injection_flags) >= 2:
+        risk_level = "critical"
+        warnings.append(
+            f"Multiple prompt injection patterns detected: {', '.join(injection_flags)}"
+        )
+    elif len(injection_flags) == 1:
+        if trust_level in ("untrusted", "low"):
+            risk_level = "high"
+        else:
+            risk_level = "medium"
+        warnings.append(
+            f"Prompt injection pattern detected: {injection_flags[0]}"
+        )
+
+    # Empty sender from untrusted channel is suspicious
+    if not request.sender and trust_level == "untrusted":
+        flags.append("anonymous_untrusted_sender")
+        if risk_level == "low":
+            risk_level = "medium"
+
+    return InboundMessageResponse(
+        riskLevel=risk_level,
+        flags=flags,
+        warnings=warnings,
+    )
+
+
+@router.post(
+    "/evaluate/sandbox-policy",
+    response_model=SandboxPolicyValidationResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def evaluate_sandbox_policy(
+    request: SandboxPolicyValidationRequest,
+) -> SandboxPolicyValidationResponse:
+    """Validate a sandbox policy configuration.
+
+    Checks that the policy dict contains the required sections
+    (toolPolicy, filesystemPolicy) and validates mount point
+    configurations. Full SHACL graph-based validation is performed
+    when the policy is mapped to RDF triples.
+    """
+    violations: list[dict] = []
+    policy = request.policy
+
+    if not policy.get("toolPolicy"):
+        violations.append({
+            "field": "toolPolicy",
+            "message": "Sandbox must define a tool policy",
+        })
+    if not policy.get("filesystemPolicy"):
+        violations.append({
+            "field": "filesystemPolicy",
+            "message": "Sandbox must define filesystem boundaries",
+        })
+
+    # Validate mount points if present
+    fs_policy = policy.get("filesystemPolicy", {})
+    mounts = fs_policy.get("mounts", [])
+    if isinstance(mounts, list):
+        for i, mount in enumerate(mounts):
+            if not isinstance(mount, dict):
+                continue
+            if not mount.get("path"):
+                violations.append({
+                    "field": f"filesystemPolicy.mounts[{i}].path",
+                    "message": "Mount point must specify a path",
+                })
+            mode = mount.get("mode", "")
+            if mode not in ("read-only", "read-write"):
+                violations.append({
+                    "field": f"filesystemPolicy.mounts[{i}].mode",
+                    "message": "Mount mode must be read-only or read-write",
+                })
+
+    # Validate denied tools have names
+    tool_policy = policy.get("toolPolicy", {})
+    denied = tool_policy.get("denied", [])
+    if isinstance(denied, list):
+        for i, tool in enumerate(denied):
+            if isinstance(tool, dict) and not tool.get("name"):
+                violations.append({
+                    "field": f"toolPolicy.denied[{i}].name",
+                    "message": "Denied tool must specify a name",
+                })
+
+    return SandboxPolicyValidationResponse(
+        conformant=len(violations) == 0,
+        violations=violations,
+    )
+
+
 @router.post("/context/build", response_model=ContextResponse)
 async def build_context(request: AgentStartRequest) -> ContextResponse:
     engine = _get_engine()
@@ -158,11 +332,55 @@ async def build_context(request: AgentStartRequest) -> ContextResponse:
     return ContextResponse(prependContext=result.prepend_context)
 
 
+@router.post("/session/start", response_model=SessionStartResponse)
+async def start_session(request: SessionStartRequest, req: Request) -> SessionStartResponse:
+    """Initialize session-scoped governance state.
+
+    Pre-loads user preferences, initializes rate limit bucket, and logs
+    session start to audit.
+    """
+    engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    owner_id = request.agentId or user_id
+
+    # Initialize session tracker state with the owner
+    engine.session_tracker._get_or_create(request.sessionId, owner_id=owner_id)
+
+    # Pre-load user preferences into cache by querying them
+    if request.userId:
+        engine.preference_checker.get_preferences(request.userId)
+
+    # Initialize rate limiter session bucket (creates entry if missing)
+    engine.rate_limiter._sessions.setdefault(request.sessionId, [])
+
+    logger.info(
+        "Session %s started: user=%s agent=%s",
+        request.sessionId,
+        user_id,
+        request.agentId,
+    )
+    return SessionStartResponse(acknowledged=True)
+
+
 @router.post("/session/end")
 async def end_session(request: SessionEndRequest, req: Request):
-    """Clean up all per-session state when a session ends."""
+    """Clean up all per-session state when a session ends.
+
+    Verifies session ownership before clearing: only the org/agent that
+    created the session (or unowned sessions) can be cleared.
+    """
     engine = _get_engine()
     org_id = getattr(req.state, "org_id", None)
+
+    # Ownership check: if the caller has an org_id, verify they own the session
+    if org_id:
+        if not engine.session_tracker.verify_session_owner(request.sessionId, org_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Session owned by a different user/agent",
+            )
+
     logger.info("Session %s cleared by org_id=%s", request.sessionId, org_id)
     await engine.clear_session(request.sessionId)
     return {"ok": True, "sessionId": request.sessionId}
@@ -189,6 +407,98 @@ async def record_tool_result(request: ToolResultRequest, req: Request):
     )
     await engine.record_action_result(event)
     return {"ok": True}
+
+
+@router.post("/evaluate/subagent-spawn", response_model=SubagentSpawnResponse)
+async def evaluate_subagent_spawn(request: SubagentSpawnRequest, req: Request) -> SubagentSpawnResponse:
+    """Evaluate whether a subagent spawn should be allowed.
+
+    Checks for delegation bypass: if the parent agent has recent blocks and the
+    child's proposed tools overlap with those blocked actions, this is flagged as
+    a delegation bypass attempt.
+    """
+    engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
+
+    parent_id = request.parentAgentId
+    if not parent_id:
+        return SubagentSpawnResponse(allowed=True)
+
+    # Check if parent agent is killed
+    parent_record = engine.agent_registry.get_agent(parent_id)
+    if parent_record is not None and parent_record.killed:
+        return SubagentSpawnResponse(
+            allowed=False,
+            block=True,
+            reason=f"Parent agent {parent_id} is killed; cannot spawn subagents",
+        )
+
+    # Check delegation bypass: if child's proposed tools overlap with parent's
+    # recently blocked actions, flag it as a potential delegation bypass.
+    # We check the detector's block records directly rather than using
+    # check_delegation(), because at spawn time we only know the tool names
+    # the child will have access to -- not the specific params it will use.
+    child_tools = request.childConfig.get("tools", [])
+    if child_tools and isinstance(child_tools, list):
+        from safeclaw.engine.delegation_detector import _normalize_tool_name
+        from time import monotonic
+
+        detector = engine.delegation_detector
+        if detector.mode != "disabled":
+            now = monotonic()
+            child_tool_set = {
+                _normalize_tool_name(t) for t in child_tools if isinstance(t, str)
+            }
+            for record in detector._blocks:
+                if (
+                    record.agent_id == parent_id
+                    and record.tool_name in child_tool_set
+                    and (now - record.timestamp) <= 300  # DETECTION_WINDOW
+                ):
+                    return SubagentSpawnResponse(
+                        allowed=False,
+                        block=True,
+                        reason=(
+                            f"Delegation bypass detected: parent {parent_id} was "
+                            f"blocked from '{record.tool_name}' and is attempting "
+                            f"to spawn a child with access to the same tool"
+                        ),
+                    )
+
+    logger.info(
+        "Subagent spawn allowed: parent=%s session=%s reason=%s",
+        parent_id,
+        request.sessionId,
+        request.reason,
+    )
+    return SubagentSpawnResponse(allowed=True)
+
+
+@router.post("/record/subagent-ended", response_model=SubagentEndedResponse)
+async def record_subagent_ended(request: SubagentEndedRequest, req: Request) -> SubagentEndedResponse:
+    """Record subagent completion for audit trail."""
+    engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
+    logger.info(
+        "Subagent ended: parent=%s child=%s success=%s session=%s",
+        request.parentAgentId,
+        request.childAgentId,
+        request.success,
+        request.sessionId,
+    )
+    # Record in session tracker if session exists
+    if request.sessionId:
+        engine.session_tracker.record_outcome(
+            session_id=request.sessionId,
+            action_class="SubagentEnded",
+            tool_name="__subagent__",
+            success=request.success,
+            params={
+                "parentAgentId": request.parentAgentId,
+                "childAgentId": request.childAgentId,
+            },
+        )
+    return SubagentEndedResponse(ok=True)
 
 
 @router.post("/log/llm-input")

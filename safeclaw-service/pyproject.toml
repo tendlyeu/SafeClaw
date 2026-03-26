@@ -19,9 +19,9 @@ dependencies = [
 [project.optional-dependencies]
 llm = ["mistralai>=1.0.0"]
 dashboard = [
-    "python-fasthtml==0.12.47",
-    "fastcore==1.12.18",
-    "monsterui==1.0.44",
+    "python-fasthtml==0.13.1",
+    "fastcore==1.12.31",
+    "monsterui==1.0.45",
 ]
 dev = [
     "pytest>=8.0",
