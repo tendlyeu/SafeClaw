@@ -757,8 +757,18 @@ async def complete_task(task_id: str):
 
 @router.post("/heartbeat")
 async def heartbeat(request: HeartbeatRequest):
-    """Receive plugin heartbeat. No admin auth required -- plugins call this."""
+    """Receive plugin heartbeat with agent token verification (#56).
+
+    No admin/API-key auth required (plugins call this), but registered
+    agents must provide a valid agentToken to prevent heartbeat spoofing.
+    """
     engine = _get_engine()
+
+    # Verify agent token to prevent heartbeat spoofing (#56).
+    # Unregistered agents are allowed through for backwards compatibility.
+    if not engine.heartbeat_monitor.verify_heartbeat_token(request.agentId, request.agentToken):
+        raise HTTPException(status_code=403, detail="Invalid agent token for heartbeat")
+
     if request.status == "shutdown":
         engine.heartbeat_monitor.remove(request.agentId)
         return {"ok": True, "action": "removed"}
