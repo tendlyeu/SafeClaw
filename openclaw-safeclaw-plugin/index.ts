@@ -7,6 +7,7 @@
  * to the SafeClaw service and acts on the responses.
  */
 
+import type { OpenClawPluginApi, OpenClawPluginEvent, OpenClawPluginContext } from 'openclaw/plugin-sdk/core';
 import { loadConfig, configHash } from './tui/config.js';
 import crypto from 'crypto';
 import { createRequire } from 'module';
@@ -78,47 +79,6 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
 
 // --- Plugin Definition ---
 
-interface PluginEvent {
-  sessionId?: string;
-  toolName?: string;
-  params?: Record<string, unknown>;
-  to?: unknown;
-  content?: unknown;
-  result?: unknown;
-  error?: unknown;
-  durationMs?: number;
-  prompt?: unknown;
-  lastAssistant?: unknown;
-  provider?: string;
-  model?: string;
-  usage?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-interface PluginContext {
-  sessionId?: string;
-  agentId?: string;
-  accountId?: string;
-  runId?: string;
-  conversationId?: string;
-  channelId?: string;
-  [key: string]: unknown;
-}
-
-interface ServiceRegistration {
-  name: string;
-  stop(): Promise<void>;
-}
-
-interface PluginApi {
-  on(
-    event: string,
-    handler: (event: PluginEvent, ctx: PluginContext) => Promise<Record<string, unknown> | void> | void,
-    options?: { priority?: number },
-  ): void;
-  registerService?(service: ServiceRegistration): void;
-}
-
 let handshakeCompleted = false;
 
 async function performHandshake(): Promise<boolean> {
@@ -134,11 +94,11 @@ async function performHandshake(): Promise<boolean> {
   });
 
   if (r === null) {
-    console.warn('[SafeClaw] ✗ Handshake failed — API key may be invalid or service unreachable');
+    console.warn('[SafeClaw] Handshake failed — API key may be invalid or service unreachable');
     return false;
   }
 
-  console.log(`[SafeClaw] ✓ Handshake OK — org=${r.orgId}, scope=${r.scope}, engine=${r.engineReady ? 'ready' : 'not ready'}`);
+  console.log(`[SafeClaw] Handshake OK — org=${r.orgId}, scope=${r.scope}, engine=${r.engineReady ? 'ready' : 'not ready'}`);
   handshakeCompleted = true;
   return true;
 }
@@ -155,16 +115,16 @@ async function checkConnection(): Promise<void> {
     });
     if (res.ok) {
       const data = await res.json() as Record<string, unknown>;
-      console.log(`${label} ✓ Connected — service ${data.status ?? 'ok'}`);
+      console.log(`${label} Connected — service ${data.status ?? 'ok'}`);
     } else {
-      console.warn(`${label} ✗ Service responded with HTTP ${res.status}`);
+      console.warn(`${label} Service responded with HTTP ${res.status}`);
     }
   } catch {
-    console.warn(`${label} ✗ Cannot reach service at ${cfg.serviceUrl}`);
+    console.warn(`${label} Cannot reach service at ${cfg.serviceUrl}`);
     if (cfg.failMode === 'closed') {
-      console.warn(`${label}   fail-mode=closed → tool calls will be BLOCKED until service is reachable`);
+      console.warn(`${label}   fail-mode=closed — tool calls will be BLOCKED until service is reachable`);
     } else {
-      console.warn(`${label}   fail-mode=open → tool calls will be ALLOWED despite no connection`);
+      console.warn(`${label}   fail-mode=open — tool calls will be ALLOWED despite no connection`);
     }
   }
 }
@@ -174,7 +134,7 @@ export default {
   name: 'SafeClaw Neurosymbolic Governance',
   version: PLUGIN_VERSION,
 
-  register(api: PluginApi) {
+  register(api: OpenClawPluginApi) {
     if (!getConfig().enabled) {
       console.log('[SafeClaw] Plugin disabled');
       return;
@@ -229,7 +189,8 @@ export default {
     // needed, which avoids killing the entire gateway process (#194).
     if (api.registerService) {
       api.registerService({
-        name: 'safeclaw-governance',
+        id: 'safeclaw-governance',
+        start() { /* startup handled above via startupPromise */ },
         async stop() {
           await startupPromise;  // Ensure startup finished before tearing down
           await shutdown();
@@ -242,7 +203,7 @@ export default {
     }
 
     // THE GATE — constraint checking on every tool call (#195: use correct OpenClaw field names)
-    api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
+    api.on('before_tool_call', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       const cfg = getConfig();
       if (!handshakeCompleted && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
         return { block: true, blockReason: 'SafeClaw handshake not completed (fail-closed)' };
@@ -277,7 +238,7 @@ export default {
 
     // Context injection — prepend governance context to agent system prompt
     // (#195: before_agent_start is deprecated; use before_prompt_build + prependSystemContext)
-    api.on('before_prompt_build', async (event: PluginEvent, ctx: PluginContext) => {
+    api.on('before_prompt_build', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       const r = await post('/context/build', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
@@ -290,7 +251,7 @@ export default {
 
     // Message governance — check outbound messages
     // (#195: use ctx.conversationId/sessionId, ctx.accountId; return only { cancel: true })
-    api.on('message_sending', async (event: PluginEvent, ctx: PluginContext) => {
+    api.on('message_sending', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       const cfg = getConfig();
       const r = await post('/evaluate/message', {
         sessionId: ctx.conversationId ?? ctx.sessionId ?? event.sessionId ?? '',
@@ -323,7 +284,7 @@ export default {
 
     // Async logging — fire-and-forget, no return value needed
     // (#195: use event.prompt for input, event.lastAssistant for output; add provider/model)
-    api.on('llm_input', (event: PluginEvent, ctx: PluginContext) => {
+    api.on('llm_input', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/log/llm-input', {
         sessionId: event.sessionId ?? ctx.sessionId ?? '',
         content: event.prompt ?? '',
@@ -332,7 +293,7 @@ export default {
       }).catch(() => {});
     });
 
-    api.on('llm_output', (event: PluginEvent, ctx: PluginContext) => {
+    api.on('llm_output', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/log/llm-output', {
         sessionId: event.sessionId ?? ctx.sessionId ?? '',
         content: event.lastAssistant ?? '',
@@ -343,7 +304,7 @@ export default {
     });
 
     // (#195: use event.toolName, !event.error for success, add durationMs and error)
-    api.on('after_tool_call', (event: PluginEvent, ctx: PluginContext) => {
+    api.on('after_tool_call', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/record/tool-result', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         toolName: event.toolName ?? '',

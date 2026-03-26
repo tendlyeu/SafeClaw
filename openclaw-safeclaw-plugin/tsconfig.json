@@ -11,8 +11,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2022"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "typeRoots": ["./types", "./node_modules/@types"]
   },
-  "include": ["index.ts", "cli.tsx", "tui/**/*.ts", "tui/**/*.tsx"],
+  "include": ["index.ts", "cli.tsx", "tui/**/*.ts", "tui/**/*.tsx", "types/**/*.d.ts"],
   "exclude": ["node_modules", "dist"]
 }
