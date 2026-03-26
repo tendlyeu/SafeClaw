@@ -1,6 +1,7 @@
 """Graph builder - generates D3-compatible JSON from the knowledge graph."""
 
 import itertools
+import weakref
 
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP, SU
 
@@ -23,12 +24,14 @@ def _get_generation(kg: KnowledgeGraph) -> int:
     """Get or assign a generation number for a KnowledgeGraph instance.
 
     Each unique KnowledgeGraph object gets a unique generation number.
-    If the id() has been reused (after GC), the new instance gets a
-    fresh generation.
+    A weak-reference finalizer automatically removes the entry when the
+    KG is garbage-collected, so a new KG that reuses the same ``id()``
+    will always receive a fresh generation number.
     """
     kg_id = id(kg)
     if kg_id not in _kg_generations:
         _kg_generations[kg_id] = next(_generation_counter)
+        weakref.finalize(kg, _kg_generations.pop, kg_id, None)
     return _kg_generations[kg_id]
 
 
