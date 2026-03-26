@@ -490,8 +490,8 @@ if (!command || command === '--help' || command === '-h' || command === 'help') 
   console.log('  restart-openclaw     Restart the OpenClaw daemon to pick up plugin changes');
   console.log('');
   console.log('Diagnostics:');
-  console.log('  status               Run 8 checks: config, API key, service health, evaluate endpoint,');
-  console.log('                       handshake, OpenClaw binary, plugin files, OpenClaw config');
+  console.log('  status               Run 9 checks: config, API key, service health, evaluate endpoint,');
+  console.log('                       handshake, OpenClaw binary, plugin files, OpenClaw config, NemoClaw');
   console.log('');
   console.log('Configuration:');
   console.log('  config show          Show current enforcement, failMode, enabled, serviceUrl, apiKey');

@@ -29,11 +29,17 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
   const [selected, setSelected] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editBuffer, setEditBuffer] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const updateConfig = (patch: Partial<SafeClawConfig>) => {
     const updated = { ...config, ...patch };
-    saveConfig(updated);
-    onConfigChange(updated);
+    try {
+      saveConfig(updated);
+      setSaveError(null);
+      onConfigChange(updated);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   useInput((input, key) => {
@@ -44,12 +50,7 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
           // Reject invalid API keys — must start with sc_
           return;
         }
-        try {
-          updateConfig({ [editingKey]: editBuffer } as Partial<SafeClawConfig>);
-        } catch {
-          // saveConfig may throw on invalid URL — stay in edit mode
-          return;
-        }
+        updateConfig({ [editingKey]: editBuffer } as Partial<SafeClawConfig>);
         setEditing(false);
       } else if (key.escape) {
         setEditing(false);
@@ -145,6 +146,12 @@ export default function Settings({ config, onConfigChange }: SettingsProps) {
       <Box>
         <Text dimColor>{'  Fail Mode:   open=allow if service unreachable, closed=block if service unreachable'}</Text>
       </Box>
+
+      {saveError && (
+        <Box marginTop={1}>
+          <Text color="red">{'  Error saving config: '}{saveError}</Text>
+        </Box>
+      )}
 
       <Box marginTop={1}>
         <Text dimColor>{'  All changes save to ~/.safeclaw/config.json immediately.'}</Text>

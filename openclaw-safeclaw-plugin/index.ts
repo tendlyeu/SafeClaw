@@ -45,7 +45,7 @@ function getConfig(): typeof config {
 
 async function post(path: string, body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   const cfg = getConfig();
-  if (!cfg.enabled) return null;
+  if (!cfg.enabled || cfg.enforcement === 'disabled') return null;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (cfg.apiKey) {
@@ -89,7 +89,7 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
 
 async function get(path: string): Promise<Record<string, unknown> | null> {
   const cfg = getConfig();
-  if (!cfg.enabled) return null;
+  if (!cfg.enabled || cfg.enforcement === 'disabled') return null;
   const headers: Record<string, string> = {};
   if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`;
   try {
@@ -356,6 +356,15 @@ export default {
         childConfig: event.childConfig ?? {},
         reason: event.reason ?? '',
       });
+
+      // Fail-closed handling (matches before_tool_call / message_sending pattern)
+      if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
+        throw new Error('SafeClaw service unavailable (fail-closed mode)');
+      } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'warn-only') {
+        log.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
+      } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'audit-only') {
+        log.warn('[SafeClaw] Service unavailable (fail-closed mode, audit-only)');
+      }
 
       if (r?.block && cfg.enforcement === 'enforce') {
         throw new Error((r.reason as string) || 'Blocked by SafeClaw: delegation bypass detected');

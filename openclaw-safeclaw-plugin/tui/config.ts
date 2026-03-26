@@ -73,8 +73,14 @@ export function loadConfig(): SafeClawConfig {
     }
   }
   if (process.env.SAFECLAW_ENABLED === 'false') defaults.enabled = false;
-  if (process.env.SAFECLAW_ENFORCEMENT) defaults.enforcement = process.env.SAFECLAW_ENFORCEMENT as SafeClawConfig['enforcement'];
-  if (process.env.SAFECLAW_FAIL_MODE) defaults.failMode = process.env.SAFECLAW_FAIL_MODE as SafeClawConfig['failMode'];
+  const enforcement = process.env.SAFECLAW_ENFORCEMENT;
+  if (enforcement && ['enforce', 'warn-only', 'audit-only', 'disabled'].includes(enforcement)) {
+    defaults.enforcement = enforcement as SafeClawConfig['enforcement'];
+  }
+  const failMode = process.env.SAFECLAW_FAIL_MODE;
+  if (failMode && ['open', 'closed'].includes(failMode)) {
+    defaults.failMode = failMode as SafeClawConfig['failMode'];
+  }
   if (process.env.SAFECLAW_AGENT_ID) defaults.agentId = process.env.SAFECLAW_AGENT_ID;
   if (process.env.SAFECLAW_AGENT_TOKEN) defaults.agentToken = process.env.SAFECLAW_AGENT_TOKEN;
 
@@ -148,6 +154,8 @@ export function saveConfig(config: SafeClawConfig): void {
   (existing.remote as Record<string, unknown>).serviceUrl = config.serviceUrl;
   if (config.apiKey) {
     (existing.remote as Record<string, unknown>).apiKey = config.apiKey;
+  } else {
+    delete (existing.remote as Record<string, unknown>).apiKey;
   }
 
   if (!existing.enforcement || typeof existing.enforcement !== 'object') {
