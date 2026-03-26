@@ -11,7 +11,10 @@ RUN groupadd -r safeclaw && useradd -m -r -g safeclaw safeclaw
 
 # Make app dir writable by safeclaw (FastHTML writes .sesskey at runtime)
 # and tighten data directory for SQLite
-RUN mkdir -p data && chown -R safeclaw:safeclaw /app && chmod 770 data
+RUN mkdir -p /home/safeclaw/.safeclaw-landing && \
+    chown safeclaw:safeclaw /home/safeclaw/.safeclaw-landing && \
+    chmod 770 /home/safeclaw/.safeclaw-landing && \
+    chown -R safeclaw:safeclaw /app
 
 USER safeclaw
 

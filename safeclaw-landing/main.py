@@ -1827,7 +1827,8 @@ async def health_check(req, sess):
         )
     try:
         service_url = user.service_url or "http://localhost:8420"
-        _validate_service_url(service_url)
+        if user.service_url:
+            _validate_service_url(service_url)  # Only validate user-provided URLs
         async with httpx.AsyncClient(timeout=5.0) as client:
             # Normalize the health URL: append /api/v1/health if not already present (#87)
             if service_url.rstrip("/").endswith("/api/v1"):
@@ -2004,6 +2005,8 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
     if err := _verify_csrf(sess, _csrf_token):
         return P(err, style="color:#f87171;")
     user = req.scope.get("user")
+    if not user.self_hosted:
+        return P("Agent management requires self-hosted mode.", style="color:#f87171;")
     token = _generate_csrf_token(sess)
     url = (service_url or user.service_url or "http://localhost:8420").rstrip("/")
     try:
@@ -2225,8 +2228,9 @@ if os.environ.get("SAFECLAW_MOUNT_SERVICE", "").lower() in ("1", "true", "yes"):
     service_dir = Path(__file__).parent.parent / "safeclaw-service"
     sys.path.insert(0, str(service_dir))
 
-    # Set required env vars for the service
-    db_path = str(Path(__file__).parent / "data" / "safeclaw.db")
+    # Set required env vars for the service — use same path as db.py (#252)
+    db_path = str(Path(os.environ.get("SAFECLAW_DB_DIR",
+        os.path.expanduser("~/.safeclaw-landing"))) / "safeclaw.db")
     os.environ.setdefault("SAFECLAW_DB_PATH", db_path)
     os.environ.setdefault("SAFECLAW_REQUIRE_AUTH", "true")
 
