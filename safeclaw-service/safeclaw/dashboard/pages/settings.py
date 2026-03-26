@@ -32,6 +32,25 @@ from starlette.responses import Response
 from safeclaw.dashboard.components import Page
 
 
+def _write_config_safe(path, content: str) -> None:
+    """Write a file with owner-only permissions (0o600).
+
+    Uses ``os.open`` with explicit mode bits so the file is never
+    world-readable, even momentarily.  This is important because config
+    and preference files may contain API keys or other secrets.
+
+    When overwriting an existing file, the mode parameter of ``os.open``
+    is ignored (POSIX behavior), so we explicitly ``fchmod`` to ensure
+    permissions are always tightened.
+    """
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, content.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
 def _mask_key(key: str) -> str:
     """Mask an API key, showing first 4 and last 4 chars."""
     if not key:
@@ -208,7 +227,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             cfg_data = {}
         cfg_data["mistral_api_key"] = api_key
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(cfg_data, indent=2))
+        _write_config_safe(config_path, json.dumps(cfg_data, indent=2))
 
         sess["settings_flash"] = "API key saved and applied."
         return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)
@@ -383,7 +402,7 @@ su:pref-{safe_user_id} a su:UserPreferences ;
     su:confirmBeforeSend "{str(prefs_dict["confirm_before_send"]).lower()}"^^<http://www.w3.org/2001/XMLSchema#boolean> ;
     su:maxFilesPerCommit "{prefs_dict["max_files_per_commit"]}"^^<http://www.w3.org/2001/XMLSchema#integer> .
 """
-        ttl_path.write_text(turtle)
+        _write_config_safe(ttl_path, turtle)
 
         # Reload ontologies so the new preferences take effect
         await engine.reload()
