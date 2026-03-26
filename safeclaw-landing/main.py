@@ -1111,7 +1111,7 @@ def DocsPage():
                     Div(
                         Pre(
                             "$ safeclaw llm suggestions\n"
-                            "$ safeclaw llm findings --last 20",
+                            "$ safeclaw llm findings",
                             cls="docs-pre",
                         ),
                     ),
@@ -1268,7 +1268,7 @@ def DocsPage():
                         "export GITHUB_CLIENT_SECRET=your_secret\n"
                         "python main.py  # starts on port 5002"
                     )),
-                    P("The SQLite database is created automatically in ", Code("data/safeclaw.db"), "."),
+                    P("The SQLite database is created automatically in ", Code("~/.safeclaw-landing/safeclaw.db"), "."),
                 ),
 
                 # ── 17. Demonstration Flows ──
