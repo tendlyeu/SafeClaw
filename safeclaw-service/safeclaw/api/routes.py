@@ -2,8 +2,6 @@
 
 import logging
 import re
-import secrets
-
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -103,10 +101,9 @@ async def require_admin(request: Request):
 
     # Layer 2: X-Admin-Password header check
     engine = _get_engine()
-    configured_password = engine.config.admin_password
-    if configured_password:  # only enforce when a password is actually set
+    if engine.config.admin_password:  # only enforce when a password is actually set
         provided = request.headers.get("X-Admin-Password", "")
-        if not provided or not secrets.compare_digest(provided, configured_password):
+        if not engine.config.verify_admin_password(provided):
             raise HTTPException(status_code=403, detail="Admin access required")
 
 
