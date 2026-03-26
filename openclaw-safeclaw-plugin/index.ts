@@ -328,5 +328,124 @@ export default {
         durationMs: event.durationMs ?? 0,
       }).catch((e) => log.warn('[SafeClaw] Failed to record tool result:', e));
     });
+
+    // Subagent governance — block delegation bypass attempts (#188)
+    api.on('subagent_spawning', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+      const cfg = getConfig();
+      const r = await post('/evaluate/subagent-spawn', {
+        sessionId: ctx.sessionId ?? event.sessionId,
+        userId: ctx.agentId,
+        parentAgentId: event.parentAgentId,
+        childConfig: event.childConfig ?? {},
+        reason: event.reason ?? '',
+      });
+
+      if (r?.block && cfg.enforcement === 'enforce') {
+        throw new Error((r.reason as string) || 'Blocked by SafeClaw: delegation bypass detected');
+      }
+      if (r?.block && cfg.enforcement === 'warn-only') {
+        log.warn(`[SafeClaw] Subagent spawn warning: ${r.reason}`);
+      }
+    }, { priority: 100 });
+
+    // Subagent ended — record child agent lifecycle (#188)
+    api.on('subagent_ended', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+      post('/record/subagent-ended', {
+        sessionId: ctx.sessionId ?? event.sessionId,
+        parentAgentId: event.parentAgentId,
+        childAgentId: event.childAgentId,
+      }).catch(() => {});
+    });
+
+    // Session lifecycle — notify service of session start (#189)
+    api.on('session_start', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+      post('/session/start', {
+        sessionId: ctx.sessionId ?? event.sessionId,
+        userId: ctx.agentId,
+        agentId: instanceId,
+        metadata: event.metadata ?? {},
+      }).catch(() => {});
+    });
+
+    // Session lifecycle — notify service of session end (#189)
+    api.on('session_end', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+      post('/session/end', {
+        sessionId: ctx.sessionId ?? event.sessionId,
+        userId: ctx.agentId,
+        agentId: instanceId,
+      }).catch(() => {});
+    });
+
+    // Inbound message governance — evaluate received messages (#190)
+    api.on('message_received', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+      post('/evaluate/inbound-message', {
+        sessionId: ctx.sessionId ?? event.sessionId,
+        userId: ctx.agentId,
+        channel: event.channel ?? (ctx as any).channelId ?? '',
+        sender: event.sender ?? '',
+        content: event.content ?? '',
+        metadata: event.metadata ?? {},
+      }).catch(() => {});
+    });
+
+    // Agent tools — let agents introspect governance state (#197)
+    if (api.registerTool) {
+      api.registerTool({
+        name: 'safeclaw_status',
+        description: 'Check SafeClaw governance service status, enforcement mode, and active constraints',
+        parameters: {},
+        async execute(_params: Record<string, unknown>, _ctx: Record<string, unknown>) {
+          const health = await post('/health', {});
+          const cfg = getConfig();
+          return {
+            status: health?.status ?? 'unreachable',
+            enforcement: cfg.enforcement,
+            failMode: cfg.failMode,
+            serviceUrl: cfg.serviceUrl,
+            handshakeCompleted,
+          };
+        },
+      });
+
+      api.registerTool({
+        name: 'safeclaw_check_action',
+        description: 'Check if a specific tool call would be allowed by SafeClaw governance (dry run, no side effects)',
+        parameters: {
+          type: 'object',
+          properties: {
+            toolName: { type: 'string', description: 'Tool name to check' },
+            params: { type: 'object', description: 'Tool parameters to validate' },
+          },
+          required: ['toolName'],
+        },
+        async execute(params: Record<string, unknown>, ctx: Record<string, unknown>) {
+          const r = await post('/evaluate/tool-call', {
+            sessionId: (ctx as any).sessionId ?? '',
+            userId: (ctx as any).agentId ?? '',
+            toolName: params.toolName,
+            params: (params.params as Record<string, unknown>) ?? {},
+            dryRun: true,
+          });
+          return r ?? { error: 'Service unreachable' };
+        },
+      });
+    }
+
+    // CLI extension — `safeclaw status` command (#197)
+    if (api.registerCli) {
+      api.registerCli(({ program }: { program: any }) => {
+        const cmd = program.command('safeclaw').description('SafeClaw governance controls');
+        cmd.command('status')
+          .description('Show SafeClaw service status and enforcement mode')
+          .action(async () => {
+            const cfg = getConfig();
+            const health = await post('/health', {});
+            console.log(`SafeClaw: ${health?.status ?? 'unreachable'}`);
+            console.log(`  Enforcement: ${cfg.enforcement}`);
+            console.log(`  Fail mode: ${cfg.failMode}`);
+            console.log(`  Service: ${cfg.serviceUrl}`);
+          });
+      }, { commands: ['safeclaw'] });
+    }
   },
 };
