@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 
 from safeclaw.constraints.action_classifier import ClassifiedAction
+from safeclaw.engine.event_bus import SafeClawEvent
 from safeclaw.llm.prompts import SECURITY_REVIEW_SYSTEM, build_security_review_user_prompt
 
 logger = logging.getLogger("safeclaw.llm.security")
@@ -112,14 +113,18 @@ class SecurityReviewer:
             if self.engine and hasattr(self.engine, "event_bus"):
                 try:
                     self.engine.event_bus.publish(
-                        {
-                            "type": "kill_switch_escalation",
-                            "agent_id": agent_id,
-                            "confidence": finding.confidence,
-                            "severity": finding.severity,
-                            "category": finding.category,
-                            "description": finding.description,
-                        }
+                        SafeClawEvent(
+                            event_type="kill_switch_escalation",
+                            severity="critical",
+                            title=f"Kill switch escalation for agent {agent_id}",
+                            detail=finding.description,
+                            metadata={
+                                "agent_id": agent_id,
+                                "confidence": finding.confidence,
+                                "finding_severity": finding.severity,
+                                "category": finding.category,
+                            },
+                        )
                     )
                 except Exception:
                     logger.debug("Failed to publish kill_switch escalation event", exc_info=True)
