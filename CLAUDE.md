@@ -59,17 +59,19 @@ docker compose up --build   # runs on port 8420
 
 ### Constraint Pipeline
 
-The core of SafeClaw is a 9-step validation pipeline in `FullEngine.evaluate_tool_call()` (`safeclaw-service/safeclaw/engine/full_engine.py`). Every tool call passes through these steps in order, blocking at the first violation:
+The core of SafeClaw is a multi-step validation pipeline in `FullEngine.evaluate_tool_call()` (`safeclaw-service/safeclaw/engine/full_engine.py`). Every tool call passes through these steps in order, blocking at the first violation. Steps use named constants (`STEP_*`) for machine-readable identification:
 
-1. **Agent governance** — token auth, kill switch, delegation bypass detection
-2. **Action classification** — maps tool name + params to an ontology class with risk level (`constraints/action_classifier.py`)
-3. **Role-based access** — checks if the agent's role allows the action class and resource path
-4. **SHACL validation** — validates the action's RDF graph against shape constraints (`ontologies/shapes/`)
-5. **Policy check** — evaluates against policy rules from the knowledge graph (`constraints/policy_checker.py`)
-6. **Preference check** — user-specific preferences like "confirm before delete" (`constraints/preference_checker.py`)
-7. **Dependency check** — e.g., tests must pass before git push (`constraints/dependency_checker.py`)
-8. **Temporal + Rate limit** — time-based constraints and rate limiting
-9. **Derived rules** — combined rules that may require user confirmation
+0. **Agent governance** (`agent_governance`) — token auth, kill switch, delegation bypass detection
+1. **Action classification** (`action_classification`) — maps tool name + params to an ontology class with risk level
+2. **Role-based access** (`role_check`) — checks if the agent's role allows the action class and resource path
+3. **SHACL validation** (`shacl_validation`) — validates the action's RDF graph against shape constraints
+4. **Policy check** (`policy_check`) — evaluates against policy rules from the knowledge graph
+5. **Preference check** (`preference_check`) — user-specific preferences like "confirm before delete"
+6. **Dependency check** (`dependency_check`) — e.g., tests must pass before git push
+7. **Temporal check** (`temporal_check`) — time-based constraints (notBefore/notAfter)
+8. **Rate limit check** (`rate_limit_check`) — per-session rate limiting
+9. **Derived rules** (`derived_rules`) — combined rules that may require user confirmation
+10. **Hierarchy rate limit** (`hierarchy_rate_limit`) — multi-agent hierarchy-wide rate limiting
 
 ### Engine Abstraction
 
