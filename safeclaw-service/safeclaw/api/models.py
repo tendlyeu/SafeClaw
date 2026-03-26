@@ -35,12 +35,13 @@ def _validate_params(v: dict) -> dict:
 
 class ToolCallRequest(BaseModel):
     sessionId: str = ""
-    userId: str = "default"
+    userId: str | None = None
     toolName: str
     params: dict = {}
     sessionHistory: list[str] = []
     agentId: str | None = None
     agentToken: str = ""
+    runId: str | None = None
 
     @field_validator("params")
     @classmethod
@@ -50,11 +51,12 @@ class ToolCallRequest(BaseModel):
 
 class MessageRequest(BaseModel):
     sessionId: str = ""
-    userId: str = "default"
+    userId: str | None = None
     to: str
     content: str = Field(..., max_length=1_000_000)
     agentId: str | None = None
     agentToken: str = ""
+    channelId: str | None = None
 
 
 class AgentStartRequest(BaseModel):
@@ -73,6 +75,8 @@ class ToolResultRequest(BaseModel):
     success: bool = True
     agentId: str = ""
     agentToken: str = ""
+    error: str | None = None
+    durationMs: float | None = None
 
     @field_validator("params")
     @classmethod
@@ -85,6 +89,8 @@ class LlmIORequest(BaseModel):
     content: str = Field("", max_length=1_000_000)
     agentId: str = ""
     agentToken: str = ""
+    provider: str = ""
+    model: str = ""
 
 
 class SessionEndRequest(BaseModel):

@@ -94,8 +94,8 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
     # Use org_id from API key auth (numeric DB user ID) if available,
-    # otherwise fall back to client-supplied userId
-    user_id = getattr(req.state, "org_id", None) or request.userId
+    # otherwise fall back to client-supplied userId, then "default"
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
     # Sanitize params to strip control characters that could be used for
     # prompt injection when params are later included in LLM prompts
     sanitized_params = _sanitize_params(request.params)
@@ -123,7 +123,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
 async def evaluate_message(request: MessageRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = getattr(req.state, "org_id", None) or request.userId
+    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
     # Sanitize message content to strip control characters
     sanitized_content = _sanitize_string(request.content)
     event = MessageEvent(

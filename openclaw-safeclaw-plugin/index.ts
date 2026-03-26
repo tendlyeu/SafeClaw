@@ -80,13 +80,28 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
 
 interface PluginEvent {
   sessionId?: string;
-  userId?: string;
+  toolName?: string;
+  params?: Record<string, unknown>;
+  to?: unknown;
+  content?: unknown;
+  result?: unknown;
+  error?: unknown;
+  durationMs?: number;
+  prompt?: unknown;
+  lastAssistant?: unknown;
+  provider?: string;
+  model?: string;
+  usage?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
 interface PluginContext {
   sessionId?: string;
-  userId?: string;
+  agentId?: string;
+  accountId?: string;
+  runId?: string;
+  conversationId?: string;
+  channelId?: string;
   [key: string]: unknown;
 }
 
@@ -226,7 +241,7 @@ export default {
       process.on('beforeExit', () => { shutdown().catch(() => {}); });
     }
 
-    // THE GATE — constraint checking on every tool call
+    // THE GATE — constraint checking on every tool call (#195: use correct OpenClaw field names)
     api.on('before_tool_call', async (event: PluginEvent, ctx: PluginContext) => {
       const cfg = getConfig();
       if (!handshakeCompleted && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
@@ -234,11 +249,11 @@ export default {
       }
 
       const r = await post('/evaluate/tool-call', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.userId ?? event.userId,
-        toolName: event.toolName ?? event.tool_name,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
+        toolName: event.toolName ?? '',
         params: event.params ?? {},
-        sessionHistory: event.sessionHistory ?? [],
+        runId: ctx.runId ?? '',
       });
 
       if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
@@ -261,29 +276,33 @@ export default {
     }, { priority: 100 });
 
     // Context injection — prepend governance context to agent system prompt
-    api.on('before_agent_start', async (event: PluginEvent, ctx: PluginContext) => {
+    // (#195: before_agent_start is deprecated; use before_prompt_build + prependSystemContext)
+    api.on('before_prompt_build', async (event: PluginEvent, ctx: PluginContext) => {
       const r = await post('/context/build', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.userId ?? event.userId,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
       });
 
       if (r?.prependContext) {
-        return { prependContext: r.prependContext as string };
+        return { prependSystemContext: r.prependContext as string };
       }
     }, { priority: 100 });
 
     // Message governance — check outbound messages
+    // (#195: use ctx.conversationId/sessionId, ctx.accountId; return only { cancel: true })
     api.on('message_sending', async (event: PluginEvent, ctx: PluginContext) => {
       const cfg = getConfig();
       const r = await post('/evaluate/message', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.userId ?? event.userId,
+        sessionId: ctx.conversationId ?? ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.accountId ?? '',
         to: event.to,
         content: event.content,
+        channelId: ctx.channelId ?? '',
       });
 
       if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
-        return { cancel: true, cancelReason: 'SafeClaw service unavailable (fail-closed mode)' };
+        console.warn('[SafeClaw] Blocking message: service unavailable (fail-closed mode)');
+        return { cancel: true };
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'warn-only') {
         console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'audit-only') {
@@ -292,7 +311,8 @@ export default {
       if (r?.block) {
         const blockReason = (r.reason as string) || 'Blocked by SafeClaw (no reason provided)';
         if (cfg.enforcement === 'enforce') {
-          return { cancel: true, cancelReason: blockReason };
+          console.warn(`[SafeClaw] Blocking message: ${blockReason}`);
+          return { cancel: true };
         }
         if (cfg.enforcement === 'warn-only') {
           console.warn(`[SafeClaw] Warning: ${blockReason}`);
@@ -302,27 +322,36 @@ export default {
     }, { priority: 100 });
 
     // Async logging — fire-and-forget, no return value needed
+    // (#195: use event.prompt for input, event.lastAssistant for output; add provider/model)
     api.on('llm_input', (event: PluginEvent, ctx: PluginContext) => {
       post('/log/llm-input', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        content: event.content,
+        sessionId: event.sessionId ?? ctx.sessionId ?? '',
+        content: event.prompt ?? '',
+        provider: event.provider ?? '',
+        model: event.model ?? '',
       }).catch(() => {});
     });
 
     api.on('llm_output', (event: PluginEvent, ctx: PluginContext) => {
       post('/log/llm-output', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        content: event.content,
+        sessionId: event.sessionId ?? ctx.sessionId ?? '',
+        content: event.lastAssistant ?? '',
+        provider: event.provider ?? '',
+        model: event.model ?? '',
+        usage: event.usage ?? {},
       }).catch(() => {});
     });
 
+    // (#195: use event.toolName, !event.error for success, add durationMs and error)
     api.on('after_tool_call', (event: PluginEvent, ctx: PluginContext) => {
       post('/record/tool-result', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        toolName: event.toolName ?? event.tool_name,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        toolName: event.toolName ?? '',
         params: event.params ?? {},
         result: event.result ?? '',
-        success: event.success ?? false,
+        success: !event.error,
+        error: event.error ? String(event.error) : '',
+        durationMs: event.durationMs ?? 0,
       }).catch((e) => console.warn('[SafeClaw] Failed to record tool result:', e));
     });
   },
