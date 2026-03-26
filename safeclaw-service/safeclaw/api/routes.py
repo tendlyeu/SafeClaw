@@ -573,7 +573,7 @@ async def update_preferences(user_id: str, request: PreferencesRequest):
     import re
 
     engine = _get_engine()
-    safe_user_id = re.sub(r"[^a-zA-Z0-9_@.-]", "", user_id)
+    safe_user_id = re.sub(r"[^a-zA-Z0-9_-]", "", user_id)
 
     users_dir = engine.config.data_dir / "ontologies" / "users"
     users_dir.mkdir(parents=True, exist_ok=True)

@@ -82,7 +82,7 @@ class ContextBuilder:
 
     def _get_user_preferences(self, user_id: str) -> list[str]:
         import re
-        safe_user_id = re.sub(r'[^a-zA-Z0-9_@.-]', '', user_id)
+        safe_user_id = re.sub(r'[^a-zA-Z0-9_-]', '', user_id)
         results = self.kg.query(f"""
             PREFIX su: <{SU}>
             SELECT ?property ?value WHERE {{
