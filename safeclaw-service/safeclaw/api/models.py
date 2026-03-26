@@ -169,6 +169,7 @@ class PolicyCompileResponse(BaseModel):
 
 class HeartbeatRequest(BaseModel):
     agentId: str = ""
+    agentToken: str = ""
     configHash: str = ""
     status: str = "alive"  # "alive" or "shutdown"
 

@@ -183,7 +183,7 @@ class FullEngine(SafeClawEngine):
             else "configurable"
         )
         self.temp_permissions = TempPermissionManager(hierarchy=self.hierarchy)
-        self.heartbeat_monitor = HeartbeatMonitor(self.event_bus)
+        self.heartbeat_monitor = HeartbeatMonitor(self.event_bus, agent_registry=self.agent_registry)
         self._require_token_auth = (
             raw.get("agents", {}).get("requireTokenAuth", True) if raw else True
         )
