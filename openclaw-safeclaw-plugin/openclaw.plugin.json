@@ -2,7 +2,12 @@
   "id": "safeclaw",
   "name": "SafeClaw Neurosymbolic Governance",
   "description": "Validates AI agent actions against OWL ontologies and SHACL constraints before execution",
-  "version": "0.5.1",
+  "version": "1.1.0",
+  "author": "Tendly EU",
+  "license": "MIT",
+  "homepage": "https://safeclaw.eu",
+  "repository": "https://github.com/tendlyeu/SafeClaw",
+  "category": "security",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -10,7 +15,7 @@
       "serviceUrl": {
         "type": "string",
         "description": "SafeClaw service URL",
-        "default": "https://api.safeclaw.eu/api/v1"
+        "default": "http://localhost:8420/api/v1"
       },
       "apiKey": {
         "type": "string",
@@ -19,12 +24,32 @@
       "enforcement": {
         "type": "string",
         "enum": ["enforce", "warn-only", "audit-only", "disabled"],
-        "default": "enforce"
+        "default": "enforce",
+        "description": "Enforcement mode: enforce blocks violations, warn-only logs, audit-only records silently"
       },
       "failMode": {
         "type": "string",
         "enum": ["open", "closed"],
-        "default": "open"
+        "default": "open",
+        "description": "Behavior when service is unreachable: open allows actions, closed blocks them"
+      },
+      "agentId": {
+        "type": "string",
+        "description": "Agent identifier for multi-agent governance"
+      },
+      "agentToken": {
+        "type": "string",
+        "description": "Agent authentication token"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "default": 5000,
+        "description": "HTTP timeout for service calls in milliseconds"
+      },
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Master enable/disable switch"
       }
     }
   }
