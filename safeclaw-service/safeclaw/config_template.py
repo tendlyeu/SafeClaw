@@ -18,13 +18,6 @@ DEFAULT_CONFIG: dict = {
         "apiKey": "",
         "timeoutMs": 500,
     },
-    "hybrid": {
-        "circuitBreaker": {
-            "failureThreshold": 3,
-            "resetTimeoutSec": 30,
-            "fallbackMode": "local-only",
-        }
-    },
     "enforcement": {
         "mode": "enforce",
         "blockMessage": "[SafeClaw] Action blocked: {reason}",
