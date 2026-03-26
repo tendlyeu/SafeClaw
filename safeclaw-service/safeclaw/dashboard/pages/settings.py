@@ -374,7 +374,12 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             return Response("CSRF token invalid", status_code=403)
 
         engine = get_engine()
-        safe_user_id = re.sub(r"[^a-zA-Z0-9_@.-]", "", user_id)
+        safe_user_id = re.sub(r"[^a-zA-Z0-9_-]", "", user_id)
+
+        # Validate autonomy_level against allowlist to prevent Turtle injection
+        VALID_AUTONOMY_LEVELS = {"autonomous", "moderate", "supervised", "conservative", "locked", "cautious"}
+        if autonomy_level not in VALID_AUTONOMY_LEVELS:
+            return Response("Invalid autonomy level", status_code=400)
 
         prefs_dict = {
             "autonomy_level": autonomy_level,
