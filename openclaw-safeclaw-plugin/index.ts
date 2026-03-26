@@ -22,13 +22,23 @@ const CONFIG_RELOAD_INTERVAL_MS = 60_000; // Reload config every 60 seconds
 let config = loadConfig();
 let configLoadedAt = Date.now();
 
+// OpenClaw plugin config — merged on top of file config when available
+let _ocPluginConfig: Record<string, unknown> = {};
+
+// Logger — defaults to console, replaced by api.logger when available
+let log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void } = console;
+
 function getConfig(): typeof config {
   const now = Date.now();
   if (now - configLoadedAt >= CONFIG_RELOAD_INTERVAL_MS) {
     config = loadConfig();
     configLoadedAt = now;
   }
-  return config;
+  // OpenClaw config takes priority over file config
+  return {
+    ...config,
+    ...Object.fromEntries(Object.entries(_ocPluginConfig).filter(([_, v]) => v != null)),
+  } as typeof config;
 }
 
 // --- HTTP Client ---
@@ -58,20 +68,20 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
         const rawDetail = errBody.detail ?? `HTTP ${res.status}`;
         const detail = typeof rawDetail === 'string' ? rawDetail : JSON.stringify(rawDetail);
         const hint = errBody.hint ? ` (${errBody.hint})` : '';
-        console.warn(`[SafeClaw] ${path}: ${detail}${hint}`);
+        log.warn(`[SafeClaw] ${path}: ${detail}${hint}`);
       } catch {
-        console.warn(`[SafeClaw] HTTP ${res.status} from ${path}`);
+        log.warn(`[SafeClaw] HTTP ${res.status} from ${path}`);
       }
       return null;  // Caller checks failMode
     }
     return await res.json() as Record<string, unknown>;
   } catch (e) {
     if (e instanceof DOMException && e.name === 'TimeoutError') {
-      console.warn(`[SafeClaw] Timeout after ${cfg.timeoutMs}ms on ${path} (${cfg.serviceUrl})`);
+      log.warn(`[SafeClaw] Timeout after ${cfg.timeoutMs}ms on ${path} (${cfg.serviceUrl})`);
     } else if (e instanceof TypeError && (e.message.includes('fetch') || e.message.includes('ECONNREFUSED'))) {
-      console.warn(`[SafeClaw] Connection refused: ${cfg.serviceUrl}${path} — is the service running?`);
+      log.warn(`[SafeClaw] Connection refused: ${cfg.serviceUrl}${path} — is the service running?`);
     } else {
-      console.warn(`[SafeClaw] Service unavailable: ${cfg.serviceUrl}${path}`);
+      log.warn(`[SafeClaw] Service unavailable: ${cfg.serviceUrl}${path}`);
     }
     return null;  // Caller checks failMode
   }
@@ -84,7 +94,7 @@ let handshakeCompleted = false;
 async function performHandshake(): Promise<boolean> {
   const cfg = getConfig();
   if (!cfg.apiKey) {
-    console.warn('[SafeClaw] No API key configured — skipping handshake');
+    log.warn('[SafeClaw] No API key configured — skipping handshake');
     return false;
   }
 
@@ -94,11 +104,11 @@ async function performHandshake(): Promise<boolean> {
   });
 
   if (r === null) {
-    console.warn('[SafeClaw] Handshake failed — API key may be invalid or service unreachable');
+    log.warn('[SafeClaw] Handshake failed — API key may be invalid or service unreachable');
     return false;
   }
 
-  console.log(`[SafeClaw] Handshake OK — org=${r.orgId}, scope=${r.scope}, engine=${r.engineReady ? 'ready' : 'not ready'}`);
+  log.info(`[SafeClaw] Handshake OK — org=${r.orgId}, scope=${r.scope}, engine=${r.engineReady ? 'ready' : 'not ready'}`);
   handshakeCompleted = true;
   return true;
 }
@@ -106,8 +116,8 @@ async function performHandshake(): Promise<boolean> {
 async function checkConnection(): Promise<void> {
   const cfg = getConfig();
   const label = `[SafeClaw]`;
-  console.log(`${label} Connecting to ${cfg.serviceUrl} ...`);
-  console.log(`${label} Mode: enforcement=${cfg.enforcement}, failMode=${cfg.failMode}`);
+  log.info(`${label} Connecting to ${cfg.serviceUrl} ...`);
+  log.info(`${label} Mode: enforcement=${cfg.enforcement}, failMode=${cfg.failMode}`);
 
   try {
     const res = await fetch(`${cfg.serviceUrl}/health`, {
@@ -115,16 +125,16 @@ async function checkConnection(): Promise<void> {
     });
     if (res.ok) {
       const data = await res.json() as Record<string, unknown>;
-      console.log(`${label} Connected — service ${data.status ?? 'ok'}`);
+      log.info(`${label} Connected — service ${data.status ?? 'ok'}`);
     } else {
-      console.warn(`${label} Service responded with HTTP ${res.status}`);
+      log.warn(`${label} Service responded with HTTP ${res.status}`);
     }
   } catch {
-    console.warn(`${label} Cannot reach service at ${cfg.serviceUrl}`);
+    log.warn(`${label} Cannot reach service at ${cfg.serviceUrl}`);
     if (cfg.failMode === 'closed') {
-      console.warn(`${label}   fail-mode=closed — tool calls will be BLOCKED until service is reachable`);
+      log.warn(`${label}   fail-mode=closed — tool calls will be BLOCKED until service is reachable`);
     } else {
-      console.warn(`${label}   fail-mode=open — tool calls will be ALLOWED despite no connection`);
+      log.warn(`${label}   fail-mode=open — tool calls will be ALLOWED despite no connection`);
     }
   }
 }
@@ -139,6 +149,9 @@ export default {
       console.log('[SafeClaw] Plugin disabled');
       return;
     }
+
+    log = api.logger ?? console;
+    _ocPluginConfig = api.pluginConfig ?? {};
 
     // Generate a unique instance ID for this plugin run (fallback when agentId is not configured)
     const instanceId = getConfig().agentId || `instance-${crypto.randomUUID()}`;
@@ -177,7 +190,7 @@ export default {
       .then(() => performHandshake())
       .then((ok) => {
         if (!ok && getConfig().failMode === 'closed') {
-          console.warn('[SafeClaw] Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
+          log.warn('[SafeClaw] Handshake failed with fail-mode=closed — tool calls will be BLOCKED');
         }
         heartbeatInterval = setInterval(sendHeartbeat, 30000);
         return sendHeartbeat();
@@ -220,9 +233,9 @@ export default {
       if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
         return { block: true, blockReason: `SafeClaw service unavailable at ${cfg.serviceUrl} (fail-closed)` };
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'warn-only') {
-        console.warn(`[SafeClaw] Service unavailable at ${cfg.serviceUrl} (fail-closed mode, warn-only)`);
+        log.warn(`[SafeClaw] Service unavailable at ${cfg.serviceUrl} (fail-closed mode, warn-only)`);
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'audit-only') {
-        console.warn(`[SafeClaw] Service unavailable at ${cfg.serviceUrl} (fail-closed mode, audit-only)`);
+        log.warn(`[SafeClaw] Service unavailable at ${cfg.serviceUrl} (fail-closed mode, audit-only)`);
       }
       if (r?.block) {
         const blockReason = (r.reason as string) || 'Blocked by SafeClaw (no reason provided)';
@@ -230,7 +243,7 @@ export default {
           return { block: true, blockReason };
         }
         if (cfg.enforcement === 'warn-only') {
-          console.warn(`[SafeClaw] Warning: ${blockReason}`);
+          log.warn(`[SafeClaw] Warning: ${blockReason}`);
         }
         // audit-only: logged server-side, no action here
       }
@@ -262,21 +275,21 @@ export default {
       });
 
       if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
-        console.warn('[SafeClaw] Blocking message: service unavailable (fail-closed mode)');
+        log.warn('[SafeClaw] Blocking message: service unavailable (fail-closed mode)');
         return { cancel: true };
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'warn-only') {
-        console.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
+        log.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'audit-only') {
-        console.info('[SafeClaw] audit-only: service unreachable, allowing message (fail-closed)');
+        log.info('[SafeClaw] audit-only: service unreachable, allowing message (fail-closed)');
       }
       if (r?.block) {
         const blockReason = (r.reason as string) || 'Blocked by SafeClaw (no reason provided)';
         if (cfg.enforcement === 'enforce') {
-          console.warn(`[SafeClaw] Blocking message: ${blockReason}`);
+          log.warn(`[SafeClaw] Blocking message: ${blockReason}`);
           return { cancel: true };
         }
         if (cfg.enforcement === 'warn-only') {
-          console.warn(`[SafeClaw] Warning: ${blockReason}`);
+          log.warn(`[SafeClaw] Warning: ${blockReason}`);
         }
         // audit-only: logged server-side, no action here
       }
@@ -313,7 +326,7 @@ export default {
         success: !event.error,
         error: event.error ? String(event.error) : '',
         durationMs: event.durationMs ?? 0,
-      }).catch((e) => console.warn('[SafeClaw] Failed to record tool result:', e));
+      }).catch((e) => log.warn('[SafeClaw] Failed to record tool result:', e));
     });
   },
 };
