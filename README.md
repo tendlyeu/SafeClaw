@@ -13,13 +13,14 @@ SafeClaw/
 ├── safeclaw-service/              # Python FastAPI service (the brain)
 │   ├── safeclaw/                  # Core library
 │   │   ├── ontologies/            # OWL + SHACL definitions
-│   │   ├── constraints/           # 9-step validation pipeline
-│   │   ├── engine/                # Hybrid reasoning engine
-│   │   ├── cloud/                 # Multi-tenant + API key auth
+│   │   ├── constraints/           # 11-step validation pipeline
+│   │   ├── engine/                # Reasoning engine + state persistence
+│   │   ├── nemoclaw/              # NemoClaw YAML policy loader
+│   │   ├── cloud/                 # Multi-tenant + API key auth (bcrypt)
 │   │   ├── api/                   # FastAPI routes
 │   │   ├── audit/                 # Append-only JSONL logging
 │   │   └── cli/                   # CLI commands
-│   └── tests/                     # 330 tests
+│   └── tests/                     # 500+ tests
 ├── openclaw-safeclaw-plugin/      # TypeScript bridge for OpenClaw
 │   ├── index.ts                   # Plugin hooks (~80 lines)
 │   └── SKILL.md                   # ClawHub distribution docs
@@ -72,17 +73,19 @@ safeclaw connect sc_your_key --service-url http://localhost:8420/api/v1
 
 ## Constraint Pipeline
 
-Every action passes through a 9-step validation:
+Every action passes through an 11-step validation (steps 0-10):
 
-1. Agent Governance (token auth, kill switch, delegation detection)
-2. Action Classification (OWL reasoning + LLM)
-3. Role-Based Access (allowed/denied actions and resources)
-4. SHACL Shape Validation
-5. Policy Check
-6. Preference Check
-7. Dependency Check
-8. Temporal + Rate Limit
+0. Agent Governance (token auth, kill switch, delegation detection)
+1. Action Classification (OWL reasoning + LLM)
+2. Role-Based Access (allowed/denied actions and resources)
+3. SHACL Shape Validation
+4. Policy Check (including NemoClaw network/filesystem rules)
+5. Preference Check
+6. Dependency Check
+7. Temporal Check
+8. Rate Limit Check
 9. Derived Rules
+10. Hierarchy Rate Limit (multi-agent)
 
 ## Running Tests
 
