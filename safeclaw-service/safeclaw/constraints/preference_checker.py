@@ -101,8 +101,10 @@ class PreferenceChecker:
                     reason="User preference requires confirmation before sending messages",
                 )
 
-        # Check never_modify_paths (check all known path param keys)
-        if prefs.never_modify_paths:
+        # Check never_modify_paths (check all known path param keys).
+        # Skip read-only action classes — never_modify_paths should only block writes.
+        READ_ONLY_ACTIONS = {"ReadFile", "ListFiles", "SearchFiles", "ViewFile", "StatFile"}
+        if prefs.never_modify_paths and action.ontology_class not in READ_ONLY_ACTIONS:
             for key in PATH_PARAM_KEYS:
                 file_path = action.params.get(key, "")
                 if file_path and isinstance(file_path, str):
