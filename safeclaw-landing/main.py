@@ -74,6 +74,25 @@ def _generate_csrf_token(sess) -> str:
         sess["_csrf_token"] = secrets.token_urlsafe(32)
     return sess["_csrf_token"]
 
+def _verify_csrf(sess, submitted_token: str) -> str | None:
+    """Verify a CSRF token submitted via form matches the session token.
+
+    Returns None if valid, or an error message string if invalid.
+    Called by all dashboard POST handlers to prevent cross-site request forgery (#39).
+
+    Usage in handlers:
+        def my_handler(req, sess, _csrf_token: str = "", ...):
+            if err := _verify_csrf(sess, _csrf_token):
+                return P(err, style="color:#f87171;")
+    """
+    expected = sess.get("_csrf_token", "")
+    if not expected:
+        return "Missing CSRF session. Please refresh and try again."
+    if not submitted_token or not secrets.compare_digest(submitted_token, expected):
+        return "Invalid CSRF token. Please refresh and try again."
+    return None
+
+
 GITHUB_URL = "https://github.com/tendlyeu/SafeClaw"
 DOCS_URL = "/docs"
 
@@ -1852,7 +1871,9 @@ def dashboard_keys(req, sess):
 
 
 @rt("/dashboard/keys/create", methods=["POST"])
-def create_key(req, sess, label: str = "", scope: str = "full"):
+def create_key(req, sess, label: str = "", scope: str = "full", _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     token = _generate_csrf_token(sess)
     # Validate scope server-side (#106)
@@ -1877,7 +1898,9 @@ def create_key(req, sess, label: str = "", scope: str = "full"):
 
 
 @rt("/dashboard/keys/{key_pk}/revoke", methods=["POST"])
-def revoke_key(req, sess, key_pk: int):
+def revoke_key(req, sess, key_pk: int, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     token = _generate_csrf_token(sess)
     try:
@@ -1908,7 +1931,9 @@ _VALID_AUTONOMY_LEVELS = {"cautious", "moderate", "autonomous"}
 
 
 @rt("/dashboard/onboard/step1", methods=["POST"])
-def onboard_step1(req, sess, autonomy_level: str = "moderate"):
+def onboard_step1(req, sess, autonomy_level: str = "moderate", _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     token = _generate_csrf_token(sess)
     if autonomy_level not in _VALID_AUTONOMY_LEVELS:
@@ -1919,7 +1944,9 @@ def onboard_step1(req, sess, autonomy_level: str = "moderate"):
 
 
 @rt("/dashboard/onboard/step2", methods=["POST"])
-def onboard_step2(req, sess, mistral_api_key: str = ""):
+def onboard_step2(req, sess, mistral_api_key: str = "", _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     token = _generate_csrf_token(sess)
     if mistral_api_key.strip():
@@ -1944,7 +1971,9 @@ def onboard_step2(req, sess, mistral_api_key: str = ""):
 
 
 @rt("/dashboard/onboard/done", methods=["POST"])
-def onboard_done(req, sess):
+def onboard_done(req, sess, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     user.onboarded = True
     users.update(user)
@@ -1970,8 +1999,10 @@ def dashboard_agents(req, sess):
 
 
 @rt("/dashboard/agents/load", methods=["POST"])
-async def load_agents(req, sess, service_url: str = "", admin_password: str = ""):
+async def load_agents(req, sess, service_url: str = "", admin_password: str = "", _csrf_token: str = ""):
     """Fetch agents from the self-hosted service API."""
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     token = _generate_csrf_token(sess)
     url = (service_url or user.service_url or "http://localhost:8420").rstrip("/")
@@ -1997,8 +2028,10 @@ async def load_agents(req, sess, service_url: str = "", admin_password: str = ""
 
 
 @rt("/dashboard/agents/{agent_id}/kill", methods=["POST"])
-async def kill_agent_proxy(req, sess, agent_id: str):
+async def kill_agent_proxy(req, sess, agent_id: str, _csrf_token: str = ""):
     """Proxy kill request to self-hosted service."""
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     if not re.match(r'^[a-zA-Z0-9_\-\.]+$', agent_id):
         return P("Invalid agent ID.", cls=TextPresets.muted_sm)
     user = req.scope.get("user")
@@ -2032,8 +2065,10 @@ async def kill_agent_proxy(req, sess, agent_id: str):
 
 
 @rt("/dashboard/agents/{agent_id}/revive", methods=["POST"])
-async def revive_agent_proxy(req, sess, agent_id: str):
+async def revive_agent_proxy(req, sess, agent_id: str, _csrf_token: str = ""):
     """Proxy revive request to self-hosted service."""
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     if not re.match(r'^[a-zA-Z0-9_\-\.]+$', agent_id):
         return P("Invalid agent ID.", cls=TextPresets.muted_sm)
     user = req.scope.get("user")
@@ -2103,7 +2138,9 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
                      confirm_before_send: str = "", max_files_per_commit: int = 10,
                      mistral_api_key: str = "", self_hosted: str = "",
                      service_url: str = "", admin_password: str = "",
-                     audit_logging: str = ""):
+                     audit_logging: str = "", _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
     user = req.scope.get("user")
 
     # Validate autonomy_level against allowed values (#83)
