@@ -1,48 +1,49 @@
-# SafeClaw — Neurosymbolic Governance for OpenClaw
+# SafeClaw -- Neurosymbolic Governance for OpenClaw
 
-SafeClaw adds ontology-based constraint checking to your OpenClaw agent. Every tool call, message, and action is validated against OWL ontologies and SHACL shapes before execution.
+SafeClaw validates every tool call, message, and agent action against OWL ontologies and SHACL constraints before execution. It acts as a governance gate between your AI agent and the tools it uses.
 
 ## What it does
 
-- **Blocks dangerous actions** — force push, deleting root, exposing secrets
-- **Enforces dependencies** — tests must pass before git push
-- **Checks user preferences** — confirmation for irreversible actions based on autonomy level
-- **Governs messages** — blocks sensitive data leaks, enforces never-contact lists
-- **Full audit trail** — every decision logged with ontological justification
+- **Blocks dangerous actions** -- force push, deleting root, exposing secrets
+- **Enforces dependencies** -- tests must pass before git push
+- **Checks user preferences** -- confirmation for irreversible actions based on autonomy level
+- **Governs messages** -- blocks sensitive data leaks, enforces contact rules
+- **Controls subagent delegation** -- prevents blocked parents from spawning unrestricted children
+- **Full audit trail** -- every decision logged with ontological justification
 
-## Setup
+## Hooks
 
-The plugin connects to `https://api.safeclaw.eu/api/v1` by default — no configuration needed.
+11 hooks covering the full agent lifecycle:
 
-### Self-hosted mode
+- `before_tool_call` -- constraint gate for every tool invocation
+- `before_prompt_build` -- injects governance context into system prompt
+- `message_sending` -- outbound message governance
+- `message_received` -- inbound message evaluation
+- `llm_input` / `llm_output` -- LLM interaction audit logging
+- `after_tool_call` -- records outcomes for dependency tracking
+- `subagent_spawning` / `subagent_ended` -- multi-agent governance
+- `session_start` / `session_end` -- session lifecycle tracking
 
-To run your own SafeClaw service, override the URL:
+## Agent tools
 
-```bash
-export SAFECLAW_URL="http://localhost:8420/api/v1"
-export SAFECLAW_API_KEY="sc_live_your_key_here"  # optional
-```
+- `safeclaw_status` -- check governance service status and active enforcement mode
+- `safeclaw_check_action` -- dry-run check if a specific tool call would be allowed
 
 ## Configuration
 
-Set via environment variables or `~/.safeclaw/config.json`:
+Set via OpenClaw plugin settings, `~/.safeclaw/config.json`, or `SAFECLAW_*` environment variables. Supports four enforcement modes (`enforce`, `warn-only`, `audit-only`, `disabled`) and two fail modes (`open`, `closed`).
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SAFECLAW_URL` | `https://api.safeclaw.eu/api/v1` | SafeClaw service URL |
-| `SAFECLAW_API_KEY` | (empty) | API key for remote/cloud mode |
-| `SAFECLAW_TIMEOUT_MS` | `500` | Request timeout in milliseconds |
-| `SAFECLAW_ENABLED` | `true` | Set to `false` to disable |
-| `SAFECLAW_ENFORCEMENT` | `enforce` | `enforce`, `warn-only`, `audit-only`, or `disabled` |
+### NemoClaw sandbox
 
-## How it works
+Automatically detects NemoClaw sandboxes and rewrites `localhost` to `host.containers.internal`. Includes a bundled egress policy at `policies/safeclaw.yaml`.
 
-This plugin registers hooks on every OpenClaw event:
+### Self-hosted
 
-1. **before_tool_call** — validates against SHACL shapes, policies, preferences, dependencies
-2. **before_agent_start** — injects governance context into the agent's system prompt
-3. **message_sending** — checks outbound messages for sensitive data and contact rules
-4. **after_tool_call** — records action outcomes for dependency tracking
-5. **llm_input/output** — logs LLM interactions for audit
+Run the SafeClaw service locally:
 
-If the SafeClaw service is unavailable, the plugin degrades gracefully — no blocks, no crashes.
+```bash
+pip install safeclaw
+safeclaw serve
+```
+
+The plugin connects to `http://localhost:8420/api/v1` by default.

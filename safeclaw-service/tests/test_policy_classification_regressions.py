@@ -274,7 +274,7 @@ class TestIssue48SHACLSubclassInference:
 
         result = validator.validate(graph)
         # GitPush is a subclass of ShellAction, so ShellAction shapes should fire
-        assert result.conforms is True or len(result.violations) >= 0
+        assert result.conforms is True, f"SHACL should validate subclass instance, got violations: {result.violations}"
 
     def test_shacl_file_action_shape_fires_for_delete(self):
         """FileAction shapes should fire for DeleteFile (a subclass)."""
