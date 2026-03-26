@@ -22,6 +22,8 @@ from safeclaw.api.models import (
     PolicyCompileRequest,
     PolicyCompileResponse,
     PreferencesRequest,
+    SandboxPolicyValidationRequest,
+    SandboxPolicyValidationResponse,
     SessionEndRequest,
     InboundMessageRequest,
     InboundMessageResponse,
@@ -244,6 +246,69 @@ async def evaluate_inbound_message(request: InboundMessageRequest) -> InboundMes
         riskLevel=risk_level,
         flags=flags,
         warnings=warnings,
+    )
+
+
+@router.post(
+    "/evaluate/sandbox-policy", response_model=SandboxPolicyValidationResponse
+)
+async def evaluate_sandbox_policy(
+    request: SandboxPolicyValidationRequest,
+) -> SandboxPolicyValidationResponse:
+    """Validate a sandbox policy configuration.
+
+    Checks that the policy dict contains the required sections
+    (toolPolicy, filesystemPolicy) and validates mount point
+    configurations. Full SHACL graph-based validation is performed
+    when the policy is mapped to RDF triples.
+    """
+    violations: list[dict] = []
+    policy = request.policy
+
+    if not policy.get("toolPolicy"):
+        violations.append({
+            "field": "toolPolicy",
+            "message": "Sandbox must define a tool policy",
+        })
+    if not policy.get("filesystemPolicy"):
+        violations.append({
+            "field": "filesystemPolicy",
+            "message": "Sandbox must define filesystem boundaries",
+        })
+
+    # Validate mount points if present
+    fs_policy = policy.get("filesystemPolicy", {})
+    mounts = fs_policy.get("mounts", [])
+    if isinstance(mounts, list):
+        for i, mount in enumerate(mounts):
+            if not isinstance(mount, dict):
+                continue
+            if not mount.get("path"):
+                violations.append({
+                    "field": f"filesystemPolicy.mounts[{i}].path",
+                    "message": "Mount point must specify a path",
+                })
+            mode = mount.get("mode", "")
+            if mode not in ("read-only", "read-write"):
+                violations.append({
+                    "field": f"filesystemPolicy.mounts[{i}].mode",
+                    "message": "Mount mode must be read-only or read-write",
+                })
+
+    # Validate denied tools have names
+    tool_policy = policy.get("toolPolicy", {})
+    denied = tool_policy.get("denied", [])
+    if isinstance(denied, list):
+        for i, tool in enumerate(denied):
+            if isinstance(tool, dict) and not tool.get("name"):
+                violations.append({
+                    "field": f"toolPolicy.denied[{i}].name",
+                    "message": "Denied tool must specify a name",
+                })
+
+    return SandboxPolicyValidationResponse(
+        conformant=len(violations) == 0,
+        violations=violations,
     )
 
 

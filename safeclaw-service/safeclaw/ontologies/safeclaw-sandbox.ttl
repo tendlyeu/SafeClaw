@@ -1,0 +1,67 @@
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# === Sandbox Policy Ontology ===
+# Defines classes and properties for Docker sandbox tool policies.
+
+sc:SandboxPolicy a owl:Class ;
+    rdfs:label "Sandbox Policy" ;
+    rdfs:comment "A complete sandbox policy configuration" .
+
+sc:ToolPolicy a owl:Class ;
+    rdfs:label "Tool Policy" ;
+    rdfs:comment "Policy governing which tools are allowed or denied in a sandbox" .
+
+sc:AllowedTool a owl:Class ;
+    rdfs:subClassOf sc:ToolPolicy ;
+    rdfs:label "Allowed Tool" .
+
+sc:DeniedTool a owl:Class ;
+    rdfs:subClassOf sc:ToolPolicy ;
+    rdfs:label "Denied Tool" .
+
+sc:FilesystemPolicy a owl:Class ;
+    rdfs:label "Filesystem Policy" ;
+    rdfs:comment "Policy governing filesystem access in a sandbox" .
+
+sc:NetworkPolicy a owl:Class ;
+    rdfs:label "Network Policy" ;
+    rdfs:comment "Policy governing network access in a sandbox" .
+
+sc:MountPoint a owl:Class ;
+    rdfs:subClassOf sc:FilesystemPolicy ;
+    rdfs:label "Mount Point" .
+
+sc:hasToolPolicy a owl:ObjectProperty ;
+    rdfs:domain sc:SandboxPolicy ;
+    rdfs:range sc:ToolPolicy .
+
+sc:hasFilesystemPolicy a owl:ObjectProperty ;
+    rdfs:domain sc:SandboxPolicy ;
+    rdfs:range sc:FilesystemPolicy .
+
+sc:hasNetworkPolicy a owl:ObjectProperty ;
+    rdfs:domain sc:SandboxPolicy ;
+    rdfs:range sc:NetworkPolicy .
+
+sc:toolName a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+sc:mountPath a owl:DatatypeProperty ;
+    rdfs:domain sc:MountPoint ;
+    rdfs:range xsd:string .
+
+sc:mountMode a owl:DatatypeProperty ;
+    rdfs:domain sc:MountPoint ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Values: read-only, read-write" .
+
+sc:allowedHost a owl:DatatypeProperty ;
+    rdfs:domain sc:NetworkPolicy ;
+    rdfs:range xsd:string .
+
+sc:allowedPort a owl:DatatypeProperty ;
+    rdfs:domain sc:NetworkPolicy ;
+    rdfs:range xsd:integer .

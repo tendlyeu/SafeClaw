@@ -1,0 +1,57 @@
+@prefix sc: <http://safeclaw.uku.ai/ontology/agent#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# === Sandbox Policy Shapes ===
+# SHACL constraints for validating sandbox policy configurations.
+
+sc:SandboxPolicyShape a sh:NodeShape ;
+    sh:targetClass sc:SandboxPolicy ;
+    rdfs:label "Sandbox Policy Shape" ;
+    rdfs:comment "Validates that a sandbox policy has required sub-policies" ;
+    sh:property [
+        sh:path sc:hasToolPolicy ;
+        sh:minCount 1 ;
+        sh:name "tool policy" ;
+        sh:message "Sandbox must define at least one tool policy"
+    ] ;
+    sh:property [
+        sh:path sc:hasFilesystemPolicy ;
+        sh:minCount 1 ;
+        sh:name "filesystem policy" ;
+        sh:message "Sandbox must define filesystem boundaries"
+    ] .
+
+sc:MountPointShape a sh:NodeShape ;
+    sh:targetClass sc:MountPoint ;
+    rdfs:label "Mount Point Shape" ;
+    rdfs:comment "Validates mount point path and mode constraints" ;
+    sh:property [
+        sh:path sc:mountPath ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "mount path" ;
+        sh:message "Mount point must specify a path"
+    ] ;
+    sh:property [
+        sh:path sc:mountMode ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "read-only" "read-write" ) ;
+        sh:name "mount mode" ;
+        sh:message "Mount mode must be read-only or read-write"
+    ] .
+
+sc:DeniedToolShape a sh:NodeShape ;
+    sh:targetClass sc:DeniedTool ;
+    rdfs:label "Denied Tool Shape" ;
+    rdfs:comment "Validates that denied tools specify a name" ;
+    sh:property [
+        sh:path sc:toolName ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "tool name" ;
+        sh:message "Denied tool must specify a name"
+    ] .

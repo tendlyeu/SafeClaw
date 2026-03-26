@@ -277,3 +277,20 @@ class InboundMessageResponse(BaseModel):
     riskLevel: str = "low"
     flags: list[str] = []
     warnings: list[str] = []
+
+
+# --- Sandbox policy validation models (#193) ---
+
+
+class SandboxPolicyValidationRequest(BaseModel):
+    policy: dict
+
+    @field_validator("policy")
+    @classmethod
+    def check_policy(cls, v: dict) -> dict:
+        return _validate_params(v)
+
+
+class SandboxPolicyValidationResponse(BaseModel):
+    conformant: bool = True
+    violations: list[dict] = []
