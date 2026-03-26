@@ -605,7 +605,15 @@ su:pref-{safe_user_id} a su:UserPreferences ;
     su:confirmBeforeSend "{str(request.confirm_before_send).lower()}"^^<http://www.w3.org/2001/XMLSchema#boolean> ;
     su:maxFilesPerCommit "{request.max_files_per_commit}"^^<http://www.w3.org/2001/XMLSchema#integer> .
 """
-    ttl_path.write_text(turtle)
+    # Write with restricted permissions (0o600) to avoid world-readable files
+    import os
+
+    fd = os.open(str(ttl_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, turtle.encode("utf-8"))
+    finally:
+        os.close(fd)
 
     # Reload ontologies so the new preferences take effect
     await engine.reload()
