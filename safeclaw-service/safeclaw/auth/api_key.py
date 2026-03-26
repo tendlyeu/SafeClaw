@@ -1,16 +1,18 @@
 """API key authentication for the remote SafeClaw service."""
 
 import hashlib
-import hmac
 import secrets
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+import bcrypt
+
 
 @dataclass
 class APIKey:
     """Represents an API key for authenticating agents."""
+
     key_id: str
     key_hash: str
     org_id: str
@@ -38,8 +40,20 @@ class APIKeyManager:
 
     @staticmethod
     def hash_key(raw_key: str) -> str:
-        """Hash an API key for storage."""
-        return hashlib.sha256(raw_key.encode()).hexdigest()
+        """Hash an API key for storage using bcrypt."""
+        return bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt()).decode()
+
+    @staticmethod
+    def verify_key(raw_key: str, hashed: str) -> bool:
+        """Verify a raw API key against a stored hash.
+
+        Supports bcrypt ($2b$ prefix) and falls back to SHA-256
+        comparison for legacy hashes that haven't been migrated yet.
+        """
+        if hashed.startswith("$2b$"):
+            return bcrypt.checkpw(raw_key.encode(), hashed.encode())
+        # Legacy SHA-256 fallback for migration
+        return hashlib.sha256(raw_key.encode()).hexdigest() == hashed
 
     def create_key(self, org_id: str, scope: str = "full") -> tuple[str, APIKey]:
         """Create a new API key for an organization. Returns (raw_key, api_key_record)."""
@@ -62,8 +76,7 @@ class APIKeyManager:
         if not api_key or not api_key.is_active:
             return None
 
-        key_hash = self.hash_key(raw_key)
-        if not hmac.compare_digest(key_hash, api_key.key_hash):
+        if not self.verify_key(raw_key, api_key.key_hash):
             return None
 
         return api_key
@@ -152,7 +165,6 @@ class SQLiteAPIKeyManager:
         import sqlite3
 
         key_id = raw_key[:12]
-        key_hash = APIKeyManager.hash_key(raw_key)
 
         try:
             conn = self._fresh_conn()
@@ -171,7 +183,7 @@ class SQLiteAPIKeyManager:
             return None
 
         db_key_id, db_key_hash, scope, created_at, is_active, user_id = row
-        if not hmac.compare_digest(key_hash, db_key_hash):
+        if not APIKeyManager.verify_key(raw_key, db_key_hash):
             return None
 
         return APIKey(
@@ -202,11 +214,21 @@ class SQLiteAPIKeyManager:
             return True  # Unknown user: default enabled
         return bool(row[0])
 
-    def log_audit_decision(self, user_id: str, timestamp: str, session_id: str,
-                           tool_name: str, params_summary: str, decision: str,
-                           risk_level: str, reason: str, elapsed_ms: float) -> None:
+    def log_audit_decision(
+        self,
+        user_id: str,
+        timestamp: str,
+        session_id: str,
+        tool_name: str,
+        params_summary: str,
+        decision: str,
+        risk_level: str,
+        reason: str,
+        elapsed_ms: float,
+    ) -> None:
         """Insert an audit decision row if logging is enabled for this user."""
         import sqlite3
+
         if not self.is_audit_logging_enabled(user_id):
             return
         try:
@@ -215,8 +237,17 @@ class SQLiteAPIKeyManager:
                     "INSERT INTO audit_log (user_id, timestamp, session_id, tool_name, "
                     "params_summary, decision, risk_level, reason, elapsed_ms) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (int(user_id), timestamp, session_id, tool_name,
-                     params_summary[:500], decision, risk_level, reason, elapsed_ms),
+                    (
+                        int(user_id),
+                        timestamp,
+                        session_id,
+                        tool_name,
+                        params_summary[:500],
+                        decision,
+                        risk_level,
+                        reason,
+                        elapsed_ms,
+                    ),
                 )
                 self._conn.commit()
         except (sqlite3.OperationalError, ValueError):
