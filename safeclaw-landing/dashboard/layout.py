@@ -4,15 +4,17 @@ from fasthtml.common import *
 from monsterui.all import *
 
 
-def DashboardNav(user, active="overview"):
+def DashboardNav(user, active="overview", is_admin=False):
     """Sidebar navigation for dashboard pages."""
     items = [
         ("overview", "Overview", "/dashboard", "layout-dashboard"),
         ("keys", "API Keys", "/dashboard/keys", "key"),
         ("agents", "Agents", "/dashboard/agents", "bot"),
         ("audit", "Audit Log", "/dashboard/audit", "scroll-text"),
-        ("prefs", "Preferences", "/dashboard/prefs", "settings"),
     ]
+    if is_admin:
+        items.append(("users", "Users", "/dashboard/users", "users"))
+    items.append(("prefs", "Preferences", "/dashboard/prefs", "settings"))
     nav_items = []
     for key, label, href, icon in items:
         cls = "uk-active" if key == active else ""
@@ -22,7 +24,7 @@ def DashboardNav(user, active="overview"):
     return NavContainer(*nav_items, cls=NavT.default)
 
 
-def DashboardLayout(title, *content, user=None, active="overview"):
+def DashboardLayout(title, *content, user=None, active="overview", is_admin=False):
     """Wrap dashboard content in the shared layout."""
     # Force dark theme consistently across sidebar and content
     dark_override = Style("""
@@ -49,7 +51,7 @@ def DashboardLayout(title, *content, user=None, active="overview"):
             cls="space-y-2",
         ),
         Divider(),
-        DashboardNav(user, active),
+        DashboardNav(user, active, is_admin=is_admin),
         Div(
             Form(
                 Button(DivLAligned(UkIcon("log-out", height=16), Span("Sign out")),

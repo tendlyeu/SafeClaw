@@ -1812,7 +1812,7 @@ def dashboard(req, sess):
         *MUITheme.blue.headers(mode='dark'),
         DashboardLayout("Overview",
                         *OverviewContent(user, key_count, has_mistral_key=bool(user.mistral_api_key)),
-                        user=user, active="overview"),
+                        user=user, active="overview", is_admin=is_user_admin(user)),
     )
 
 
@@ -1868,7 +1868,7 @@ def dashboard_keys(req, sess):
     return (
         Title("API Keys — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("API Keys", *KeysContent(user.id, csrf_token=token), user=user, active="keys"),
+        DashboardLayout("API Keys", *KeysContent(user.id, csrf_token=token), user=user, active="keys", is_admin=is_user_admin(user)),
     )
 
 
@@ -1925,7 +1925,7 @@ def dashboard_onboard(req, sess):
     return (
         Title("Get Started — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Get Started", OnboardStep1(csrf_token=token), user=user, active="onboard"),
+        DashboardLayout("Get Started", OnboardStep1(csrf_token=token), user=user, active="onboard", is_admin=is_user_admin(user)),
     )
 
 
@@ -1996,7 +1996,7 @@ def dashboard_agents(req, sess):
     return (
         Title("Agents — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Agents", *content, user=user, active="agents"),
+        DashboardLayout("Agents", *content, user=user, active="agents", is_admin=is_user_admin(user)),
     )
 
 
@@ -2132,7 +2132,7 @@ async def dashboard_prefs(req, sess):
     return (
         Title("Preferences — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key, csrf_token=token), user=user, active="prefs"),
+        DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key, csrf_token=token), user=user, active="prefs", is_admin=is_user_admin(user)),
     )
 
 
@@ -2195,7 +2195,7 @@ def dashboard_audit(req, sess):
     return (
         Title("Audit Log — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Audit Log", *AuditContent(rows), user=user, active="audit"),
+        DashboardLayout("Audit Log", *AuditContent(rows), user=user, active="audit", is_admin=is_user_admin(user)),
     )
 
 
@@ -2217,6 +2217,112 @@ def audit_results(req, sess, filter: str = "all", session_id: str = ""):
     where = " AND ".join(conditions)
     rows = audit_log(where=where, where_args=args, order_by="-id", limit=50)
     return AuditTable(rows)
+
+
+# ── Admin: User Management Routes ──
+
+from dashboard.users import UsersPageContent, UserTable
+from auth import _get_env_admins
+
+
+@rt("/dashboard/users")
+def dashboard_users(req, sess):
+    user = req.scope.get("user")
+    if err := require_admin(user):
+        return err
+    token = _generate_csrf_token(sess)
+    all_users = users(order_by="id")
+    env_admins = _get_env_admins()
+    return (
+        Title("Users — SafeClaw"),
+        *MUITheme.blue.headers(mode='dark'),
+        DashboardLayout("Users",
+                        *UsersPageContent(all_users, user, env_admins, csrf_token=token),
+                        user=user, active="users", is_admin=True),
+    )
+
+
+@rt("/dashboard/users/{user_id}/promote", methods=["POST"])
+def promote_user(req, sess, user_id: int, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    target.is_admin = True
+    users.update(target)
+    token = _generate_csrf_token(sess)
+    env_admins = _get_env_admins()
+    return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
+
+
+@rt("/dashboard/users/{user_id}/demote", methods=["POST"])
+def demote_user(req, sess, user_id: int, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    if target.id == admin.id:
+        return P("Cannot demote yourself.", style="color:#f87171;")
+    if is_env_admin(target):
+        return P("Cannot demote env var admins.", style="color:#f87171;")
+    target.is_admin = False
+    users.update(target)
+    token = _generate_csrf_token(sess)
+    env_admins = _get_env_admins()
+    return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
+
+
+@rt("/dashboard/users/{user_id}/disable", methods=["POST"])
+def disable_user(req, sess, user_id: int, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    if target.id == admin.id:
+        return P("Cannot disable yourself.", style="color:#f87171;")
+    target.is_disabled = True
+    users.update(target)
+    # Revoke all active API keys (#259)
+    target_keys = api_keys(where="user_id = ? AND is_active = 1", where_args=[target.id])
+    for k in target_keys:
+        k.is_active = False
+        api_keys.update(k)
+    token = _generate_csrf_token(sess)
+    env_admins = _get_env_admins()
+    return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
+
+
+@rt("/dashboard/users/{user_id}/enable", methods=["POST"])
+def enable_user(req, sess, user_id: int, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    target.is_disabled = False
+    users.update(target)
+    token = _generate_csrf_token(sess)
+    env_admins = _get_env_admins()
+    return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
 
 
 # ── Mount SafeClaw Service ──
