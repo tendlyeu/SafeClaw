@@ -40,8 +40,7 @@ services:
       - landing-data:/app/data
     environment:
       - SAFECLAW_DB_DIR=/app/data
-      # Comma-separated GitHub logins who are always admin (cannot be demoted via UI)
-      # - SAFECLAW_ADMINS=henrikaavik
+      - SAFECLAW_ADMINS=henrikaavik
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/')"]
       interval: 30s
