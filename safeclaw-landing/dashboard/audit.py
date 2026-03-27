@@ -22,8 +22,10 @@ def _risk_badge(risk_level: str):
     return Label(risk_level, cls=colors.get(risk_level, LabelT.secondary))
 
 
-def AuditTable(rows):
+def AuditTable(rows, show_user_column=False, disabled_logins=None):
     """Render audit log rows as a table."""
+    if disabled_logins is None:
+        disabled_logins = set()
     if not rows:
         return Card(
             DivCentered(
@@ -38,14 +40,24 @@ def AuditTable(rows):
             ),
         )
 
-    header = ["Time", "Tool", "Decision", "Risk", "Reason", "Latency"]
+    header = ["Time"]
+    if show_user_column:
+        header.append("User")
+    header.extend(["Tool", "Decision", "Risk", "Reason", "Latency"])
+
     body = []
     for r in rows:
         ts = r.timestamp[:19].replace("T", " ") if r.timestamp else ""
         latency = f"{r.elapsed_ms:.0f}ms" if r.elapsed_ms else ""
         reason = (r.reason[:80] + "...") if r.reason and len(r.reason) > 80 else (r.reason or "")
-        body.append([ts, r.tool_name, _decision_badge(r.decision),
-                      _risk_badge(r.risk_level), reason, latency])
+        row_data = [ts]
+        if show_user_column:
+            login = getattr(r, "_github_login", "")
+            style = "text-decoration:line-through;color:#888;" if login in disabled_logins else ""
+            row_data.append(Span(login, style=style) if login else "—")
+        row_data.extend([r.tool_name, _decision_badge(r.decision),
+                         _risk_badge(r.risk_level), reason, latency])
+        body.append(row_data)
 
     return Table(
         Thead(Tr(*[Th(h) for h in header])),
@@ -54,8 +66,23 @@ def AuditTable(rows):
     )
 
 
-def AuditFilters(current_filter="all", session_id=""):
+def AuditFilters(current_filter="all", session_id="", is_admin=False,
+                 all_logins=None, current_user_filter=""):
     """Filter bar for the audit log."""
+    admin_section = ""
+    if is_admin and all_logins:
+        options = [Option("All users", value="", selected=not current_user_filter)]
+        for login in sorted(all_logins):
+            options.append(Option(login, value=login, selected=current_user_filter == login))
+        admin_section = Div(
+            Div(
+                FormLabel("User", _for="user_filter"),
+                RawSelect(*options, name="user_filter", id="user_filter", cls="uk-select"),
+                cls="space-y-2",
+            ),
+            style="border-left:1px solid #2a2a2a; padding-left:12px;",
+        )
+
     return Form(
         DivLAligned(
             Div(
@@ -74,6 +101,7 @@ def AuditFilters(current_filter="all", session_id=""):
                 value=session_id,
                 placeholder="Optional",
             ),
+            admin_section,
             Button("Apply", cls=ButtonT.primary, type="submit"),
             Span(Loading(cls=LoadingT.spinner), cls="htmx-indicator", id="audit-spinner"),
             cls="gap-4 items-end",
@@ -86,7 +114,9 @@ def AuditFilters(current_filter="all", session_id=""):
     )
 
 
-def AuditContent(rows, current_filter="all", session_id=""):
+def AuditContent(rows, current_filter="all", session_id="",
+                 is_admin=False, all_logins=None, current_user_filter="",
+                 show_user_column=False, disabled_logins=None):
     """Full audit page content."""
     return (
         Card(
@@ -95,7 +125,9 @@ def AuditContent(rows, current_filter="all", session_id=""):
               "Toggle logging in ",
               A("Preferences", href="/dashboard/prefs"), ".",
               cls=TextPresets.muted_sm),
-            AuditFilters(current_filter, session_id),
+            AuditFilters(current_filter, session_id, is_admin=is_admin,
+                         all_logins=all_logins, current_user_filter=current_user_filter),
         ),
-        Div(AuditTable(rows), id="audit-results"),
+        Div(AuditTable(rows, show_user_column=show_user_column,
+                        disabled_logins=disabled_logins), id="audit-results"),
     )

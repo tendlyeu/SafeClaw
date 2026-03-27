@@ -2191,20 +2191,48 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
 @rt("/dashboard/audit")
 def dashboard_audit(req, sess):
     user = req.scope.get("user")
-    rows = audit_log(where="user_id = ?", where_args=[user.id], order_by="-id", limit=50)
+    admin = is_user_admin(user)
+    if admin:
+        rows = audit_log(order_by="-id", limit=50)
+        user_map = {u.id: u for u in users()}
+        for r in rows:
+            u = user_map.get(r.user_id)
+            r._github_login = u.github_login if u else ""
+        all_logins = sorted({u.github_login for u in user_map.values()})
+        disabled_logins = {u.github_login for u in user_map.values() if u.is_disabled}
+    else:
+        rows = audit_log(where="user_id = ?", where_args=[user.id], order_by="-id", limit=50)
+        all_logins = None
+        disabled_logins = None
     return (
         Title("Audit Log — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Audit Log", *AuditContent(rows), user=user, active="audit", is_admin=is_user_admin(user)),
+        DashboardLayout("Audit Log",
+                        *AuditContent(rows, is_admin=admin, all_logins=all_logins,
+                                      show_user_column=admin, disabled_logins=disabled_logins),
+                        user=user, active="audit", is_admin=admin),
     )
 
 
 @rt("/dashboard/audit/results")
-def audit_results(req, sess, filter: str = "all", session_id: str = ""):
+def audit_results(req, sess, filter: str = "all", session_id: str = "",
+                  user_filter: str = ""):
     """HTMX partial: filtered audit log results."""
     user = req.scope.get("user")
-    conditions = ["user_id = ?"]
-    args = [user.id]
+    admin = is_user_admin(user)
+
+    conditions = []
+    args = []
+
+    if admin and user_filter:
+        target_users = users(where="github_login = ?", where_args=[user_filter])
+        if target_users:
+            conditions.append("user_id = ?")
+            args.append(target_users[0].id)
+    elif not admin:
+        conditions.append("user_id = ?")
+        args.append(user.id)
+
     if filter == "blocked":
         conditions.append("decision = ?")
         args.append("blocked")
@@ -2214,9 +2242,20 @@ def audit_results(req, sess, filter: str = "all", session_id: str = ""):
     if session_id.strip():
         conditions.append("session_id = ?")
         args.append(session_id.strip())
-    where = " AND ".join(conditions)
-    rows = audit_log(where=where, where_args=args, order_by="-id", limit=50)
-    return AuditTable(rows)
+
+    where = " AND ".join(conditions) if conditions else None
+    rows = audit_log(where=where, where_args=args if args else None, order_by="-id", limit=50)
+
+    show_user_col = admin and not user_filter
+    disabled_logins = set()
+    if show_user_col:
+        user_map = {u.id: u for u in users()}
+        for r in rows:
+            u = user_map.get(r.user_id)
+            r._github_login = u.github_login if u else ""
+        disabled_logins = {u.github_login for u in user_map.values() if u.is_disabled}
+
+    return AuditTable(rows, show_user_column=show_user_col, disabled_logins=disabled_logins)
 
 
 # ── Admin: User Management Routes ──
