@@ -11,7 +11,7 @@ from fasthtml.common import *
 from fasthtml.components import Footer as FooterTag
 from fasthtml.oauth import redir_url
 
-from auth import github_client, user_auth_before, get_current_user
+from auth import github_client, user_auth_before, get_current_user, sync_admin_on_login, is_user_admin, is_env_admin, require_admin
 from db import users, upsert_user, hash_admin_password, verify_admin_password
 
 
@@ -1780,6 +1780,7 @@ def auth_callback(req, sess, code: str = "", state: str = ""):
         avatar_url=info.get("avatar_url", ""),
         email=info.get("email", ""),
     )
+    sync_admin_on_login(user)
     sess["auth"] = user.id
     if not user.onboarded:
         return RedirectResponse("/dashboard/onboard", status_code=303)
