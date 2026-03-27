@@ -2221,7 +2221,7 @@ def audit_results(req, sess, filter: str = "all", session_id: str = ""):
 
 # ── Admin: User Management Routes ──
 
-from dashboard.users import UsersPageContent, UserTable
+from dashboard.users import UsersPageContent, UserTable, UserDetailContent, UserPrefsTab, UserKeysTab, UserAuditTab
 from auth import _get_env_admins
 
 
@@ -2323,6 +2323,127 @@ def enable_user(req, sess, user_id: int, _csrf_token: str = ""):
     token = _generate_csrf_token(sess)
     env_admins = _get_env_admins()
     return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
+
+
+@rt("/dashboard/users/{user_id}")
+def dashboard_user_detail(req, sess, user_id: int):
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return RedirectResponse("/dashboard/users", status_code=303)
+    token = _generate_csrf_token(sess)
+    env_admins = _get_env_admins()
+    key_count = len(api_keys(where="user_id = ? AND is_active = 1", where_args=[target.id]))
+    from datetime import timedelta
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    decision_count = len(audit_log(where="user_id = ? AND timestamp > ?",
+                                   where_args=[target.id, thirty_days_ago]))
+    block_count = len(audit_log(where="user_id = ? AND timestamp > ? AND decision = ?",
+                                where_args=[target.id, thirty_days_ago, "blocked"]))
+    return (
+        Title(f"{target.name} — Users — SafeClaw"),
+        *MUITheme.blue.headers(mode='dark'),
+        DashboardLayout(f"User: {target.name}",
+                        *UserDetailContent(target, admin, env_admins, key_count,
+                                           decision_count, block_count, csrf_token=token),
+                        user=admin, active="users", is_admin=True),
+    )
+
+
+@rt("/dashboard/users/{user_id}/tab/prefs")
+def user_tab_prefs(req, sess, user_id: int):
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    token = _generate_csrf_token(sess)
+    return UserPrefsTab(target, csrf_token=token)
+
+
+@rt("/dashboard/users/{user_id}/tab/keys")
+def user_tab_keys(req, sess, user_id: int):
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    token = _generate_csrf_token(sess)
+    keys_list = api_keys(where="user_id = ?", where_args=[target.id], order_by="-id")
+    return UserKeysTab(target, keys_list, csrf_token=token)
+
+
+@rt("/dashboard/users/{user_id}/tab/audit")
+def user_tab_audit(req, sess, user_id: int):
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    rows = audit_log(where="user_id = ?", where_args=[target.id], order_by="-id", limit=50)
+    return UserAuditTab(rows)
+
+
+@rt("/dashboard/users/{user_id}/prefs", methods=["POST"])
+def save_user_prefs(req, sess, user_id: int,
+                    autonomy_level: str = "moderate",
+                    confirm_before_delete: str = "",
+                    confirm_before_push: str = "",
+                    confirm_before_send: str = "",
+                    max_files_per_commit: int = 10,
+                    audit_logging: str = "",
+                    _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+    except Exception:
+        return P("User not found.", style="color:#f87171;")
+    if autonomy_level not in _VALID_AUTONOMY_LEVELS:
+        return P("Invalid autonomy level.", style="color:#f87171;")
+    if max_files_per_commit < 1 or max_files_per_commit > 100:
+        return P("Max files per commit must be between 1 and 100.", style="color:#f87171;")
+    target.autonomy_level = autonomy_level
+    target.confirm_before_delete = confirm_before_delete == "on"
+    target.confirm_before_push = confirm_before_push == "on"
+    target.confirm_before_send = confirm_before_send == "on"
+    target.max_files_per_commit = max_files_per_commit
+    target.audit_logging = audit_logging == "on"
+    users.update(target)
+    return P("Preferences saved.", style="color:#4ade80;")
+
+
+@rt("/dashboard/users/{user_id}/keys/{key_pk}/revoke", methods=["POST"])
+def revoke_user_key(req, sess, user_id: int, key_pk: int, _csrf_token: str = ""):
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    admin = req.scope.get("user")
+    if err := require_admin(admin):
+        return err
+    try:
+        target = users[user_id]
+        key = api_keys[key_pk]
+    except Exception:
+        return P("Not found.", style="color:#f87171;")
+    if key.user_id != target.id:
+        return P("Key does not belong to this user.", style="color:#f87171;")
+    key.is_active = False
+    api_keys.update(key)
+    token = _generate_csrf_token(sess)
+    keys_list = api_keys(where="user_id = ?", where_args=[target.id], order_by="-id")
+    return UserKeysTab(target, keys_list, csrf_token=token)
 
 
 # ── Mount SafeClaw Service ──
