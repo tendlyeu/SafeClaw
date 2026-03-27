@@ -14,7 +14,7 @@ from pathlib import Path
 from safeclaw.config import SafeClawConfig
 from safeclaw.engine.core import ToolCallEvent
 from safeclaw.engine.full_engine import FullEngine
-from safeclaw.engine.knowledge_graph import KnowledgeGraph, SP
+from safeclaw.engine.knowledge_graph import KnowledgeGraph
 from safeclaw.constraints.policy_checker import PolicyChecker
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.nemoclaw.policy_loader import NemoClawPolicyLoader
