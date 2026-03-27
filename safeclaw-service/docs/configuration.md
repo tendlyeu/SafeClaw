@@ -29,6 +29,12 @@ SafeClaw uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pyda
 | `require_auth`   | `SAFECLAW_REQUIRE_AUTH`    | `bool` | `False` | When `True`, all requests must include a valid API key         |
 | `admin_password` | `SAFECLAW_ADMIN_PASSWORD`  | `str`  | `""`    | Admin password for dashboard and admin endpoints. Should be a bcrypt hash (`$2b$...`). When empty, admin endpoints are open (local dev mode). |
 
+### Dashboard Admin
+
+| Field | Env Variable | Type | Default | Description |
+|-------|-------------|------|---------|-------------|
+| — | `SAFECLAW_ADMINS` | `str` | `""` | Comma-separated GitHub logins who are always admin in the landing dashboard (e.g., `henrikaavik,marekkask`). These users cannot be demoted via the UI. When empty, the first registered user becomes admin automatically. |
+
 ### NemoClaw Integration
 
 | Field                | Env Variable                   | Type          | Default | Description                                           |
