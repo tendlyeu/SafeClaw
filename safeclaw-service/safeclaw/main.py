@@ -130,7 +130,10 @@ from safeclaw.api.routes import router  # noqa: E402
 
 app.include_router(router, prefix="/api/v1")
 
-# Admin dashboard (FastHTML sub-app)
-from safeclaw.dashboard.app import create_dashboard  # noqa: E402
+# Admin dashboard (FastHTML sub-app) — optional, requires fasthtml
+try:
+    from safeclaw.dashboard.app import create_dashboard  # noqa: E402
 
-app.mount("/admin", create_dashboard(get_engine, mount_prefix="/admin"))
+    app.mount("/admin", create_dashboard(get_engine, mount_prefix="/admin"))
+except ImportError:
+    pass  # fasthtml not installed — dashboard disabled

@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
           cache: 'pip'
       - run: pip install -e ".[dev]"
-      - run: python -m pytest tests/ -v --ignore=tests/test_csrf_stability.py --ignore=tests/test_dashboard_agents.py --ignore=tests/test_dashboard_app.py --ignore=tests/test_dashboard_audit.py --ignore=tests/test_dashboard_settings.py
+      - run: python -m pytest tests/ -v --ignore=tests/test_csrf_stability.py --ignore=tests/test_dashboard_agents.py --ignore=tests/test_dashboard_app.py --ignore=tests/test_dashboard_audit.py --ignore=tests/test_dashboard_settings.py --ignore=tests/test_dashboard_overview.py
 
   python-lint:
     runs-on: ubuntu-latest
