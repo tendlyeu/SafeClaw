@@ -20,7 +20,7 @@ github_client = (
 )
 
 
-def _get_env_admins() -> set[str]:
+def get_env_admins() -> set[str]:
     """Parse SAFECLAW_ADMINS env var into a set of GitHub logins."""
     raw = os.environ.get("SAFECLAW_ADMINS", "")
     return {a.strip() for a in raw.split(",") if a.strip()}
@@ -28,7 +28,7 @@ def _get_env_admins() -> set[str]:
 
 def is_env_admin(user) -> bool:
     """Check if user is an admin via the SAFECLAW_ADMINS env var."""
-    return user.github_login in _get_env_admins()
+    return user.github_login in get_env_admins()
 
 
 def is_user_admin(user) -> bool:
@@ -52,7 +52,7 @@ def sync_admin_on_login(user) -> None:
         changed = True
     # First-user fallback: if no admins exist, first user becomes admin
     if not user.is_admin:
-        env_admins = _get_env_admins()
+        env_admins = get_env_admins()
         if not env_admins:
             existing_admins = users(where="is_admin = 1")
             if not existing_admins:

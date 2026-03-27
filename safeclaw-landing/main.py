@@ -1781,6 +1781,8 @@ def auth_callback(req, sess, code: str = "", state: str = ""):
         email=info.get("email", ""),
     )
     sync_admin_on_login(user)
+    if user.is_disabled:
+        return RedirectResponse("/login", status_code=303)
     sess["auth"] = user.id
     if not user.onboarded:
         return RedirectResponse("/dashboard/onboard", status_code=303)
@@ -2260,8 +2262,8 @@ def audit_results(req, sess, filter: str = "all", session_id: str = "",
 
 # ── Admin: User Management Routes ──
 
-from dashboard.users import UsersPageContent, UserTable, UserDetailContent, UserPrefsTab, UserKeysTab, UserAuditTab
-from auth import _get_env_admins
+from dashboard.users import UsersPageContent, UserTable, UserDetailContent, UserPrefsTab, UserKeysTab, UserAuditTab, UserDetailHeader
+from auth import get_env_admins
 
 
 @rt("/dashboard/users")
@@ -2271,7 +2273,7 @@ def dashboard_users(req, sess):
         return err
     token = _generate_csrf_token(sess)
     all_users = users(order_by="id")
-    env_admins = _get_env_admins()
+    env_admins = get_env_admins()
     return (
         Title("Users — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
@@ -2295,7 +2297,11 @@ def promote_user(req, sess, user_id: int, _csrf_token: str = ""):
     target.is_admin = True
     users.update(target)
     token = _generate_csrf_token(sess)
-    env_admins = _get_env_admins()
+    env_admins = get_env_admins()
+    hx_target = req.headers.get("hx-target", "")
+    if hx_target == "user-detail-header":
+        target = users[user_id]
+        return UserDetailHeader(target, admin, env_admins, csrf_token=token)
     return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
 
 
@@ -2317,7 +2323,11 @@ def demote_user(req, sess, user_id: int, _csrf_token: str = ""):
     target.is_admin = False
     users.update(target)
     token = _generate_csrf_token(sess)
-    env_admins = _get_env_admins()
+    env_admins = get_env_admins()
+    hx_target = req.headers.get("hx-target", "")
+    if hx_target == "user-detail-header":
+        target = users[user_id]
+        return UserDetailHeader(target, admin, env_admins, csrf_token=token)
     return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
 
 
@@ -2334,6 +2344,8 @@ def disable_user(req, sess, user_id: int, _csrf_token: str = ""):
         return P("User not found.", style="color:#f87171;")
     if target.id == admin.id:
         return P("Cannot disable yourself.", style="color:#f87171;")
+    if is_env_admin(target):
+        return P("Cannot disable env var admins.", style="color:#f87171;")
     target.is_disabled = True
     users.update(target)
     # Revoke all active API keys (#259)
@@ -2342,7 +2354,11 @@ def disable_user(req, sess, user_id: int, _csrf_token: str = ""):
         k.is_active = False
         api_keys.update(k)
     token = _generate_csrf_token(sess)
-    env_admins = _get_env_admins()
+    env_admins = get_env_admins()
+    hx_target = req.headers.get("hx-target", "")
+    if hx_target == "user-detail-header":
+        target = users[user_id]
+        return UserDetailHeader(target, admin, env_admins, csrf_token=token)
     return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
 
 
@@ -2360,7 +2376,11 @@ def enable_user(req, sess, user_id: int, _csrf_token: str = ""):
     target.is_disabled = False
     users.update(target)
     token = _generate_csrf_token(sess)
-    env_admins = _get_env_admins()
+    env_admins = get_env_admins()
+    hx_target = req.headers.get("hx-target", "")
+    if hx_target == "user-detail-header":
+        target = users[user_id]
+        return UserDetailHeader(target, admin, env_admins, csrf_token=token)
     return UserTable(users(order_by="id"), admin, env_admins, csrf_token=token)
 
 
@@ -2374,7 +2394,7 @@ def dashboard_user_detail(req, sess, user_id: int):
     except Exception:
         return RedirectResponse("/dashboard/users", status_code=303)
     token = _generate_csrf_token(sess)
-    env_admins = _get_env_admins()
+    env_admins = get_env_admins()
     key_count = len(api_keys(where="user_id = ? AND is_active = 1", where_args=[target.id]))
     from datetime import timedelta
     thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()

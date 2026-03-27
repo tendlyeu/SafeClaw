@@ -97,7 +97,7 @@ def UserTable(all_users, current_user, env_admins: set[str], csrf_token=""):
                         style="display:inline;",
                     )
                 )
-            else:
+            elif not is_env:
                 actions.append(
                     Form(
                         Input(type="hidden", name="_csrf_token", value=csrf_token),
@@ -189,7 +189,7 @@ def UserDetailHeader(target, current_user, env_admins: set[str], csrf_token=""):
                     style="display:inline;",
                 )
             )
-        else:
+        elif not is_env:
             actions.append(
                 Form(
                     Input(type="hidden", name="_csrf_token", value=csrf_token),
