@@ -61,6 +61,8 @@ class User:
     service_url: str = ""
     admin_password: str = ""
     audit_logging: bool = True
+    is_admin: bool = False
+    is_disabled: bool = False
 
 
 class APIKey:
