@@ -276,7 +276,7 @@ class PolicyChecker:
         # Query all NemoClaw network rules (including optional binary restrictions)
         results = self.kg.query(f"""
             PREFIX sp: <{SP}>
-            SELECT ?rule ?host ?port ?protocol ?binary WHERE {{
+            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement WHERE {{
                 ?rule a sp:NemoNetworkRule ;
                       sp:allowsHost ?host .
                 OPTIONAL {{ ?rule sp:allowsPort ?port }}
@@ -329,6 +329,10 @@ class PolicyChecker:
             for uri, info in rule_rows.items()
             if info["enforcement"] != "disabled"
         }
+
+        # If no active (non-disabled) rules remain, skip the check
+        if not active_rules:
+            return None
 
         for info in active_rules.values():
             rule_host = str(info["host"])

@@ -1088,3 +1088,99 @@ filesystem:
         )
         result = checker.check(action)
         assert result.violated is False
+
+
+# ======================================================================
+# Enforcement field filtering tests
+# ======================================================================
+
+
+class TestEnforcementFiltering:
+    def test_disabled_rule_skipped(self, kg, tmp_path):
+        """Rule with enforcement=disabled should not count as an allowlist entry."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  disabled_api:
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: disabled
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        # No enforce rules exist, so no allowlist -> skip (allow)
+        action = _make_action("WebFetch", url="https://api.example.com/data")
+        result = checker.check(action)
+        assert result.violated is False
+
+    def test_disabled_rule_does_not_allow_other_hosts(self, kg, tmp_path):
+        """Disabled rules don't create an allowlist; other hosts should also pass."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  disabled_api:
+    endpoints:
+      - host: api.example.com
+        port: 443
+        enforcement: disabled
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action = _make_action("WebFetch", url="https://other.com/data")
+        result = checker.check(action)
+        assert result.violated is False
+
+    def test_enforce_rule_blocks_unmatched(self, kg, tmp_path):
+        """Enforce rule creates an allowlist that blocks unmatched hosts."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  api:
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action = _make_action("WebFetch", url="https://evil.com/data")
+        result = checker.check(action)
+        assert result.violated is True
+
+    def test_mixed_enforce_and_disabled(self, kg, tmp_path):
+        """Only enforce rules count; disabled rules are ignored."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  allowed:
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+  ignored:
+    endpoints:
+      - host: evil.com
+        port: 443
+        enforcement: disabled
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action1 = _make_action("WebFetch", url="https://api.example.com/data")
+        result1 = checker.check(action1)
+        assert result1.violated is False
+
+        action2 = _make_action("WebFetch", url="https://evil.com/data")
+        result2 = checker.check(action2)
+        assert result2.violated is True
