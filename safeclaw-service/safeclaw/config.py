@@ -32,6 +32,7 @@ class SafeClawConfig(BaseSettings):
 
     # Admin dashboard
     admin_password: str = ""
+    dev_mode: bool = False
 
     # NemoClaw integration
     nemoclaw_enabled: bool = False

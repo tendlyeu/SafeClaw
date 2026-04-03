@@ -16,6 +16,7 @@ def client(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
+        dev_mode=True,
     )
     main_module.engine = FullEngine(config)
     client = TestClient(main_module.app)

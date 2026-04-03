@@ -107,6 +107,7 @@ async function get(path: string): Promise<Record<string, unknown> | null> {
 // --- Plugin Definition ---
 
 let handshakeCompleted = false;
+let lastHandshakeConfigHash = '';
 
 async function performHandshake(): Promise<boolean> {
   const cfg = getConfig();
@@ -127,6 +128,7 @@ async function performHandshake(): Promise<boolean> {
 
   log.info(`[SafeClaw] Handshake OK — org=${r.orgId}, scope=${r.scope}, engine=${r.engineReady ? 'ready' : 'not ready'}`);
   handshakeCompleted = true;
+  lastHandshakeConfigHash = configHash(getConfig());
   return true;
 }
 
@@ -176,9 +178,15 @@ export default {
     // Heartbeat watchdog — send config hash to service every 30s
     const sendHeartbeat = async () => {
       try {
+        const currentHash = configHash(getConfig());
+        if (handshakeCompleted && currentHash !== lastHandshakeConfigHash) {
+          log.info('[SafeClaw] Config changed — re-authenticating');
+          handshakeCompleted = false;
+          performHandshake().catch(() => {});
+        }
         await post('/heartbeat', {
           agentId: instanceId,
-          configHash: configHash(getConfig()),
+          configHash: currentHash,
           status: 'alive',
         });
       } catch {
@@ -365,8 +373,8 @@ export default {
     api.on('subagent_spawning', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       const cfg = getConfig();
       const r = await post('/evaluate/subagent-spawn', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.agentId,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
         parentAgentId: event.parentAgentId,
         childConfig: event.childConfig ?? {},
         reason: event.reason ?? '',
@@ -392,7 +400,7 @@ export default {
     // Subagent ended — record child agent lifecycle (#188)
     api.on('subagent_ended', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/record/subagent-ended', {
-        sessionId: ctx.sessionId ?? event.sessionId,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
         parentAgentId: event.parentAgentId,
         childAgentId: event.childAgentId,
       }).catch(() => {});
@@ -401,8 +409,8 @@ export default {
     // Session lifecycle — notify service of session start (#189)
     api.on('session_start', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/session/start', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.agentId,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
         agentId: instanceId,
         metadata: event.metadata ?? {},
       }).catch(() => {});
@@ -411,8 +419,8 @@ export default {
     // Session lifecycle — notify service of session end (#189)
     api.on('session_end', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/session/end', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.agentId,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
         agentId: instanceId,
       }).catch(() => {});
     });
@@ -420,13 +428,13 @@ export default {
     // Inbound message governance — evaluate received messages (#190)
     api.on('message_received', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/evaluate/inbound-message', {
-        sessionId: ctx.sessionId ?? event.sessionId,
-        userId: ctx.agentId,
+        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
         channel: event.channel ?? (ctx as any).channelId ?? '',
         sender: event.sender ?? '',
         content: event.content ?? '',
         metadata: event.metadata ?? {},
-      }).catch(() => {});
+      }).catch((e) => log.warn('[SafeClaw] Failed to evaluate inbound message:', e));
     });
 
     // Agent tools — let agents introspect governance state (#197)

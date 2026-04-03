@@ -47,6 +47,7 @@ sc:hasNetworkPolicy a owl:ObjectProperty ;
     rdfs:range sc:NetworkPolicy .
 
 sc:toolName a owl:DatatypeProperty ;
+    rdfs:domain sc:ToolPolicy ;
     rdfs:range xsd:string .
 
 sc:mountPath a owl:DatatypeProperty ;

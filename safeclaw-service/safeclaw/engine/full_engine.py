@@ -151,7 +151,8 @@ class FullEngine(SafeClawEngine):
         # Constraint checkers
         self.classifier = ActionClassifier(hierarchy=self.hierarchy)
         self.policy_checker = PolicyChecker(
-            self.kg, hierarchy=self.hierarchy,
+            self.kg,
+            hierarchy=self.hierarchy,
             nemoclaw_enabled=config.is_nemoclaw_enabled,
         )
         self.preference_checker = PreferenceChecker(self.kg)
@@ -183,7 +184,9 @@ class FullEngine(SafeClawEngine):
             else "configurable"
         )
         self.temp_permissions = TempPermissionManager(hierarchy=self.hierarchy)
-        self.heartbeat_monitor = HeartbeatMonitor(self.event_bus, agent_registry=self.agent_registry)
+        self.heartbeat_monitor = HeartbeatMonitor(
+            self.event_bus, agent_registry=self.agent_registry
+        )
         self._require_token_auth = (
             raw.get("agents", {}).get("requireTokenAuth", True) if raw else True
         )
@@ -305,7 +308,8 @@ class FullEngine(SafeClawEngine):
 
         new_classifier = ActionClassifier(hierarchy=new_hierarchy)
         new_policy_checker = PolicyChecker(
-            new_kg, hierarchy=new_hierarchy,
+            new_kg,
+            hierarchy=new_hierarchy,
             nemoclaw_enabled=self.config.is_nemoclaw_enabled,
         )
         new_preference_checker = PreferenceChecker(new_kg)
@@ -321,6 +325,14 @@ class FullEngine(SafeClawEngine):
 
         # Preserve context builder violation history across reloads
         new_context_builder._violation_history = self.context_builder._violation_history
+        # Prevent unbounded growth of violation history
+        _MAX_VIOLATION_HISTORY = 10_000
+        hist = new_context_builder._violation_history
+        if len(hist) > _MAX_VIOLATION_HISTORY:
+            # Keep only the most recent entries per session
+            sorted_keys = sorted(hist.keys())
+            for k in sorted_keys[: len(hist) - _MAX_VIOLATION_HISTORY]:
+                del hist[k]
 
         try:
             raw = self.config.raw
@@ -491,65 +503,37 @@ class FullEngine(SafeClawEngine):
                     constraint_step=STEP_AGENT_GOVERNANCE,
                 )
 
-        # 1. Classify action
-        action = self.classifier.classify(event.tool_name, event.params)
+        # Steps 1-10: Classification and constraint checks.
+        # Wrapped in try-except so a bug in any checker produces an
+        # audited block instead of an unhandled 500.
+        action = None  # may remain None if classification fails
+        try:
+            # 1. Classify action
+            action = self.classifier.classify(event.tool_name, event.params)
 
-        # 1b. Role-based action check
-        if event.agent_id is not None:
-            agent_record = self.agent_registry.get_agent(event.agent_id)
-            if agent_record:
-                role = self.role_manager.get_role(agent_record.role)
-                if role:
-                    # Check temp permissions first - they bypass role restrictions
-                    has_temp_grant = self.temp_permissions.check(
-                        event.agent_id, action.ontology_class
-                    )
-                    if not has_temp_grant and not self.role_manager.is_action_allowed(
-                        role, action.ontology_class
-                    ):
-                        reason = f"[SafeClaw] Role '{role.name}' does not allow action '{action.ontology_class}'"
-                        if role.enforcement_mode == "warn-only":
-                            logger.warning(
-                                "Role '%s' would block '%s' but enforcement_mode is warn-only",
-                                role.name,
-                                action.ontology_class,
-                            )
-                        else:
-                            decision = Decision(
-                                block=True,
-                                reason=reason,
-                                constraint_step=STEP_ROLE_CHECK,
-                            )
-                            self.delegation_detector.record_block(
-                                event.session_id,
-                                event.agent_id,
-                                event.tool_name,
-                                params_sig,
-                                params=event.params,
-                            )
-                            self._record_violation_and_log(
-                                event,
-                                action,
-                                decision,
-                                checks,
-                                prefs_applied,
-                                start,
-                                constraint_step=STEP_ROLE_CHECK,
-                            )
-                            return decision
-
-                    # Check resource access for all path parameters
-                    resource_paths = self._extract_resource_paths(event.params)
-                    for resource_path in resource_paths:
-                        if not self.role_manager.is_resource_allowed(role, resource_path):
+            # 1b. Role-based action check
+            if event.agent_id is not None:
+                agent_record = self.agent_registry.get_agent(event.agent_id)
+                if agent_record:
+                    role = self.role_manager.get_role(agent_record.role)
+                    if role:
+                        # Check temp permissions first
+                        has_temp_grant = self.temp_permissions.check(
+                            event.agent_id, action.ontology_class
+                        )
+                        if not has_temp_grant and not self.role_manager.is_action_allowed(
+                            role, action.ontology_class
+                        ):
                             reason = (
-                                f"[SafeClaw] Role '{role.name}' denied access to '{resource_path}'"
+                                f"[SafeClaw] Role '{role.name}' does "
+                                "not allow action "
+                                f"'{action.ontology_class}'"
                             )
                             if role.enforcement_mode == "warn-only":
                                 logger.warning(
-                                    "Role '%s' would deny access to '%s' but enforcement_mode is warn-only",
+                                    "Role '%s' would block '%s' but enforcement_mode is warn-only",
                                     role.name,
-                                    resource_path,
+                                    action.ontology_class,
                                 )
                             else:
                                 decision = Decision(
@@ -575,261 +559,60 @@ class FullEngine(SafeClawEngine):
                                 )
                                 return decision
 
-        # 2. SHACL validation
-        shacl_result = self.shacl.validate(action.as_rdf_graph())
-        if not shacl_result.conforms:
-            reason = f"[SafeClaw] {shacl_result.first_violation_message}"
-            checks.append(
-                ConstraintCheck(
-                    constraint_uri="shacl:validation",
-                    constraint_type="SHACL",
-                    result="violated",
-                    reason=shacl_result.first_violation_message,
-                )
-            )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                constraint_step=STEP_SHACL_VALIDATION,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_SHACL_VALIDATION,
-            )
-            return decision
+                        # Check resource access for path params
+                        resource_paths = self._extract_resource_paths(event.params)
+                        for rp in resource_paths:
+                            if not self.role_manager.is_resource_allowed(role, rp):
+                                reason = f"[SafeClaw] Role '{role.name}' denied access to '{rp}'"
+                                if role.enforcement_mode == "warn-only":
+                                    logger.warning(
+                                        "Role '%s' would deny "
+                                        "access to '%s' but "
+                                        "enforcement_mode is "
+                                        "warn-only",
+                                        role.name,
+                                        rp,
+                                    )
+                                else:
+                                    decision = Decision(
+                                        block=True,
+                                        reason=reason,
+                                        constraint_step=(STEP_ROLE_CHECK),
+                                    )
+                                    self.delegation_detector.record_block(
+                                        event.session_id,
+                                        event.agent_id,
+                                        event.tool_name,
+                                        params_sig,
+                                        params=event.params,
+                                    )
+                                    self._record_violation_and_log(
+                                        event,
+                                        action,
+                                        decision,
+                                        checks,
+                                        prefs_applied,
+                                        start,
+                                        constraint_step=(STEP_ROLE_CHECK),
+                                    )
+                                    return decision
 
-        checks.append(
-            ConstraintCheck(
-                constraint_uri="shacl:validation",
-                constraint_type="SHACL",
-                result="satisfied",
-                reason="All SHACL shapes conform",
-            )
-        )
-
-        # 3. Policy check
-        policy_result = self.policy_checker.check(action)
-        if policy_result.violated:
-            reason = f"[SafeClaw] {policy_result.reason}"
-            checks.append(
-                ConstraintCheck(
-                    constraint_uri=policy_result.policy_uri,
-                    constraint_type=policy_result.policy_type,
-                    result="violated",
-                    reason=policy_result.reason,
-                )
-            )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                constraint_step=STEP_POLICY_CHECK,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_POLICY_CHECK,
-            )
-            return decision
-
-        checks.append(
-            ConstraintCheck(
-                constraint_uri="policy:check",
-                constraint_type="Policy",
-                result="satisfied",
-                reason="No policy violations",
-            )
-        )
-
-        # 4. Preference check
-        # Preference violations that mention "requires confirmation" are
-        # confirmation requests, not hard policy blocks. The caller can
-        # re-submit after the user confirms.
-        user_prefs = self.preference_checker.get_preferences(event.user_id)
-        pref_result = self.preference_checker.check(action, user_prefs)
-        if pref_result.violated:
-            reason = f"[SafeClaw] {pref_result.reason}"
-            is_confirmation = "requires confirmation" in pref_result.reason.lower()
-            prefs_applied.append(
-                PreferenceApplied(
-                    preference_uri=pref_result.preference_uri,
-                    value="true",
-                    effect=pref_result.reason,
-                )
-            )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                requires_confirmation=is_confirmation,
-                constraint_step=STEP_PREFERENCE_CHECK,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_PREFERENCE_CHECK,
-            )
-            return decision
-
-        # 5. Dependency check
-        dep_result = self.dependency_checker.check(action, event.session_id)
-        if dep_result.unmet:
-            reason = f"[SafeClaw] {dep_result.reason}"
-            checks.append(
-                ConstraintCheck(
-                    constraint_uri="dependency:check",
-                    constraint_type="Dependency",
-                    result="violated",
-                    reason=dep_result.reason,
-                )
-            )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                constraint_step=STEP_DEPENDENCY_CHECK,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_DEPENDENCY_CHECK,
-            )
-            return decision
-
-        # 6. Temporal constraint check
-        temporal_result = self.temporal_checker.check(action, self.kg)
-        if temporal_result.violated:
-            reason = f"[SafeClaw] {temporal_result.reason}"
-            checks.append(
-                ConstraintCheck(
-                    constraint_uri="temporal:check",
-                    constraint_type="Temporal",
-                    result="violated",
-                    reason=temporal_result.reason,
-                )
-            )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                constraint_step=STEP_TEMPORAL_CHECK,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_TEMPORAL_CHECK,
-            )
-            return decision
-
-        # 7. Rate limit check
-        rate_result = self.rate_limiter.check(action, event.session_id)
-        if rate_result.exceeded:
-            reason = f"[SafeClaw] {rate_result.reason}"
-            checks.append(
-                ConstraintCheck(
-                    constraint_uri="ratelimit:check",
-                    constraint_type="RateLimit",
-                    result="violated",
-                    reason=rate_result.reason,
-                )
-            )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                constraint_step=STEP_RATE_LIMIT_CHECK,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_RATE_LIMIT_CHECK,
-            )
-            return decision
-
-        # 8. Derived constraint rules (confirmation check)
-        # BUG-004/035: Use server-side session data instead of client-supplied
-        # session_history for security decisions (cumulative risk check).
-        server_session_history = self.session_tracker.get_risk_history(event.session_id)
-        # Include the current action's risk level so cumulative risk check
-        # is not off-by-one (the current action hasn't been recorded yet).
-        if action.risk_level:
-            server_session_history = server_session_history + [
-                f"{action.risk_level}:{action.ontology_class}"
-            ]
-        derived_result = self.derived_checker.check(action, user_prefs, server_session_history)
-        if derived_result.requires_confirmation:
-            reason = f"[SafeClaw] {derived_result.reason}"
-            for rule in derived_result.derived_rules:
+            # 2. SHACL validation
+            shacl_result = self.shacl.validate(action.as_rdf_graph())
+            if not shacl_result.conforms:
+                reason = f"[SafeClaw] {shacl_result.first_violation_message}"
                 checks.append(
                     ConstraintCheck(
-                        constraint_uri=f"derived:{rule}",
-                        constraint_type="DerivedRule",
-                        result="requires_confirmation",
-                        reason=derived_result.reason,
-                    )
-                )
-            decision = Decision(
-                block=True,
-                reason=reason,
-                requires_confirmation=True,
-                constraint_step=STEP_DERIVED_RULES,
-            )
-            self._maybe_record_delegation_block(event, params_sig)
-            self._record_violation_and_log(
-                event,
-                action,
-                decision,
-                checks,
-                prefs_applied,
-                start,
-                constraint_step=STEP_DERIVED_RULES,
-            )
-            return decision
-
-        # 9. Hierarchy rate limit check (multi-agent)
-        if event.agent_id is not None:
-            hierarchy_ids = self.agent_registry.get_hierarchy_ids(event.agent_id)
-            hierarchy_result = self.rate_limiter.check_hierarchy(action, hierarchy_ids)
-            if hierarchy_result.exceeded:
-                reason = f"[SafeClaw] {hierarchy_result.reason}"
-                checks.append(
-                    ConstraintCheck(
-                        constraint_uri="ratelimit:hierarchy",
-                        constraint_type="HierarchyRateLimit",
+                        constraint_uri="shacl:validation",
+                        constraint_type="SHACL",
                         result="violated",
-                        reason=hierarchy_result.reason,
+                        reason=shacl_result.first_violation_message,
                     )
                 )
                 decision = Decision(
                     block=True,
                     reason=reason,
-                    constraint_step=STEP_HIERARCHY_RATE_LIMIT,
+                    constraint_step=STEP_SHACL_VALIDATION,
                 )
                 self._maybe_record_delegation_block(event, params_sig)
                 self._record_violation_and_log(
@@ -839,22 +622,283 @@ class FullEngine(SafeClawEngine):
                     checks,
                     prefs_applied,
                     start,
-                    constraint_step=STEP_HIERARCHY_RATE_LIMIT,
+                    constraint_step=STEP_SHACL_VALIDATION,
                 )
                 return decision
 
-        # 10. All checks passed — rate_limiter.record() is deferred to
-        # record_action_result() so we only count actions that actually execute
-        # successfully, avoiding phantom action counting for failed executions.
-        decision = Decision(block=False)
-        # Attach risk level for structured API response
-        decision._risk_level = action.risk_level  # type: ignore[attr-defined]
-        self._log_decision(event, action, decision, checks, prefs_applied, start)
+            checks.append(
+                ConstraintCheck(
+                    constraint_uri="shacl:validation",
+                    constraint_type="SHACL",
+                    result="satisfied",
+                    reason="All SHACL shapes conform",
+                )
+            )
 
-        # Fire-and-forget LLM tasks (non-blocking, passive observer)
-        self._fire_llm_tasks(event, action, decision, checks)
+            # 3. Policy check
+            policy_result = self.policy_checker.check(action)
+            if policy_result.violated:
+                reason = f"[SafeClaw] {policy_result.reason}"
+                checks.append(
+                    ConstraintCheck(
+                        constraint_uri=policy_result.policy_uri,
+                        constraint_type=policy_result.policy_type,
+                        result="violated",
+                        reason=policy_result.reason,
+                    )
+                )
+                decision = Decision(
+                    block=True,
+                    reason=reason,
+                    constraint_step=STEP_POLICY_CHECK,
+                )
+                self._maybe_record_delegation_block(event, params_sig)
+                self._record_violation_and_log(
+                    event,
+                    action,
+                    decision,
+                    checks,
+                    prefs_applied,
+                    start,
+                    constraint_step=STEP_POLICY_CHECK,
+                )
+                return decision
 
-        return decision
+            checks.append(
+                ConstraintCheck(
+                    constraint_uri="policy:check",
+                    constraint_type="Policy",
+                    result="satisfied",
+                    reason="No policy violations",
+                )
+            )
+
+            # 4. Preference check
+            # Preference violations that require confirmation are not
+            # hard policy blocks. The caller can re-submit after the
+            # user confirms.
+            user_prefs = self.preference_checker.get_preferences(event.user_id)
+            pref_result = self.preference_checker.check(action, user_prefs)
+            if pref_result.violated:
+                reason = f"[SafeClaw] {pref_result.reason}"
+                is_confirmation = pref_result.requires_confirmation
+                prefs_applied.append(
+                    PreferenceApplied(
+                        preference_uri=pref_result.preference_uri,
+                        value="true",
+                        effect=pref_result.reason,
+                    )
+                )
+                decision = Decision(
+                    block=True,
+                    reason=reason,
+                    requires_confirmation=is_confirmation,
+                    constraint_step=STEP_PREFERENCE_CHECK,
+                )
+                self._maybe_record_delegation_block(event, params_sig)
+                self._record_violation_and_log(
+                    event,
+                    action,
+                    decision,
+                    checks,
+                    prefs_applied,
+                    start,
+                    constraint_step=STEP_PREFERENCE_CHECK,
+                )
+                return decision
+
+            # 5. Dependency check
+            dep_result = self.dependency_checker.check(action, event.session_id)
+            if dep_result.unmet:
+                reason = f"[SafeClaw] {dep_result.reason}"
+                checks.append(
+                    ConstraintCheck(
+                        constraint_uri="dependency:check",
+                        constraint_type="Dependency",
+                        result="violated",
+                        reason=dep_result.reason,
+                    )
+                )
+                decision = Decision(
+                    block=True,
+                    reason=reason,
+                    constraint_step=STEP_DEPENDENCY_CHECK,
+                )
+                self._maybe_record_delegation_block(event, params_sig)
+                self._record_violation_and_log(
+                    event,
+                    action,
+                    decision,
+                    checks,
+                    prefs_applied,
+                    start,
+                    constraint_step=STEP_DEPENDENCY_CHECK,
+                )
+                return decision
+
+            # 6. Temporal constraint check
+            temporal_result = self.temporal_checker.check(action, self.kg)
+            if temporal_result.violated:
+                reason = f"[SafeClaw] {temporal_result.reason}"
+                checks.append(
+                    ConstraintCheck(
+                        constraint_uri="temporal:check",
+                        constraint_type="Temporal",
+                        result="violated",
+                        reason=temporal_result.reason,
+                    )
+                )
+                decision = Decision(
+                    block=True,
+                    reason=reason,
+                    constraint_step=STEP_TEMPORAL_CHECK,
+                )
+                self._maybe_record_delegation_block(event, params_sig)
+                self._record_violation_and_log(
+                    event,
+                    action,
+                    decision,
+                    checks,
+                    prefs_applied,
+                    start,
+                    constraint_step=STEP_TEMPORAL_CHECK,
+                )
+                return decision
+
+            # 7. Rate limit check
+            rate_result = self.rate_limiter.check(action, event.session_id)
+            if rate_result.exceeded:
+                reason = f"[SafeClaw] {rate_result.reason}"
+                checks.append(
+                    ConstraintCheck(
+                        constraint_uri="ratelimit:check",
+                        constraint_type="RateLimit",
+                        result="violated",
+                        reason=rate_result.reason,
+                    )
+                )
+                decision = Decision(
+                    block=True,
+                    reason=reason,
+                    constraint_step=STEP_RATE_LIMIT_CHECK,
+                )
+                self._maybe_record_delegation_block(event, params_sig)
+                self._record_violation_and_log(
+                    event,
+                    action,
+                    decision,
+                    checks,
+                    prefs_applied,
+                    start,
+                    constraint_step=STEP_RATE_LIMIT_CHECK,
+                )
+                return decision
+
+            # 8. Derived constraint rules (confirmation check)
+            # BUG-004/035: Use server-side session data instead of
+            # client-supplied session_history for security decisions.
+            server_session_history = self.session_tracker.get_risk_history(event.session_id)
+            # Include the current action's risk level so cumulative
+            # risk check is not off-by-one.
+            if action.risk_level:
+                server_session_history = server_session_history + [
+                    f"{action.risk_level}:{action.ontology_class}"
+                ]
+            derived_result = self.derived_checker.check(action, user_prefs, server_session_history)
+            if derived_result.requires_confirmation:
+                reason = f"[SafeClaw] {derived_result.reason}"
+                for rule in derived_result.derived_rules:
+                    checks.append(
+                        ConstraintCheck(
+                            constraint_uri=f"derived:{rule}",
+                            constraint_type="DerivedRule",
+                            result="requires_confirmation",
+                            reason=derived_result.reason,
+                        )
+                    )
+                decision = Decision(
+                    block=True,
+                    reason=reason,
+                    requires_confirmation=True,
+                    constraint_step=STEP_DERIVED_RULES,
+                )
+                self._maybe_record_delegation_block(event, params_sig)
+                self._record_violation_and_log(
+                    event,
+                    action,
+                    decision,
+                    checks,
+                    prefs_applied,
+                    start,
+                    constraint_step=STEP_DERIVED_RULES,
+                )
+                return decision
+
+            # 9. Hierarchy rate limit check (multi-agent)
+            if event.agent_id is not None:
+                hierarchy_ids = self.agent_registry.get_hierarchy_ids(event.agent_id)
+                hierarchy_result = self.rate_limiter.check_hierarchy(action, hierarchy_ids)
+                if hierarchy_result.exceeded:
+                    reason = f"[SafeClaw] {hierarchy_result.reason}"
+                    checks.append(
+                        ConstraintCheck(
+                            constraint_uri="ratelimit:hierarchy",
+                            constraint_type="HierarchyRateLimit",
+                            result="violated",
+                            reason=hierarchy_result.reason,
+                        )
+                    )
+                    decision = Decision(
+                        block=True,
+                        reason=reason,
+                        constraint_step=STEP_HIERARCHY_RATE_LIMIT,
+                    )
+                    self._maybe_record_delegation_block(event, params_sig)
+                    self._record_violation_and_log(
+                        event,
+                        action,
+                        decision,
+                        checks,
+                        prefs_applied,
+                        start,
+                        constraint_step=STEP_HIERARCHY_RATE_LIMIT,
+                    )
+                    return decision
+
+            # 10. All checks passed -- rate_limiter.record() is
+            # deferred to record_action_result() so we only count
+            # actions that actually execute successfully.
+            decision = Decision(block=False)
+            decision._risk_level = action.risk_level  # type: ignore[attr-defined]
+            self._log_decision(event, action, decision, checks, prefs_applied, start)
+
+            # Fire-and-forget LLM tasks (non-blocking, passive)
+            self._fire_llm_tasks(event, action, decision, checks)
+
+            return decision
+
+        except Exception as exc:
+            logger.critical(
+                "Pipeline error in session %s: %s",
+                event.session_id,
+                exc,
+                exc_info=True,
+            )
+            decision = Decision(
+                block=True,
+                reason=(f"[SafeClaw] Internal governance error: {type(exc).__name__}"),
+                constraint_step="internal_error",
+            )
+            self._record_violation_and_log(
+                event,
+                action,
+                decision,
+                checks,
+                prefs_applied,
+                start,
+                constraint_step="internal_error",
+            )
+            return decision
 
     async def evaluate_message(self, event: MessageEvent) -> Decision:
         # BUG-019: Acquire session lock for message evaluation, same as tool calls
@@ -1125,13 +1169,24 @@ class FullEngine(SafeClawEngine):
         start_time: float,
         constraint_step: str = "",
     ) -> None:
-        """Log decision and record the violation for context injection."""
+        """Log decision and record the violation for context injection.
+
+        ``action`` may be ``None`` when classification itself fails
+        (e.g. an internal pipeline error before step 1 completes).
+        """
         # Attach risk level for structured API response
-        decision._risk_level = action.risk_level  # type: ignore[attr-defined]
+        if action is not None:
+            decision._risk_level = action.risk_level  # type: ignore[attr-defined]
         self.context_builder.record_violation(event.session_id, decision.reason)
         self.session_tracker.record_violation(event.session_id, decision.reason)
         self._log_decision(
-            event, action, decision, checks, prefs_applied, start_time, constraint_step
+            event,
+            action,
+            decision,
+            checks,
+            prefs_applied,
+            start_time,
+            constraint_step,
         )
 
         # Publish blocked event to event bus
@@ -1144,8 +1199,8 @@ class FullEngine(SafeClawEngine):
                 metadata={
                     "tool_name": event.tool_name,
                     "session_id": event.session_id,
-                    "ontology_class": action.ontology_class,
-                    "risk_level": action.risk_level,
+                    "ontology_class": (action.ontology_class if action else "unknown"),
+                    "risk_level": (action.risk_level if action else "unknown"),
                 },
             )
         )
@@ -1171,10 +1226,10 @@ class FullEngine(SafeClawEngine):
             action=ActionDetail(
                 tool_name=event.tool_name,
                 params=event.params,
-                ontology_class=action.ontology_class,
-                risk_level=action.risk_level,
-                is_reversible=action.is_reversible,
-                affects_scope=action.affects_scope,
+                ontology_class=(action.ontology_class if action else "unknown"),
+                risk_level=(action.risk_level if action else "unknown"),
+                is_reversible=(action.is_reversible if action else False),
+                affects_scope=(action.affects_scope if action else "unknown"),
             ),
             decision="blocked" if decision.block else "allowed",
             constraint_step=constraint_step,
@@ -1191,6 +1246,7 @@ class FullEngine(SafeClawEngine):
         if self.api_key_manager and hasattr(self.api_key_manager, "log_audit_decision"):
             import json
 
+            _risk = action.risk_level if action else "unknown"
             params_summary = json.dumps(event.params, default=str)[:500]
             self.api_key_manager.log_audit_decision(
                 user_id=event.user_id,
@@ -1199,7 +1255,7 @@ class FullEngine(SafeClawEngine):
                 tool_name=event.tool_name,
                 params_summary=params_summary,
                 decision="blocked" if decision.block else "allowed",
-                risk_level=action.risk_level,
+                risk_level=_risk,
                 reason=decision.reason or "passed all checks",
                 elapsed_ms=elapsed_ms,
             )

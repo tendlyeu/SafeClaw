@@ -23,6 +23,7 @@ class PreferenceCheckResult:
     violated: bool
     preference_uri: str = ""
     reason: str = ""
+    requires_confirmation: bool = False
 
 
 class PreferenceChecker:
@@ -81,6 +82,7 @@ class PreferenceChecker:
                     violated=True,
                     preference_uri=f"{SU}confirmBeforeDelete",
                     reason="User preference requires confirmation before file deletion",
+                    requires_confirmation=True,
                 )
 
         # Check push confirmation
@@ -90,6 +92,7 @@ class PreferenceChecker:
                     violated=True,
                     preference_uri=f"{SU}confirmBeforePush",
                     reason="User preference requires confirmation before pushing",
+                    requires_confirmation=True,
                 )
 
         # Check send confirmation
@@ -99,6 +102,7 @@ class PreferenceChecker:
                     violated=True,
                     preference_uri=f"{SU}confirmBeforeSend",
                     reason="User preference requires confirmation before sending messages",
+                    requires_confirmation=True,
                 )
 
         # Check never_modify_paths (check all known path param keys).
@@ -142,6 +146,7 @@ class PreferenceChecker:
                         "Autonomy level 'moderate' requires confirmation for "
                         "irreversible critical-risk actions"
                     ),
+                    requires_confirmation=True,
                 )
         elif prefs.autonomy_level in ("cautious", "supervised"):
             if not action.is_reversible:
@@ -149,6 +154,7 @@ class PreferenceChecker:
                     violated=True,
                     preference_uri=f"{SU}autonomyLevel",
                     reason=f"Autonomy level '{prefs.autonomy_level}' requires confirmation for irreversible actions",
+                    requires_confirmation=True,
                 )
 
         return PreferenceCheckResult(violated=False)

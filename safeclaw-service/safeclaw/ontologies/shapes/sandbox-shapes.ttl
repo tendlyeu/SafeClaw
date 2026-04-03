@@ -55,3 +55,15 @@ sc:DeniedToolShape a sh:NodeShape ;
         sh:name "tool name" ;
         sh:message "Denied tool must specify a name"
     ] .
+
+sc:AllowedToolShape a sh:NodeShape ;
+    sh:targetClass sc:AllowedTool ;
+    rdfs:label "Allowed Tool Shape" ;
+    rdfs:comment "Validates that allowed tools specify a name" ;
+    sh:property [
+        sh:path sc:toolName ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "tool name" ;
+        sh:message "Allowed tool must specify a name"
+    ] .

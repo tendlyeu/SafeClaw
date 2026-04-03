@@ -71,10 +71,23 @@ async def require_admin(request: Request):
 
     # Layer 2: X-Admin-Password header check
     engine = _get_engine()
-    if engine.config.admin_password:  # only enforce when a password is actually set
-        provided = request.headers.get("X-Admin-Password", "")
-        if not engine.config.verify_admin_password(provided):
-            raise HTTPException(status_code=403, detail="Admin access required")
+    if not engine.config.admin_password:
+        if not engine.config.dev_mode:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "No admin password configured. "
+                    "Set SAFECLAW_ADMIN_PASSWORD or "
+                    "enable SAFECLAW_DEV_MODE=true"
+                ),
+            )
+        # dev_mode: allow without password
+        return
+    provided = request.headers.get("X-Admin-Password", "")
+    if not engine.config.verify_admin_password(provided):
+        raise HTTPException(
+            status_code=403, detail="Admin access required"
+        )
 
 
 def _get_engine():
@@ -105,7 +118,11 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
     _verify_agent_token(engine, request.agentId, request.agentToken)
     # Use org_id from API key auth (numeric DB user ID) if available,
     # otherwise fall back to client-supplied userId, then "default"
-    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    user_id = (
+        getattr(req.state, "org_id", None)
+        or request.userId
+        or f"anon:{request.sessionId}"
+    )
     # Sanitize params to strip control characters that could be used for
     # prompt injection when params are later included in LLM prompts
     sanitized_params = _sanitize_params(request.params)
@@ -148,7 +165,11 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
 async def evaluate_message(request: MessageRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    user_id = (
+        getattr(req.state, "org_id", None)
+        or request.userId
+        or f"anon:{request.sessionId}"
+    )
     # Sanitize message content to strip control characters
     sanitized_content = _sanitize_string(request.content)
     event = MessageEvent(
@@ -353,7 +374,11 @@ async def start_session(request: SessionStartRequest, req: Request) -> SessionSt
     """
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    user_id = (
+        getattr(req.state, "org_id", None)
+        or request.userId
+        or f"anon:{request.sessionId}"
+    )
     owner_id = request.agentId or user_id
 
     # Initialize session tracker state with the owner
@@ -402,7 +427,11 @@ async def end_session(request: SessionEndRequest, req: Request):
 async def record_tool_result(request: ToolResultRequest, req: Request):
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = getattr(req.state, "org_id", None) or request.userId or "default"
+    user_id = (
+        getattr(req.state, "org_id", None)
+        or request.userId
+        or f"anon:{request.sessionId}"
+    )
     # Sanitize params: strip control characters from string values that could be
     # used for prompt injection when session history is injected into LLM context
     sanitized_params = _sanitize_params(request.params)

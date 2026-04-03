@@ -175,6 +175,17 @@ class DelegationDetector:
                 return False
         return True
 
+    @staticmethod
+    def _flatten_values(d: dict) -> set[str]:
+        """Extract all leaf string values from a nested dict."""
+        values: set[str] = set()
+        for v in d.values():
+            if isinstance(v, dict):
+                values.update(DelegationDetector._flatten_values(v))
+            elif isinstance(v, str):
+                values.add(v)
+        return values
+
     def check_delegation(
         self,
         session_id: str,
@@ -228,6 +239,18 @@ class DelegationDetector:
                     and self._is_param_subset(record.params_keys, check_params)
                 ):
                     is_match = True
+
+                # Flattened value match: catches nesting bypass where blocked
+                # params are wrapped under a different key structure
+                if (
+                    not is_match
+                    and check_params is not None
+                    and record.params_keys
+                ):
+                    blocked_vals = self._flatten_values(record.params_keys)
+                    new_vals = self._flatten_values(check_params)
+                    if blocked_vals and blocked_vals.issubset(new_vals):
+                        is_match = True
 
                 if is_match:
                     cross_session = record.session_id != session_id

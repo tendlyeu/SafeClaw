@@ -97,8 +97,9 @@ def test_conformant_sandbox_policy():
     g.add((policy, SC.hasToolPolicy, tool_policy))
     g.add((policy, SC.hasFilesystemPolicy, fs_policy))
 
-    # ToolPolicy
+    # ToolPolicy (AllowedToolShape now requires toolName)
     g.add((tool_policy, RDF.type, SC.AllowedTool))
+    g.add((tool_policy, SC.toolName, Literal("read_file", datatype=XSD.string)))
 
     # FilesystemPolicy (MountPoint is subClassOf FilesystemPolicy)
     g.add((fs_policy, RDF.type, SC.FilesystemPolicy))
@@ -239,6 +240,7 @@ def client(tmp_path):
         data_dir=tmp_path,
         ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
         audit_dir=tmp_path / "audit",
+        dev_mode=True,
     )
     main_module.engine = FullEngine(config)
     client = TestClient(main_module.app)
