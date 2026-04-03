@@ -282,6 +282,7 @@ class PolicyChecker:
                 OPTIONAL {{ ?rule sp:allowsPort ?port }}
                 OPTIONAL {{ ?rule sp:allowsProtocol ?protocol }}
                 OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
+                OPTIONAL {{ ?rule sp:enforcement ?enforcement }}
             }}
         """)
 
@@ -307,11 +308,14 @@ class PolicyChecker:
         for row in results:
             uri = str(row["rule"])
             if uri not in rule_rows:
+                enforcement = row.get("enforcement")
+                enforcement_str = str(enforcement) if enforcement else "enforce"
                 rule_rows[uri] = {
                     "host": row["host"],
                     "port": row.get("port"),
                     "protocol": row.get("protocol"),
                     "binaries": set(),
+                    "enforcement": enforcement_str,
                 }
             binary = row.get("binary")
             if binary is not None:
@@ -319,7 +323,14 @@ class PolicyChecker:
 
         command = action.params.get("command", "")
 
-        for info in rule_rows.values():
+        # Filter out disabled rules before matching
+        active_rules = {
+            uri: info
+            for uri, info in rule_rows.items()
+            if info["enforcement"] != "disabled"
+        }
+
+        for info in active_rules.values():
             rule_host = str(info["host"])
             if not self._host_matches(rule_host, target_host):
                 continue
@@ -385,7 +396,9 @@ class PolicyChecker:
         if not command:
             return False
         for bp in binaries:
-            if bp in command:
+            # Full path: match with word boundary to avoid /usr/bin/git matching
+            # /usr/bin/github-cli
+            if re.search(rf"(?:^|\s){re.escape(bp)}(?:\s|$)", command):
                 return True
             binary_name = bp.rsplit("/", 1)[-1]
             if binary_name and re.search(rf"\b{re.escape(binary_name)}\b", command):

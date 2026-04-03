@@ -7,7 +7,7 @@
  * to the SafeClaw service and acts on the responses.
  */
 
-import type { OpenClawPluginApi, OpenClawPluginEvent, OpenClawPluginContext } from 'openclaw/plugin-sdk/core';
+import type { OpenClawPluginApi, OpenClawPluginEvent, OpenClawPluginContext, BeforeToolCallResult } from 'openclaw/plugin-sdk/core';
 import { loadConfig, configHash } from './tui/config.js';
 import crypto from 'crypto';
 import { createRequire } from 'module';
@@ -266,7 +266,7 @@ export default {
             timeoutMs: 30_000,
             timeoutBehavior: riskLevel === 'HighRisk' ? 'deny' : 'allow',
           },
-        };
+        } satisfies BeforeToolCallResult;
       }
 
       if (r?.block) {

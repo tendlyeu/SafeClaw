@@ -69,7 +69,17 @@ class SafeClawConfig(BaseSettings):
         if env_path:
             p = Path(env_path)
             if p.exists():
-                return p if p.is_dir() else p.parent
+                if p.is_dir():
+                    return p
+                # File path: use parent dir but log that we're scanning the whole dir
+                import logging
+
+                logging.getLogger("safeclaw.config").info(
+                    "NEMOCLAW_POLICY_PATH points to file %s; loading all YAML from %s",
+                    p,
+                    p.parent,
+                )
+                return p.parent
         sandbox_dir = os.environ.get("OPENSHELL_SANDBOX")
         if sandbox_dir:
             p = Path(sandbox_dir) / "policies"
