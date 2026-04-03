@@ -254,6 +254,21 @@ export default {
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'audit-only') {
         log.warn(`[SafeClaw] Service unavailable at ${cfg.serviceUrl} (fail-closed mode, audit-only)`);
       }
+
+      // If service says confirmation required, use OpenClaw's native approval flow
+      if (r?.confirmationRequired) {
+        const riskLevel = (r.riskLevel as string) || '';
+        return {
+          requireApproval: {
+            title: 'SafeClaw Governance Check',
+            description: (r.reason as string) || 'This action requires confirmation',
+            severity: riskLevel === 'HighRisk' ? 'critical' : riskLevel === 'MediumRisk' ? 'warning' : 'info',
+            timeoutMs: 30_000,
+            timeoutBehavior: riskLevel === 'HighRisk' ? 'deny' : 'allow',
+          },
+        };
+      }
+
       if (r?.block) {
         const blockReason = (r.reason as string) || 'Blocked by SafeClaw (no reason provided)';
         if (cfg.enforcement === 'enforce') {
@@ -359,7 +374,7 @@ export default {
 
       // Fail-closed handling (matches before_tool_call / message_sending pattern)
       if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
-        throw new Error('SafeClaw service unavailable (fail-closed mode)');
+        return { status: 'error', error: 'SafeClaw service unavailable (fail-closed mode)' };
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'warn-only') {
         log.warn('[SafeClaw] Service unavailable (fail-closed mode, warn-only)');
       } else if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'audit-only') {
@@ -367,7 +382,7 @@ export default {
       }
 
       if (r?.block && cfg.enforcement === 'enforce') {
-        throw new Error((r.reason as string) || 'Blocked by SafeClaw: delegation bypass detected');
+        return { status: 'error', error: (r.reason as string) || 'Blocked by SafeClaw: delegation bypass detected' };
       }
       if (r?.block && cfg.enforcement === 'warn-only') {
         log.warn(`[SafeClaw] Subagent spawn warning: ${r.reason}`);

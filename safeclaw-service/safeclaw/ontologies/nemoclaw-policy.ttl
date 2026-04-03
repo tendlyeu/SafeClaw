@@ -29,6 +29,24 @@ sp:binaryRestriction a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:label "binary restriction" .
 
+sp:enforcement a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "enforcement mode" ;
+    rdfs:comment "Values: enforce, audit, disabled" .
+
+sp:tlsMode a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "TLS mode" ;
+    rdfs:comment "Values: terminate, passthrough" .
+
+sp:policyGroup a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "policy group name" ;
+    rdfs:comment "The named group from network_policies this rule belongs to" .
+
 # --- NemoClaw Filesystem Rule ---
 sp:NemoFilesystemRule a owl:Class ;
     rdfs:subClassOf sp:Constraint ;

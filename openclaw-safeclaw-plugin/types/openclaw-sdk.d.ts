@@ -1,11 +1,17 @@
 /**
  * Ambient type declarations for OpenClaw Plugin SDK.
- * These match the types exported by openclaw/plugin-sdk as of v2026.3.
+ * These match the types exported by openclaw/plugin-sdk as of v2026.4.
  * When installed inside OpenClaw, the real SDK types take precedence.
  */
 
 declare module 'openclaw/plugin-sdk/core' {
   export interface OpenClawPluginApi {
+    /**
+     * Register a hook handler for OpenClaw lifecycle events.
+     *
+     * @deprecated The `before_agent_start` hook is deprecated in v2026.4.
+     * Use `before_model_resolve` + `before_prompt_build` instead.
+     */
     on(
       hookName: string,
       handler: (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => Promise<Record<string, unknown> | void> | void,
@@ -33,6 +39,9 @@ declare module 'openclaw/plugin-sdk/core' {
     model?: string;
     lastAssistant?: string;
     usage?: Record<string, unknown>;
+    runId?: string;
+    toolCallId?: string;
+    childAgentId?: string;
     parentAgentId?: string;
     childConfig?: Record<string, unknown>;
     reason?: string;
@@ -64,6 +73,32 @@ declare module 'openclaw/plugin-sdk/core' {
     description: string;
     parameters: Record<string, unknown>;
     execute: (params: Record<string, unknown>, ctx: Record<string, unknown>) => Promise<unknown>;
+  }
+
+  export interface PluginApprovalRequest {
+    title: string;
+    description: string;
+    severity?: 'info' | 'warning' | 'critical';
+    timeoutMs?: number;
+    timeoutBehavior?: 'allow' | 'deny';
+    pluginId?: string;
+    onResolution?: (decision: PluginApprovalResolution) => Promise<void> | void;
+  }
+
+  export interface PluginApprovalResolution {
+    approved: boolean;
+    resolvedBy?: string;
+    resolvedAt?: string;
+  }
+
+  /**
+   * Hook result types for before_tool_call.
+   * Return one of: nothing (allow), { block, blockReason }, or { requireApproval }.
+   */
+  export interface BeforeToolCallResult {
+    block?: boolean;
+    blockReason?: string;
+    requireApproval?: PluginApprovalRequest;
   }
 
   export interface OpenClawPluginLogger {

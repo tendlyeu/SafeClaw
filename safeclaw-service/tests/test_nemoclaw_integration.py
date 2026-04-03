@@ -41,26 +41,31 @@ def _make_action(ontology_class: str, tool_name: str = "web_fetch", **params) ->
 
 
 # ======================================================================
-# Test 1: Network rules block/allow tool calls end-to-end
+# Legacy format: Network rules block/allow tool calls end-to-end
 # ======================================================================
 
 
-class TestNetworkRuleBlocksToolCall:
-    """Create a NemoClaw policy allowing only github.com:443, then verify
-    that web_fetch to github.com passes and web_fetch to evil.com blocks.
+class TestLegacyNetworkRuleBlocksToolCall:
+    """Legacy format: Create a NemoClaw policy allowing only github.com:443,
+    then verify that web_fetch to github.com passes and web_fetch to evil.com
+    blocks.
     """
 
     @pytest.fixture
     def setup(self, tmp_path):
         policy_dir = tmp_path / "nemoclaw"
-        _write_yaml(policy_dir, "network.yaml", """
+        _write_yaml(
+            policy_dir,
+            "network.yaml",
+            """
 rules:
   - name: github-https
     host: "github.com"
     port: 443
     protocol: https
     allow: true
-""")
+""",
+        )
         kg = KnowledgeGraph()
         kg.load_directory(ONTOLOGY_DIR)
         NemoClawPolicyLoader(policy_dir).load(kg)
@@ -83,16 +88,20 @@ rules:
 
     @pytest.mark.asyncio
     async def test_full_engine_allowed(self, tmp_path):
-        """Full engine integration: allowed host passes all 9 pipeline steps."""
+        """Full engine integration: allowed host passes all pipeline steps."""
         policy_dir = tmp_path / "nemoclaw"
-        _write_yaml(policy_dir, "network.yaml", """
+        _write_yaml(
+            policy_dir,
+            "network.yaml",
+            """
 rules:
   - name: github-https
     host: "github.com"
     port: 443
     protocol: https
     allow: true
-""")
+""",
+        )
         config = SafeClawConfig(
             data_dir=tmp_path,
             ontology_dir=ONTOLOGY_DIR,
@@ -114,14 +123,18 @@ rules:
     async def test_full_engine_blocked(self, tmp_path):
         """Full engine integration: disallowed host is blocked at policy step."""
         policy_dir = tmp_path / "nemoclaw"
-        _write_yaml(policy_dir, "network.yaml", """
+        _write_yaml(
+            policy_dir,
+            "network.yaml",
+            """
 rules:
   - name: github-https
     host: "github.com"
     port: 443
     protocol: https
     allow: true
-""")
+""",
+        )
         config = SafeClawConfig(
             data_dir=tmp_path,
             ontology_dir=ONTOLOGY_DIR,
@@ -142,25 +155,148 @@ rules:
 
 
 # ======================================================================
-# Test 2: Filesystem rules enforce read-only / read-write
+# Real format: Network rules block/allow tool calls end-to-end
 # ======================================================================
 
 
-class TestFilesystemRuleBlocksWrite:
-    """Create a NemoClaw policy with /usr read-only and /sandbox read-write.
-    Verify write to /sandbox passes, write to /usr blocks, read from /usr passes.
+class TestRealNetworkRuleBlocksToolCall:
+    """Real NemoClaw format: network_policies with rest protocol."""
+
+    @pytest.fixture
+    def setup(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "network.yaml",
+            """
+network_policies:
+  github:
+    name: github
+    endpoints:
+      - host: github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+    binaries: []
+""",
+        )
+        kg = KnowledgeGraph()
+        kg.load_directory(ONTOLOGY_DIR)
+        NemoClawPolicyLoader(policy_dir).load(kg)
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        return checker
+
+    def test_allowed_host_passes(self, setup):
+        checker = setup
+        action = _make_action("WebFetch", url="https://github.com/api/repos")
+        result = checker.check(action)
+        assert result.violated is False
+
+    def test_disallowed_host_blocked(self, setup):
+        checker = setup
+        action = _make_action("WebFetch", url="https://evil.com/exfiltrate")
+        result = checker.check(action)
+        assert result.violated is True
+        assert "evil.com" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_full_engine_allowed(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "network.yaml",
+            """
+network_policies:
+  github:
+    name: github
+    endpoints:
+      - host: github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+    binaries: []
+""",
+        )
+        config = SafeClawConfig(
+            data_dir=tmp_path,
+            ontology_dir=ONTOLOGY_DIR,
+            audit_dir=tmp_path / "audit",
+            nemoclaw_enabled=True,
+            nemoclaw_policy_dir=policy_dir,
+        )
+        engine = FullEngine(config)
+        event = ToolCallEvent(
+            session_id="integ-net-real",
+            user_id="test-user",
+            tool_name="web_fetch",
+            params={"url": "https://github.com/api/repos"},
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is False
+
+    @pytest.mark.asyncio
+    async def test_full_engine_blocked(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "network.yaml",
+            """
+network_policies:
+  github:
+    name: github
+    endpoints:
+      - host: github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+    binaries: []
+""",
+        )
+        config = SafeClawConfig(
+            data_dir=tmp_path,
+            ontology_dir=ONTOLOGY_DIR,
+            audit_dir=tmp_path / "audit",
+            nemoclaw_enabled=True,
+            nemoclaw_policy_dir=policy_dir,
+        )
+        engine = FullEngine(config)
+        event = ToolCallEvent(
+            session_id="integ-net-real",
+            user_id="test-user",
+            tool_name="web_fetch",
+            params={"url": "https://evil.com/exfiltrate"},
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is True
+
+
+# ======================================================================
+# Legacy format: Filesystem rules enforce read-only / read-write
+# ======================================================================
+
+
+class TestLegacyFilesystemRuleBlocksWrite:
+    """Legacy format: Create a NemoClaw policy with /usr read-only and
+    /sandbox read-write.
     """
 
     @pytest.fixture
     def setup(self, tmp_path):
         policy_dir = tmp_path / "nemoclaw"
-        _write_yaml(policy_dir, "filesystem.yaml", """
+        _write_yaml(
+            policy_dir,
+            "filesystem.yaml",
+            """
 filesystem:
   - path: "/usr"
     mode: "read-only"
   - path: "/sandbox"
     mode: "read-write"
-""")
+""",
+        )
         kg = KnowledgeGraph()
         kg.load_directory(ONTOLOGY_DIR)
         NemoClawPolicyLoader(policy_dir).load(kg)
@@ -188,15 +324,18 @@ filesystem:
 
     @pytest.mark.asyncio
     async def test_full_engine_write_sandbox_allowed(self, tmp_path):
-        """Full engine: write to /sandbox passes all pipeline steps."""
         policy_dir = tmp_path / "nemoclaw"
-        _write_yaml(policy_dir, "filesystem.yaml", """
+        _write_yaml(
+            policy_dir,
+            "filesystem.yaml",
+            """
 filesystem:
   - path: "/usr"
     mode: "read-only"
   - path: "/sandbox"
     mode: "read-write"
-""")
+""",
+        )
         config = SafeClawConfig(
             data_dir=tmp_path,
             ontology_dir=ONTOLOGY_DIR,
@@ -216,15 +355,18 @@ filesystem:
 
     @pytest.mark.asyncio
     async def test_full_engine_write_usr_blocked(self, tmp_path):
-        """Full engine: write to /usr is blocked."""
         policy_dir = tmp_path / "nemoclaw"
-        _write_yaml(policy_dir, "filesystem.yaml", """
+        _write_yaml(
+            policy_dir,
+            "filesystem.yaml",
+            """
 filesystem:
   - path: "/usr"
     mode: "read-only"
   - path: "/sandbox"
     mode: "read-write"
-""")
+""",
+        )
         config = SafeClawConfig(
             data_dir=tmp_path,
             ontology_dir=ONTOLOGY_DIR,
@@ -245,16 +387,122 @@ filesystem:
 
 
 # ======================================================================
-# Test 3: Hot reload picks up new NemoClaw policies
+# Real format: Filesystem rules enforce read-only / read-write
+# ======================================================================
+
+
+class TestRealFilesystemRuleBlocksWrite:
+    """Real NemoClaw format: filesystem_policy with read_only/read_write."""
+
+    @pytest.fixture
+    def setup(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "filesystem.yaml",
+            """
+filesystem_policy:
+  read_only:
+    - /usr
+  read_write:
+    - /sandbox
+""",
+        )
+        kg = KnowledgeGraph()
+        kg.load_directory(ONTOLOGY_DIR)
+        NemoClawPolicyLoader(policy_dir).load(kg)
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        return checker
+
+    def test_write_to_sandbox_allowed(self, setup):
+        checker = setup
+        action = _make_action("WriteFile", tool_name="write", file_path="/sandbox/foo.txt")
+        result = checker.check(action)
+        assert result.violated is False
+
+    def test_write_to_usr_blocked(self, setup):
+        checker = setup
+        action = _make_action("WriteFile", tool_name="write", file_path="/usr/bin/evil")
+        result = checker.check(action)
+        assert result.violated is True
+        assert "read-only" in result.reason
+
+    def test_read_from_usr_allowed(self, setup):
+        checker = setup
+        action = _make_action("ReadFile", tool_name="read", file_path="/usr/bin/ls")
+        result = checker.check(action)
+        assert result.violated is False
+
+    @pytest.mark.asyncio
+    async def test_full_engine_write_sandbox_allowed(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "filesystem.yaml",
+            """
+filesystem_policy:
+  read_only:
+    - /usr
+  read_write:
+    - /sandbox
+""",
+        )
+        config = SafeClawConfig(
+            data_dir=tmp_path,
+            ontology_dir=ONTOLOGY_DIR,
+            audit_dir=tmp_path / "audit",
+            nemoclaw_enabled=True,
+            nemoclaw_policy_dir=policy_dir,
+        )
+        engine = FullEngine(config)
+        event = ToolCallEvent(
+            session_id="integ-fs-real",
+            user_id="test-user",
+            tool_name="write",
+            params={"file_path": "/sandbox/foo.txt"},
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is False
+
+    @pytest.mark.asyncio
+    async def test_full_engine_write_usr_blocked(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "filesystem.yaml",
+            """
+filesystem_policy:
+  read_only:
+    - /usr
+  read_write:
+    - /sandbox
+""",
+        )
+        config = SafeClawConfig(
+            data_dir=tmp_path,
+            ontology_dir=ONTOLOGY_DIR,
+            audit_dir=tmp_path / "audit",
+            nemoclaw_enabled=True,
+            nemoclaw_policy_dir=policy_dir,
+        )
+        engine = FullEngine(config)
+        event = ToolCallEvent(
+            session_id="integ-fs-real",
+            user_id="test-user",
+            tool_name="write",
+            params={"file_path": "/usr/bin/evil"},
+        )
+        decision = await engine.evaluate_tool_call(event)
+        assert decision.block is True
+        assert "read-only" in decision.reason
+
+
+# ======================================================================
+# Hot reload picks up new NemoClaw policies
 # ======================================================================
 
 
 class TestHotReloadPicksUpNewPolicy:
-    """Start engine with empty NemoClaw dir. Verify web_fetch passes (no rules = skip).
-    Write YAML allowing only example.com. Trigger reload. Verify web_fetch to other.com
-    now blocks.
-    """
-
     @pytest.mark.asyncio
     async def test_reload_adds_network_restriction(self, tmp_path):
         policy_dir = tmp_path / "nemoclaw"
@@ -269,7 +517,6 @@ class TestHotReloadPicksUpNewPolicy:
         )
         engine = FullEngine(config)
 
-        # Initially: no YAML files in the dir, no rules. web_fetch should pass.
         event_other = ToolCallEvent(
             session_id="integ-reload",
             user_id="test-user",
@@ -279,25 +526,27 @@ class TestHotReloadPicksUpNewPolicy:
         decision1 = await engine.evaluate_tool_call(event_other)
         assert decision1.block is False, "With no NemoClaw rules, web_fetch should pass"
 
-        # Now write a policy that only allows example.com
-        _write_yaml(policy_dir, "sandbox.yaml", """
+        _write_yaml(
+            policy_dir,
+            "sandbox.yaml",
+            """
 rules:
   - name: example-only
     host: "example.com"
     port: 443
     protocol: https
     allow: true
-""")
+""",
+        )
 
-        # Hot-reload the engine
         await engine.reload()
 
-        # After reload, web_fetch to other.com should be blocked
         decision2 = await engine.evaluate_tool_call(event_other)
-        assert decision2.block is True, "After reload with NemoClaw rules, other.com should be blocked"
+        assert decision2.block is True, (
+            "After reload with NemoClaw rules, other.com should be blocked"
+        )
         assert "NemoClaw" in decision2.reason or "network allowlist" in decision2.reason
 
-        # But web_fetch to example.com should pass
         event_example = ToolCallEvent(
             session_id="integ-reload",
             user_id="test-user",
@@ -322,7 +571,6 @@ rules:
         )
         engine = FullEngine(config)
 
-        # Initially: no rules, write to /data should pass
         event_write = ToolCallEvent(
             session_id="integ-reload-fs",
             user_id="test-user",
@@ -332,44 +580,95 @@ rules:
         decision1 = await engine.evaluate_tool_call(event_write)
         assert decision1.block is False
 
-        # Add filesystem policy making /data read-only
-        _write_yaml(policy_dir, "fs.yaml", """
+        _write_yaml(
+            policy_dir,
+            "fs.yaml",
+            """
 filesystem:
   - path: "/data"
     mode: "read-only"
-""")
+""",
+        )
 
         await engine.reload()
 
-        # After reload, write to /data should be blocked
         decision2 = await engine.evaluate_tool_call(event_write)
         assert decision2.block is True
         assert "read-only" in decision2.reason
 
+    @pytest.mark.asyncio
+    async def test_reload_real_format(self, tmp_path):
+        """Hot reload with real NemoClaw format."""
+        policy_dir = tmp_path / "nemoclaw"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+
+        config = SafeClawConfig(
+            data_dir=tmp_path,
+            ontology_dir=ONTOLOGY_DIR,
+            audit_dir=tmp_path / "audit",
+            nemoclaw_enabled=True,
+            nemoclaw_policy_dir=policy_dir,
+        )
+        engine = FullEngine(config)
+
+        event_other = ToolCallEvent(
+            session_id="integ-reload-real",
+            user_id="test-user",
+            tool_name="web_fetch",
+            params={"url": "https://other.com/page"},
+        )
+        decision1 = await engine.evaluate_tool_call(event_other)
+        assert decision1.block is False
+
+        _write_yaml(
+            policy_dir,
+            "sandbox.yaml",
+            """
+network_policies:
+  api_group:
+    name: api_group
+    endpoints:
+      - host: example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+    binaries: []
+""",
+        )
+
+        await engine.reload()
+
+        decision2 = await engine.evaluate_tool_call(event_other)
+        assert decision2.block is True
+
+        event_allowed = ToolCallEvent(
+            session_id="integ-reload-real",
+            user_id="test-user",
+            tool_name="web_fetch",
+            params={"url": "https://example.com/data"},
+        )
+        decision3 = await engine.evaluate_tool_call(event_allowed)
+        assert decision3.block is False
+
 
 # ======================================================================
-# Test 4: No NemoClaw directory has no impact on existing behavior
+# No NemoClaw directory has no impact on existing behavior
 # ======================================================================
 
 
 class TestNoNemoClawDirNoImpact:
-    """Start engine without NemoClaw dir. Verify existing tool calls
-    work normally -- NemoClaw is invisible.
-    """
-
     @pytest.fixture
     def engine(self, tmp_path):
         config = SafeClawConfig(
             data_dir=tmp_path,
             ontology_dir=ONTOLOGY_DIR,
             audit_dir=tmp_path / "audit",
-            # nemoclaw_enabled defaults to False, nemoclaw_policy_dir defaults to None
         )
         return FullEngine(config)
 
     @pytest.mark.asyncio
     async def test_web_fetch_allowed_without_nemoclaw(self, engine):
-        """Without NemoClaw, web_fetch to any host should pass (no allowlist)."""
+        """Without NemoClaw, web_fetch to any host should pass."""
         event = ToolCallEvent(
             session_id="integ-no-nemo",
             user_id="test-user",
@@ -381,7 +680,7 @@ class TestNoNemoClawDirNoImpact:
 
     @pytest.mark.asyncio
     async def test_file_write_allowed_without_nemoclaw(self, engine):
-        """Without NemoClaw, file writes should not be restricted by NemoClaw."""
+        """Without NemoClaw, file writes should not be restricted."""
         event = ToolCallEvent(
             session_id="integ-no-nemo",
             user_id="test-user",
@@ -418,3 +717,87 @@ class TestNoNemoClawDirNoImpact:
     def test_policy_checker_nemoclaw_disabled(self, engine):
         """PolicyChecker should report nemoclaw as disabled."""
         assert engine.policy_checker._nemoclaw_enabled is False
+
+
+# ======================================================================
+# Real format: Combined network + filesystem in one document
+# ======================================================================
+
+
+class TestRealCombinedIntegration:
+    @pytest.fixture
+    def setup(self, tmp_path):
+        policy_dir = tmp_path / "nemoclaw"
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  claude_code:
+    name: claude_code
+    endpoints:
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+    binaries:
+      - { path: /usr/local/bin/claude }
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /lib
+  read_write:
+    - /sandbox
+    - /tmp
+""",
+        )
+        kg = KnowledgeGraph()
+        kg.load_directory(ONTOLOGY_DIR)
+        NemoClawPolicyLoader(policy_dir).load(kg)
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        return checker
+
+    def test_allowed_api_call(self, setup):
+        checker = setup
+        action = _make_action("WebFetch", url="https://api.anthropic.com/v1/messages")
+        assert checker.check(action).violated is False
+
+    def test_blocked_api_call(self, setup):
+        checker = setup
+        action = _make_action("WebFetch", url="https://evil.com/exfiltrate")
+        assert checker.check(action).violated is True
+
+    def test_write_to_sandbox(self, setup):
+        checker = setup
+        action = _make_action(
+            "WriteFile",
+            tool_name="write",
+            file_path="/sandbox/result.txt",
+        )
+        assert checker.check(action).violated is False
+
+    def test_write_to_read_only(self, setup):
+        checker = setup
+        action = _make_action("WriteFile", tool_name="write", file_path="/usr/bin/evil")
+        result = checker.check(action)
+        assert result.violated is True
+        assert "read-only" in result.reason
+
+    def test_read_from_read_only(self, setup):
+        checker = setup
+        action = _make_action("ReadFile", tool_name="read", file_path="/usr/lib/libz.so")
+        assert checker.check(action).violated is False
+
+    def test_outside_sandbox(self, setup):
+        checker = setup
+        action = _make_action(
+            "WriteFile",
+            tool_name="write",
+            file_path="/home/user/.ssh/key",
+        )
+        result = checker.check(action)
+        assert result.violated is True
+        assert "outside NemoClaw sandbox" in result.reason

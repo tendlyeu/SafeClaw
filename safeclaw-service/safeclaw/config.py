@@ -56,12 +56,20 @@ class SafeClawConfig(BaseSettings):
         return self.data_dir / "audit"
 
     def get_nemoclaw_policy_dir(self) -> Path | None:
-        """Resolve NemoClaw policy directory via fallback chain."""
+        """Resolve NemoClaw policy directory via fallback chain.
+
+        1. Explicit ``nemoclaw_policy_dir`` config if it exists.
+        2. ``NEMOCLAW_POLICY_PATH`` env var if set and the path exists.
+        3. ``{OPENSHELL_SANDBOX}/policies`` when running in a NemoClaw sandbox.
+        4. ``None`` — NemoClaw auto-detection is off.
+        """
         if self.nemoclaw_policy_dir and self.nemoclaw_policy_dir.exists():
             return self.nemoclaw_policy_dir
-        home_dir = Path.home() / ".nemoclaw"
-        if home_dir.exists() and any(home_dir.glob("*.yaml")):
-            return home_dir
+        env_path = os.environ.get("NEMOCLAW_POLICY_PATH")
+        if env_path:
+            p = Path(env_path)
+            if p.exists():
+                return p if p.is_dir() else p.parent
         sandbox_dir = os.environ.get("OPENSHELL_SANDBOX")
         if sandbox_dir:
             p = Path(sandbox_dir) / "policies"

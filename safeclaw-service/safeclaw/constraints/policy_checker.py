@@ -40,20 +40,33 @@ class PolicyChecker:
                 return val
         return ""
 
+    _PROTOCOL_SCHEME_MAP: dict[str, set[str] | None] = {
+        "rest": {"https", "http"},
+        "grpc": {"https", "http"},
+        "websocket": {"wss", "ws"},
+        "full": None,
+    }
+
     # Action classes that trigger NemoClaw network checks
     _NETWORK_ACTION_CLASSES = {"WebFetch", "WebSearch"}
 
     # Action classes that trigger NemoClaw filesystem checks
-    _FILE_WRITE_ACTION_CLASSES = {"FileWrite", "FileDelete", "FileCreate", "WriteFile", "EditFile",
-                                   "DeleteFile"}
+    _FILE_WRITE_ACTION_CLASSES = {
+        "FileWrite",
+        "FileDelete",
+        "FileCreate",
+        "WriteFile",
+        "EditFile",
+        "DeleteFile",
+    }
     _FILE_READ_ACTION_CLASSES = {"FileRead", "ReadFile"}
     _FILE_ACTION_CLASSES = _FILE_WRITE_ACTION_CLASSES | _FILE_READ_ACTION_CLASSES
 
     # Patterns in exec commands that indicate network activity
     _NETWORK_COMMAND_RE = re.compile(r"\b(?:curl|wget|fetch|http)\b", re.IGNORECASE)
 
-    # URL extraction regex for shell commands
-    _URL_RE = re.compile(r"https?://[^\s\"'<>]+")
+    # URL extraction regex for shell commands (http, https, ws, wss)
+    _URL_RE = re.compile(r"(?:https?|wss?)://[^\s\"'<>]+")
 
     def __init__(
         self,
@@ -243,10 +256,12 @@ class PolicyChecker:
         url = self._extract_url(action)
         if not url:
             # Fail-closed: if network rules exist but URL can't be extracted, block
-            has_rules = bool(self.kg.query(f"""
+            has_rules = bool(
+                self.kg.query(f"""
                 PREFIX sp: <{SP}>
                 SELECT ?rule WHERE {{ ?rule a sp:NemoNetworkRule }} LIMIT 1
-            """))
+            """)
+            )
             if has_rules:
                 return {
                     "policy_uri": "nemoclaw:network-allowlist",
@@ -258,14 +273,15 @@ class PolicyChecker:
                 }
             return None
 
-        # Query all NemoClaw network rules
+        # Query all NemoClaw network rules (including optional binary restrictions)
         results = self.kg.query(f"""
             PREFIX sp: <{SP}>
-            SELECT ?rule ?host ?port ?protocol WHERE {{
+            SELECT ?rule ?host ?port ?protocol ?binary WHERE {{
                 ?rule a sp:NemoNetworkRule ;
                       sp:allowsHost ?host .
                 OPTIONAL {{ ?rule sp:allowsPort ?port }}
                 OPTIONAL {{ ?rule sp:allowsProtocol ?protocol }}
+                OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
             }}
         """)
 
@@ -281,19 +297,34 @@ class PolicyChecker:
 
         # Default ports when not explicit in URL
         if target_port is None:
-            if target_scheme == "https":
+            if target_scheme in ("https", "wss"):
                 target_port = 443
-            elif target_scheme == "http":
+            elif target_scheme in ("http", "ws"):
                 target_port = 80
 
-        # Check against all allowed rules
+        # Group rows by rule URI so we can collect all binary restrictions
+        rule_rows: dict[str, dict] = {}
         for row in results:
-            rule_host = str(row["host"])
+            uri = str(row["rule"])
+            if uri not in rule_rows:
+                rule_rows[uri] = {
+                    "host": row["host"],
+                    "port": row.get("port"),
+                    "protocol": row.get("protocol"),
+                    "binaries": set(),
+                }
+            binary = row.get("binary")
+            if binary is not None:
+                rule_rows[uri]["binaries"].add(str(binary))
+
+        command = action.params.get("command", "")
+
+        for info in rule_rows.values():
+            rule_host = str(info["host"])
             if not self._host_matches(rule_host, target_host):
                 continue
 
-            # Port check (if rule specifies a port)
-            rule_port = row.get("port")
+            rule_port = info["port"]
             if rule_port is not None:
                 try:
                     if int(rule_port) != target_port:
@@ -301,22 +332,65 @@ class PolicyChecker:
                 except (ValueError, TypeError):
                     continue
 
-            # Protocol check (if rule specifies a protocol)
-            rule_protocol = row.get("protocol")
-            if rule_protocol is not None:
-                if str(rule_protocol) and str(rule_protocol) != target_scheme:
+            rule_protocol = info["protocol"]
+            if rule_protocol is not None and str(rule_protocol):
+                if not self._protocol_matches(str(rule_protocol), target_scheme):
                     continue
 
-            # Match found — allowed
+            binaries = info["binaries"]
+            if binaries:
+                if not self._binary_matches(action, binaries, command):
+                    continue
+
             return None
 
-        # No matching rule — block
         port_str = f":{target_port}" if target_port else ""
         return {
             "policy_uri": "nemoclaw:network-allowlist",
             "policy_type": "NemoNetworkRule",
-            "reason": f"Not in NemoClaw network allowlist: {target_host}{port_str}",
+            "reason": (f"Not in NemoClaw network allowlist: {target_host}{port_str}"),
         }
+
+    @classmethod
+    def _protocol_matches(cls, rule_protocol: str, target_scheme: str) -> bool:
+        """Check if a rule protocol matches the URL scheme.
+
+        NemoClaw uses protocol names like ``rest``, ``grpc``, ``websocket``
+        which do not correspond directly to URL schemes. This method maps
+        known protocol names to their valid scheme sets. Unknown protocols
+        fall back to exact string comparison (e.g. ``https`` == ``https``).
+        """
+        allowed = cls._PROTOCOL_SCHEME_MAP.get(rule_protocol)
+        if allowed is None and rule_protocol in cls._PROTOCOL_SCHEME_MAP:
+            return True
+        if allowed is not None:
+            return target_scheme in allowed
+        return rule_protocol == target_scheme
+
+    @staticmethod
+    def _binary_matches(
+        action: ClassifiedAction,
+        binaries: set[str],
+        command: str,
+    ) -> bool:
+        """Check if the action context matches any binary restriction.
+
+        For ``ExecuteCommand`` actions the command string is checked for
+        references to the restricted binaries. For other action types
+        (e.g. ``WebFetch``) binary checking is skipped since we cannot
+        determine the calling binary — the rule still matches.
+        """
+        if action.ontology_class not in ("ExecuteCommand", "NetworkRequest"):
+            return True
+        if not command:
+            return False
+        for bp in binaries:
+            if bp in command:
+                return True
+            binary_name = bp.rsplit("/", 1)[-1]
+            if binary_name and re.search(rf"\b{re.escape(binary_name)}\b", command):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # NemoClaw filesystem policy check
@@ -378,9 +452,7 @@ class PolicyChecker:
             return {
                 "policy_uri": "nemoclaw:filesystem-policy",
                 "policy_type": "NemoFilesystemRule",
-                "reason": (
-                    f"Path {target_path} is outside NemoClaw sandbox filesystem policy"
-                ),
+                "reason": (f"Path {target_path} is outside NemoClaw sandbox filesystem policy"),
             }
 
         _rule_path, mode = best_match
