@@ -542,9 +542,9 @@ rules:
         await engine.reload()
 
         decision2 = await engine.evaluate_tool_call(event_other)
-        assert decision2.block is True, (
-            "After reload with NemoClaw rules, other.com should be blocked"
-        )
+        assert (
+            decision2.block is True
+        ), "After reload with NemoClaw rules, other.com should be blocked"
         assert "NemoClaw" in decision2.reason or "network allowlist" in decision2.reason
 
         event_example = ToolCallEvent(

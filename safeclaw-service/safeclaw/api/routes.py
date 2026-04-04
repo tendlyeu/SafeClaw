@@ -67,8 +67,7 @@ _CHANNEL_TRUST: dict[str, str] = {
 _INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         re.compile(
-            r"(?i)ignore\s+(all\s+)?(previous|prior|above)"
-            r"\s+(instructions?|prompts?|rules?)",
+            r"(?i)ignore\s+(all\s+)?(previous|prior|above)" r"\s+(instructions?|prompts?|rules?)",
         ),
         "prompt_injection_ignore_instructions",
     ),
@@ -82,8 +81,7 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     (
         re.compile(
-            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)"
-            r"\s+(rules|guidelines|instructions)",
+            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)" r"\s+(rules|guidelines|instructions)",
         ),
         "prompt_injection_rule_override",
     ),

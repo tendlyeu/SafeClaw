@@ -295,9 +295,9 @@ class TestIssue34LLMEndpointAuth:
             if hasattr(route, "path") and route.path == "/llm/findings":
                 deps = getattr(route, "dependencies", [])
                 dep_names = [str(d) for d in deps]
-                assert any("require_admin" in str(d.dependency) for d in deps), (
-                    f"/llm/findings missing require_admin dependency, has: {dep_names}"
-                )
+                assert any(
+                    "require_admin" in str(d.dependency) for d in deps
+                ), f"/llm/findings missing require_admin dependency, has: {dep_names}"
                 return
         pytest.skip("/llm/findings route not found")
 
@@ -308,9 +308,9 @@ class TestIssue34LLMEndpointAuth:
         for route in router.routes:
             if hasattr(route, "path") and route.path == "/llm/suggestions":
                 deps = getattr(route, "dependencies", [])
-                assert any("require_admin" in str(d.dependency) for d in deps), (
-                    "/llm/suggestions missing require_admin dependency"
-                )
+                assert any(
+                    "require_admin" in str(d.dependency) for d in deps
+                ), "/llm/suggestions missing require_admin dependency"
                 return
         pytest.skip("/llm/suggestions route not found")
 
@@ -729,9 +729,9 @@ class TestIssue41AuditSecurity:
             if day_dir.is_dir():
                 for f in day_dir.glob("session-*.jsonl"):
                     file_mode = stat.S_IMODE(f.stat().st_mode)
-                    assert file_mode == _FILE_MODE, (
-                        f"Audit file has mode {oct(file_mode)}, expected {oct(_FILE_MODE)}"
-                    )
+                    assert (
+                        file_mode == _FILE_MODE
+                    ), f"Audit file has mode {oct(file_mode)}, expected {oct(_FILE_MODE)}"
 
     def test_audit_dir_permissions(self, tmp_path):
         """Audit directory must have restrictive permissions (0o700)."""
@@ -761,9 +761,9 @@ class TestIssue41AuditSecurity:
         for day_dir in audit_dir.iterdir():
             if day_dir.is_dir():
                 dir_mode = stat.S_IMODE(day_dir.stat().st_mode)
-                assert dir_mode == _DIR_MODE, (
-                    f"Audit dir has mode {oct(dir_mode)}, expected {oct(_DIR_MODE)}"
-                )
+                assert (
+                    dir_mode == _DIR_MODE
+                ), f"Audit dir has mode {oct(dir_mode)}, expected {oct(_DIR_MODE)}"
 
 
 # =========================================================================
@@ -820,9 +820,9 @@ class TestIssue42PrefPathTraversal:
 
         source = inspect.getsource(set_pref)
         # Must reference config.data_dir (user data directory)
-        assert "config.data_dir" in source, (
-            "pref set must use config.data_dir, not package directory"
-        )
+        assert (
+            "config.data_dir" in source
+        ), "pref set must use config.data_dir, not package directory"
 
 
 # =========================================================================
@@ -841,9 +841,9 @@ class TestIssue38LandingSecretKey:
         content = landing_main.read_text()
         assert "secret_key" in content, "fast_app() must receive a secret_key parameter"
         # Must not be empty/None
-        assert "secret_key=os.environ" in content or "secret_key=secrets" in content, (
-            "secret_key must come from environment variable or secrets module"
-        )
+        assert (
+            "secret_key=os.environ" in content or "secret_key=secrets" in content
+        ), "secret_key must come from environment variable or secrets module"
 
 
 # =========================================================================
@@ -868,9 +868,9 @@ class TestIssue39LandingCSRF:
         if not landing_main.exists():
             pytest.skip("safeclaw-landing not present in workspace")
         content = landing_main.read_text()
-        assert "_verify_csrf" in content, (
-            "Landing must have _verify_csrf function to validate CSRF tokens on POST"
-        )
+        assert (
+            "_verify_csrf" in content
+        ), "Landing must have _verify_csrf function to validate CSRF tokens on POST"
 
 
 # =========================================================================
