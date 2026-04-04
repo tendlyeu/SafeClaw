@@ -21,6 +21,7 @@ def _sanitize_cmd(text: str) -> str:
 @dataclass
 class SessionFact:
     """A fact about what happened in a session."""
+
     action_class: str
     tool_name: str
     success: bool
@@ -32,6 +33,7 @@ class SessionFact:
 @dataclass
 class SessionState:
     """Tracks the live state of a session for context injection."""
+
     facts: list[SessionFact] = field(default_factory=list)
     files_modified: list[str] = field(default_factory=list)
     violation_count: int = 0
@@ -81,20 +83,25 @@ class SessionTracker:
                 file_path = params["file_path"]
                 detail = f"file: {file_path}"
                 if success and tool_name in ("write", "edit", "apply_patch"):
-                    if file_path not in state.files_modified and len(state.files_modified) < MAX_FILES_PER_SESSION:
+                    if (
+                        file_path not in state.files_modified
+                        and len(state.files_modified) < MAX_FILES_PER_SESSION
+                    ):
                         state.files_modified.append(file_path)
             elif "command" in params:
                 cmd = _sanitize_cmd(params["command"])
                 detail = f"cmd: {cmd[:80]}"
 
-        state.facts.append(SessionFact(
-            action_class=action_class,
-            tool_name=tool_name,
-            success=success,
-            timestamp=now,
-            detail=detail,
-            risk_level=risk_level,
-        ))
+        state.facts.append(
+            SessionFact(
+                action_class=action_class,
+                tool_name=tool_name,
+                success=success,
+                timestamp=now,
+                detail=detail,
+                risk_level=risk_level,
+            )
+        )
         if len(state.facts) > MAX_FACTS_PER_SESSION:
             state.facts = state.facts[-MAX_FACTS_PER_SESSION:]
 
@@ -126,8 +133,7 @@ class SessionTracker:
         # Violation summary
         if state.violation_count > 0:
             lines.append(
-                f"Violations: {state.violation_count} total, "
-                f"last: {state.last_violation_reason}"
+                f"Violations: {state.violation_count} total, last: {state.last_violation_reason}"
             )
 
         return lines
@@ -141,11 +147,7 @@ class SessionTracker:
         state = self._sessions.get(session_id)
         if not state:
             return []
-        return [
-            f"{fact.risk_level}:{fact.action_class}"
-            for fact in state.facts
-            if fact.risk_level
-        ]
+        return [f"{fact.risk_level}:{fact.action_class}" for fact in state.facts if fact.risk_level]
 
     def get_state(self, session_id: str) -> SessionState | None:
         """Get raw session state."""

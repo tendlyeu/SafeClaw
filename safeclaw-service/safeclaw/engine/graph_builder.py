@@ -91,23 +91,27 @@ class GraphBuilder:
                     node_type = "policy"
                 elif uri.startswith(str(SU)):
                     node_type = "preference"
-                nodes.append({
-                    "id": uri,
-                    "name": name,
-                    "label": label,
-                    "type": node_type,
-                })
+                nodes.append(
+                    {
+                        "id": uri,
+                        "name": name,
+                        "label": label,
+                        "type": node_type,
+                    }
+                )
                 seen_nodes.add(uri)
 
             parent = row.get("parent")
             if parent:
                 parent_uri = str(parent)
                 if not parent_uri.startswith("_:"):
-                    edges.append({
-                        "source": uri,
-                        "target": parent_uri,
-                        "type": "subClassOf",
-                    })
+                    edges.append(
+                        {
+                            "source": uri,
+                            "target": parent_uri,
+                            "type": "subClassOf",
+                        }
+                    )
 
         # Individuals (instances)
         instance_results = self.kg.query("""
@@ -134,19 +138,23 @@ class GraphBuilder:
                     node_type = "policy"
                 elif "Preference" in type_uri or "User" in type_uri:
                     node_type = "preference"
-                nodes.append({
-                    "id": uri,
-                    "name": name,
-                    "label": label,
-                    "type": node_type,
-                })
+                nodes.append(
+                    {
+                        "id": uri,
+                        "name": name,
+                        "label": label,
+                        "type": node_type,
+                    }
+                )
                 seen_nodes.add(uri)
 
-            edges.append({
-                "source": uri,
-                "target": type_uri,
-                "type": "instanceOf",
-            })
+            edges.append(
+                {
+                    "source": uri,
+                    "target": type_uri,
+                    "type": "instanceOf",
+                }
+            )
 
         result = {
             "nodes": nodes,
@@ -165,6 +173,7 @@ class GraphBuilder:
         query_lower = query.lower()
         graph = self.build_graph()
         return [
-            n for n in graph["nodes"]
+            n
+            for n in graph["nodes"]
             if query_lower in n["name"].lower() or query_lower in n["label"].lower()
         ]

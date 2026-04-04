@@ -12,6 +12,7 @@ from safeclaw.cloud.tenant import (
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def bundled_ontologies(tmp_path):
     """Create a fake bundled ontologies directory with .ttl files, shapes, and users."""
@@ -31,8 +32,7 @@ def bundled_ontologies(tmp_path):
     users = ont_dir / "users"
     users.mkdir()
     (users / "user-default.ttl").write_text(
-        '@prefix su: <urn:safeclaw:user#> .\n'
-        'su:defaultUser su:autonomyLevel "moderate" .\n'
+        '@prefix su: <urn:safeclaw:user#> .\nsu:defaultUser su:autonomyLevel "moderate" .\n'
     )
 
     return ont_dir
@@ -47,6 +47,7 @@ def provisioner(tmp_path, bundled_ontologies):
 
 
 # --- TenantProvisioner Tests ---
+
 
 class TestTenantProvisioner:
     def test_provision_creates_directory_structure(self, provisioner, tmp_path):
@@ -79,8 +80,13 @@ class TestTenantProvisioner:
     def test_provision_applies_autonomy_level(self, provisioner, tmp_path):
         config = provisioner.provision("Acme Corp", autonomy_level="cautious")
         user_file = (
-            tmp_path / "data" / "tenants" / config.org_id
-            / "ontologies" / "users" / "user-default.ttl"
+            tmp_path
+            / "data"
+            / "tenants"
+            / config.org_id
+            / "ontologies"
+            / "users"
+            / "user-default.ttl"
         )
         content = user_file.read_text()
         assert 'su:autonomyLevel "cautious"' in content
@@ -137,6 +143,7 @@ class TestTenantProvisioner:
 
 # --- TenantConfig Tests ---
 
+
 class TestTenantConfig:
     def test_created_at_auto_populated(self):
         config = TenantConfig(
@@ -161,6 +168,7 @@ class TestTenantConfig:
 
 # --- Edge Cases ---
 
+
 class TestTenantEdgeCases:
     def test_set_autonomy_level_when_user_file_missing(self, tmp_path):
         """_set_autonomy_level should not crash if user-default.ttl doesn't exist."""
@@ -178,8 +186,13 @@ class TestTenantEdgeCases:
         """Default autonomy level should be moderate when not specified."""
         config = provisioner.provision("Default Corp")
         user_file = (
-            tmp_path / "data" / "tenants" / config.org_id
-            / "ontologies" / "users" / "user-default.ttl"
+            tmp_path
+            / "data"
+            / "tenants"
+            / config.org_id
+            / "ontologies"
+            / "users"
+            / "user-default.ttl"
         )
         content = user_file.read_text()
         assert 'su:autonomyLevel "moderate"' in content

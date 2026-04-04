@@ -9,9 +9,11 @@ from safeclaw.engine.session_tracker import SessionTracker
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def kg():
     from pathlib import Path
+
     kg = KnowledgeGraph()
     ontology_dir = Path(__file__).parent.parent / "safeclaw" / "ontologies"
     kg.load_directory(ontology_dir)
@@ -19,6 +21,7 @@ def kg():
 
 
 # --- MessageGate Tests ---
+
 
 class TestMessageGate:
     def test_normal_message_passes(self, kg):
@@ -158,6 +161,7 @@ class TestMessageGate:
 
 
 # --- SessionTracker Tests ---
+
 
 class TestSessionTracker:
     def test_record_outcome(self):

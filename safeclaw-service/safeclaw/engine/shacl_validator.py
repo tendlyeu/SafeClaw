@@ -71,14 +71,16 @@ class SHACLValidator:
             return SHACLResult(conforms=conforms, violations=violations)
         except Exception as e:
             logger.error(f"SHACL validation error: {e}")
-            return SHACLResult(conforms=False, violations=[{"message": "SHACL validation failed due to an internal error"}])
+            return SHACLResult(
+                conforms=False,
+                violations=[{"message": "SHACL validation failed due to an internal error"}],
+            )
 
     def _parse_violations(self, results_graph: Graph) -> list[dict]:
         from rdflib import SH
+
         violations = []
-        for result_node in results_graph.subjects(
-            predicate=SH.resultMessage
-        ):
+        for result_node in results_graph.subjects(predicate=SH.resultMessage):
             message = str(results_graph.value(result_node, SH.resultMessage) or "")
             shape = str(results_graph.value(result_node, SH.sourceShape) or "")
             violations.append({"message": message, "shape": shape})

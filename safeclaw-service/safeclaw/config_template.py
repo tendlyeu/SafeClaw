@@ -41,9 +41,21 @@ DEFAULT_CONFIG: dict = {
     },
     "roles": {
         "definitions": {
-            "researcher": {"enforcement_mode": "enforce", "autonomy_level": "supervised", "policyFile": "researcher.ttl"},
-            "developer": {"enforcement_mode": "enforce", "autonomy_level": "moderate", "policyFile": "developer.ttl"},
-            "admin": {"enforcement_mode": "warn-only", "autonomy_level": "full", "policyFile": "admin.ttl"},
+            "researcher": {
+                "enforcement_mode": "enforce",
+                "autonomy_level": "supervised",
+                "policyFile": "researcher.ttl",
+            },
+            "developer": {
+                "enforcement_mode": "enforce",
+                "autonomy_level": "moderate",
+                "policyFile": "developer.ttl",
+            },
+            "admin": {
+                "enforcement_mode": "warn-only",
+                "autonomy_level": "full",
+                "policyFile": "admin.ttl",
+            },
         },
         "defaultRole": "developer",
     },

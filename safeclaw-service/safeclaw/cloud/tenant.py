@@ -16,30 +16,42 @@ POLICY_TEMPLATES = {
         "name": "Software Development",
         "description": "Policies for coding assistants working on software projects",
         "policies": [
-            "NoForcePush", "NoResetHard", "NoEnvFiles", "NoCredentialFiles",
-            "TestBeforePush", "NoRootDelete",
+            "NoForcePush",
+            "NoResetHard",
+            "NoEnvFiles",
+            "NoCredentialFiles",
+            "TestBeforePush",
+            "NoRootDelete",
         ],
     },
     "data_analysis": {
         "name": "Data Analysis",
         "description": "Policies for agents working with data and notebooks",
         "policies": [
-            "NoEnvFiles", "NoCredentialFiles", "NoRootDelete",
+            "NoEnvFiles",
+            "NoCredentialFiles",
+            "NoRootDelete",
         ],
     },
     "devops": {
         "name": "DevOps / Infrastructure",
         "description": "Policies for agents managing infrastructure and deployments",
         "policies": [
-            "NoForcePush", "NoResetHard", "NoEnvFiles", "NoCredentialFiles",
-            "TestBeforePush", "NoRootDelete",
+            "NoForcePush",
+            "NoResetHard",
+            "NoEnvFiles",
+            "NoCredentialFiles",
+            "TestBeforePush",
+            "NoRootDelete",
         ],
     },
     "general": {
         "name": "General Purpose",
         "description": "Balanced policies for general-purpose AI assistants",
         "policies": [
-            "NoEnvFiles", "NoCredentialFiles", "NoRootDelete",
+            "NoEnvFiles",
+            "NoCredentialFiles",
+            "NoRootDelete",
         ],
     },
 }
@@ -54,6 +66,7 @@ AUTONOMY_LEVELS = {
 @dataclass
 class TenantConfig:
     """Configuration for a provisioned tenant."""
+
     org_id: str
     org_name: str
     policy_template: str

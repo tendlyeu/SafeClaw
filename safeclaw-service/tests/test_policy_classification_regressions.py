@@ -9,7 +9,11 @@ from pathlib import Path
 import pytest
 from rdflib import Namespace
 
-from safeclaw.constraints.action_classifier import ActionClassifier, ClassifiedAction, SHELL_PATTERNS
+from safeclaw.constraints.action_classifier import (
+    ActionClassifier,
+    ClassifiedAction,
+    SHELL_PATTERNS,
+)
 from safeclaw.constraints.dependency_checker import DependencyChecker
 from safeclaw.constraints.policy_checker import PolicyChecker
 from safeclaw.constraints.preference_checker import PreferenceChecker, UserPreferences
@@ -274,7 +278,9 @@ class TestIssue48SHACLSubclassInference:
 
         result = validator.validate(graph)
         # GitPush is a subclass of ShellAction, so ShellAction shapes should fire
-        assert result.conforms is True, f"SHACL should validate subclass instance, got violations: {result.violations}"
+        assert result.conforms is True, (
+            f"SHACL should validate subclass instance, got violations: {result.violations}"
+        )
 
     def test_shacl_file_action_shape_fires_for_delete(self):
         """FileAction shapes should fire for DeleteFile (a subclass)."""
@@ -294,9 +300,7 @@ class TestIssue48SHACLSubclassInference:
         graph = action.as_rdf_graph()
         result = validator.validate(graph)
         # DeleteFile is subclass of FileAction, shape requires filePath
-        assert not result.conforms, (
-            "DeleteFile without filePath should fail FileAction SHACL shape"
-        )
+        assert not result.conforms, "DeleteFile without filePath should fail FileAction SHACL shape"
 
 
 # ===========================================================================
@@ -312,7 +316,7 @@ class TestIssue116PolicyCompilerTypeExtraction:
 
         pc = PolicyCompiler.__new__(PolicyCompiler)
         turtle = (
-            'sp:TestObligation a sp:Obligation ;\n'
+            "sp:TestObligation a sp:Obligation ;\n"
             '    sp:reason "This overrides sp:Prohibition NoEnvFiles" .'
         )
         assert pc._extract_policy_type(turtle) == "obligation"
@@ -328,10 +332,7 @@ class TestIssue116PolicyCompilerTypeExtraction:
         from safeclaw.llm.policy_compiler import PolicyCompiler
 
         pc = PolicyCompiler.__new__(PolicyCompiler)
-        turtle = (
-            'sp:TestPermission a sp:Permission ;\n'
-            '    rdfs:label "Override Prohibition" .'
-        )
+        turtle = 'sp:TestPermission a sp:Permission ;\n    rdfs:label "Override Prohibition" .'
         assert pc._extract_policy_type(turtle) == "permission"
 
 
@@ -355,10 +356,7 @@ class TestIssue122DuplicateViolations:
         result = policy_checker.check(action)
         assert result.violated
         # Should have exactly one violation from NoForcePush, not two
-        no_fp_violations = [
-            v for v in result.all_violations
-            if "NoForcePush" in v["policy_uri"]
-        ]
+        no_fp_violations = [v for v in result.all_violations if "NoForcePush" in v["policy_uri"]]
         assert len(no_fp_violations) == 1, (
             f"Expected 1 NoForcePush violation, got {len(no_fp_violations)}"
         )
@@ -374,10 +372,7 @@ class TestIssue122DuplicateViolations:
         )
         result = policy_checker.check(action)
         assert result.violated
-        no_rh_violations = [
-            v for v in result.all_violations
-            if "NoResetHard" in v["policy_uri"]
-        ]
+        no_rh_violations = [v for v in result.all_violations if "NoResetHard" in v["policy_uri"]]
         assert len(no_rh_violations) == 1, (
             f"Expected 1 NoResetHard violation, got {len(no_rh_violations)}"
         )
@@ -535,9 +530,7 @@ class TestIssue29And126PathParamKeysCoverage:
                 params={key: ".env"},
             )
             result = preference_checker.check(action, prefs)
-            assert result.violated, (
-                f"never_modify_paths should block path in param key '{key}'"
-            )
+            assert result.violated, f"never_modify_paths should block path in param key '{key}'"
 
     def test_destination_key_blocked(self, preference_checker):
         """Regression: 'destination' was not checked prior to fix."""

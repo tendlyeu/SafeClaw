@@ -86,11 +86,7 @@ def test_config_drift_fires_only_once():
     assert monitor.check_config_drift("agent-1", "xyz") is False
 
     # Only one drift event should have been published
-    drift_calls = [
-        c
-        for c in bus.publish.call_args_list
-        if c[0][0].event_type == "config_drift"
-    ]
+    drift_calls = [c for c in bus.publish.call_args_list if c[0][0].event_type == "config_drift"]
     assert len(drift_calls) == 1
 
 
@@ -116,11 +112,7 @@ def test_config_drift_fires_again_after_revert_and_new_drift():
     assert monitor.check_config_drift("agent-1", "pqr") is True
 
     # Should have exactly 2 drift events total
-    drift_calls = [
-        c
-        for c in bus.publish.call_args_list
-        if c[0][0].event_type == "config_drift"
-    ]
+    drift_calls = [c for c in bus.publish.call_args_list if c[0][0].event_type == "config_drift"]
     assert len(drift_calls) == 2
 
 
@@ -161,11 +153,7 @@ def test_config_drift_heartbeat_endpoint_flow():
         monitor.record("agent-1", "xyz")
         monitor.check_config_drift("agent-1", "xyz")
 
-    drift_calls = [
-        c
-        for c in bus.publish.call_args_list
-        if c[0][0].event_type == "config_drift"
-    ]
+    drift_calls = [c for c in bus.publish.call_args_list if c[0][0].event_type == "config_drift"]
     assert len(drift_calls) == 1, (
         f"Expected 1 drift event, got {len(drift_calls)}. "
         "Config drift is firing continuously (issue #141)."

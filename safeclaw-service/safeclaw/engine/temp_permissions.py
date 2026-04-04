@@ -46,13 +46,9 @@ class TempPermissionManager:
         Returns the grant ID.
         """
         if duration_seconds is None and task_id is None:
-            raise ValueError(
-                "At least one of duration_seconds or task_id is required"
-            )
+            raise ValueError("At least one of duration_seconds or task_id is required")
         if duration_seconds is not None and duration_seconds <= 0:
-            raise ValueError(
-                "duration_seconds must be positive"
-            )
+            raise ValueError("duration_seconds must be positive")
 
         now = monotonic()
         grant_id = str(uuid4())
@@ -106,9 +102,7 @@ class TempPermissionManager:
 
     def complete_task(self, task_id: str) -> int:
         """Remove all grants associated with a task. Returns count removed."""
-        to_remove = [
-            gid for gid, g in self._grants.items() if g.task_id == task_id
-        ]
+        to_remove = [gid for gid, g in self._grants.items() if g.task_id == task_id]
         for gid in to_remove:
             del self._grants[gid]
         return len(to_remove)

@@ -23,8 +23,8 @@ from safeclaw.constraints.rate_limiter import RateLimiter
 # AgentRegistry
 # ---------------------------------------------------------------------------
 
-class TestAgentRegistry:
 
+class TestAgentRegistry:
     def test_register_returns_token(self):
         reg = AgentRegistry()
         token = reg.register_agent("agent-1", "researcher", "sess-1")
@@ -130,8 +130,8 @@ class TestAgentRegistry:
 # RoleManager
 # ---------------------------------------------------------------------------
 
-class TestRoleManager:
 
+class TestRoleManager:
     def test_builtin_roles_loaded_by_default(self):
         rm = RoleManager()
         assert rm.get_role("researcher") is not None
@@ -222,8 +222,8 @@ class TestRoleManager:
 # DelegationDetector
 # ---------------------------------------------------------------------------
 
-class TestDelegationDetector:
 
+class TestDelegationDetector:
     def test_no_delegation_no_blocks(self):
         dd = DelegationDetector(mode="strict")
         result = dd.check_delegation("sess-1", "agent-1", "write", "sig-1")
@@ -281,8 +281,8 @@ class TestDelegationDetector:
 # TempPermissionManager
 # ---------------------------------------------------------------------------
 
-class TestTempPermissionManager:
 
+class TestTempPermissionManager:
     def test_grant_and_check(self):
         tpm = TempPermissionManager()
         tpm.grant("agent-1", "WriteFile", duration_seconds=60)
@@ -352,8 +352,8 @@ class TestTempPermissionManager:
 # Hierarchy Rate Limiting
 # ---------------------------------------------------------------------------
 
-class TestHierarchyRateLimiting:
 
+class TestHierarchyRateLimiting:
     def _make_action(self, risk_level: str = "HighRisk") -> ClassifiedAction:
         return ClassifiedAction(
             ontology_class="WriteFile",
@@ -407,8 +407,8 @@ class TestHierarchyRateLimiting:
 # Engine Multi-Agent Integration (using FullEngine)
 # ---------------------------------------------------------------------------
 
-class TestEngineMultiAgentIntegration:
 
+class TestEngineMultiAgentIntegration:
     @pytest.fixture
     def engine(self, tmp_path):
         from safeclaw.config import SafeClawConfig
@@ -521,9 +521,7 @@ class TestEngineMultiAgentIntegration:
 
         # Agent d2 (developer) tries the same write -> delegation detected
         sig = DelegationDetector.make_signature(event1.params)
-        delegation = engine.delegation_detector.check_delegation(
-            "sess-d", "agent-d2", "write", sig
-        )
+        delegation = engine.delegation_detector.check_delegation("sess-d", "agent-d2", "write", sig)
         assert delegation.is_delegation is True
         assert delegation.original_agent_id == "agent-d1"
 

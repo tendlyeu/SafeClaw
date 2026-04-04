@@ -1,6 +1,5 @@
 """Phase 2 tests: derived rules, temporal constraints, rate limiting, context violations."""
 
-
 import pytest
 
 from safeclaw.constraints.action_classifier import ActionClassifier, ClassifiedAction
@@ -13,10 +12,12 @@ from safeclaw.engine.reasoning_rules import DerivedConstraintChecker
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def kg():
     """Knowledge graph loaded with test ontologies."""
     from pathlib import Path
+
     kg = KnowledgeGraph()
     ontology_dir = Path(__file__).parent.parent / "safeclaw" / "ontologies"
     kg.load_directory(ontology_dir)
@@ -30,6 +31,7 @@ def classifier():
 
 # --- DerivedConstraintChecker Tests ---
 
+
 class TestDerivedConstraintChecker:
     def test_critical_irreversible_triggers(self, kg):
         checker = DerivedConstraintChecker(kg)
@@ -42,6 +44,7 @@ class TestDerivedConstraintChecker:
             params={"command": "git push --force"},
         )
         from safeclaw.constraints.preference_checker import UserPreferences
+
         prefs = UserPreferences()
         result = checker.check(action, prefs, [])
         assert result.requires_confirmation
@@ -58,6 +61,7 @@ class TestDerivedConstraintChecker:
             params={"command": "git push"},
         )
         from safeclaw.constraints.preference_checker import UserPreferences
+
         prefs = UserPreferences(autonomy_level="cautious")
         result = checker.check(action, prefs, [])
         assert result.requires_confirmation
@@ -74,6 +78,7 @@ class TestDerivedConstraintChecker:
             params={},
         )
         from safeclaw.constraints.preference_checker import UserPreferences
+
         prefs = UserPreferences()
         # 3+ MediumRisk entries should trigger
         history = ["MediumRisk:WriteFile", "MediumRisk:EditFile", "MediumRisk:WriteFile"]
@@ -92,6 +97,7 @@ class TestDerivedConstraintChecker:
             params={},
         )
         from safeclaw.constraints.preference_checker import UserPreferences
+
         prefs = UserPreferences()
         result = checker.check(action, prefs, [])
         assert not result.requires_confirmation
@@ -99,6 +105,7 @@ class TestDerivedConstraintChecker:
 
 
 # --- TemporalChecker Tests ---
+
 
 class TestTemporalChecker:
     def test_no_temporal_constraints_passes(self, kg):
@@ -141,10 +148,17 @@ class TestTemporalChecker:
         constraint = sp["FutureDeployConstraint"]
         kg.graph.add((constraint, RDF.type, sp["TemporalConstraint"]))
         kg.graph.add((constraint, sp["appliesTo"], sc["DeployAction"]))
-        kg.graph.add((constraint, sp["notBefore"], Literal("2099-01-01T00:00:00+00:00", datatype=XSD.dateTime)))
+        kg.graph.add(
+            (
+                constraint,
+                sp["notBefore"],
+                Literal("2099-01-01T00:00:00+00:00", datatype=XSD.dateTime),
+            )
+        )
 
         # Also add DeployAction as an OWL class so rdfs:subClassOf* can match
         from rdflib import RDFS
+
         kg.graph.add((sc["DeployAction"], RDF.type, RDFS.Class))
 
         checker = TemporalChecker()
@@ -162,6 +176,7 @@ class TestTemporalChecker:
 
 
 # --- RateLimiter Tests ---
+
 
 class TestRateLimiter:
     def test_under_limit_passes(self):
@@ -286,6 +301,7 @@ class TestRateLimiter:
 
 
 # --- ContextBuilder Violation History Tests ---
+
 
 class TestContextBuilderViolations:
     def test_violation_recorded_and_shown(self, kg):

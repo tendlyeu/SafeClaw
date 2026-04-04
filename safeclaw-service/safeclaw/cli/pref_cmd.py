@@ -25,8 +25,12 @@ VALID_PREFS = {
 }
 
 # Preferences that use bare (unquoted) values in Turtle
-_BARE_VALUE_PREFS = {"confirmBeforeDelete", "confirmBeforePush", "confirmBeforeSend",
-                     "maxFilesPerCommit"}
+_BARE_VALUE_PREFS = {
+    "confirmBeforeDelete",
+    "confirmBeforePush",
+    "confirmBeforeSend",
+    "maxFilesPerCommit",
+}
 
 # Preferences that use quoted string values in Turtle
 _QUOTED_VALUE_PREFS = {"autonomyLevel", "neverModifyPaths"}
@@ -42,7 +46,9 @@ def show(user_id: str = typer.Option("default", help="User ID to display prefere
     Shows autonomy level, confirmation flags, file limits, and protected paths.
     """
     if not _SAFE_USER_ID.match(user_id):
-        console.print("[red]Invalid user_id: must contain only alphanumeric, hyphens, underscores[/red]")
+        console.print(
+            "[red]Invalid user_id: must contain only alphanumeric, hyphens, underscores[/red]"
+        )
         raise typer.Exit(1)
 
     from safeclaw.config import SafeClawConfig
@@ -96,7 +102,9 @@ def set_pref(
 
     # Validate user_id to prevent path traversal
     if not _SAFE_USER_ID.match(user_id):
-        console.print("[red]Invalid user_id: must contain only alphanumeric, hyphens, underscores[/red]")
+        console.print(
+            "[red]Invalid user_id: must contain only alphanumeric, hyphens, underscores[/red]"
+        )
         raise typer.Exit(1)
 
     if key not in VALID_PREFS:
@@ -111,7 +119,9 @@ def set_pref(
             if int_val < 1:
                 raise ValueError
         except ValueError:
-            console.print(f"[red]Invalid value '{value}' for {key}: must be a positive integer[/red]")
+            console.print(
+                f"[red]Invalid value '{value}' for {key}: must be a positive integer[/red]"
+            )
             raise typer.Exit(1)
     elif key == "neverModifyPaths":
         if not value.strip():
@@ -139,11 +149,14 @@ def set_pref(
                 default_file = bundled_default
         if default_file.exists():
             import shutil
+
             shutil.copy2(default_file, user_file)
             console.print(f"Created user preferences file: {user_file.name}")
         else:
             console.print("[red]Error: No default preferences template found.[/red]")
-            console.print("Run [bold]safeclaw init[/bold] first, or check that the bundled ontologies are installed.")
+            console.print(
+                "Run [bold]safeclaw init[/bold] first, or check that the bundled ontologies are installed."
+            )
             raise typer.Exit(1)
 
     # Double-check resolved path stays within users_dir (defense in depth)
@@ -183,7 +196,9 @@ def set_pref(
     new_content = "".join(new_lines)
     if count > 0:
         if count > 1:
-            console.print(f"[yellow]Warning: found {count} matches for {key}, all were updated[/yellow]")
+            console.print(
+                f"[yellow]Warning: found {count} matches for {key}, all were updated[/yellow]"
+            )
         user_file.write_text(new_content)
         console.print(f"[green]Set {key} = {value} for user {user_id}[/green]")
     else:
@@ -192,4 +207,6 @@ def set_pref(
         console.print("Check [bold]safeclaw pref show[/bold] to see current values.")
         raise typer.Exit(1)
 
-    console.print("[yellow]Restart the service or POST /api/v1/reload for changes to take effect.[/yellow]")
+    console.print(
+        "[yellow]Restart the service or POST /api/v1/reload for changes to take effect.[/yellow]"
+    )

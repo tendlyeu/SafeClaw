@@ -120,9 +120,7 @@ class Role:
     autonomy_level: str  # "supervised", "moderate", "full"
     allowed_action_classes: set[str] = field(default_factory=set)
     denied_action_classes: set[str] = field(default_factory=set)
-    resource_patterns: dict = field(
-        default_factory=lambda: {"allow": ["**"], "deny": []}
-    )
+    resource_patterns: dict = field(default_factory=lambda: {"allow": ["**"], "deny": []})
 
 
 BUILTIN_ROLES = {
@@ -186,7 +184,9 @@ class RoleManager:
             if "definitions" in config["roles"]:
                 for name, rdef in config["roles"]["definitions"].items():
                     rp = rdef.get("resource_patterns", {"allow": ["**"], "deny": []})
-                    if not isinstance(rp.get("allow"), list) or not isinstance(rp.get("deny"), list):
+                    if not isinstance(rp.get("allow"), list) or not isinstance(
+                        rp.get("deny"), list
+                    ):
                         logger.warning(f"Invalid resource_patterns for role {name}, using defaults")
                         rp = {"allow": ["**"], "deny": []}
                     raw_allowed = rdef.get("allowed_action_classes", [])
@@ -313,9 +313,7 @@ class RoleManager:
         # Unknown/generic actions ("Action") are denied for restricted roles.
         # Only unrestricted roles (no denied classes and no allowed-list) pass.
         if action_class == "Action":
-            is_unrestricted = (
-                not role.denied_action_classes and not role.allowed_action_classes
-            )
+            is_unrestricted = not role.denied_action_classes and not role.allowed_action_classes
             if not is_unrestricted:
                 return False
 
@@ -394,13 +392,15 @@ class RoleManager:
         if org_res_allow:
             # Keep role patterns that are a subset of any org pattern (org pattern matches role pattern)
             narrower = [
-                p for p in resource_allow
+                p
+                for p in resource_allow
                 if any(fnmatch.fnmatch(p.lstrip("/"), o.lstrip("/")) for o in org_res_allow)
             ]
             resource_allow = narrower or org_res_allow
         if parent_res_allow:
             narrower = [
-                p for p in resource_allow
+                p
+                for p in resource_allow
                 if any(fnmatch.fnmatch(p.lstrip("/"), o.lstrip("/")) for o in parent_res_allow)
             ]
             resource_allow = narrower or parent_res_allow

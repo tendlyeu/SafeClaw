@@ -19,6 +19,7 @@ from safeclaw.engine.knowledge_graph import KnowledgeGraph
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def kg():
     kg = KnowledgeGraph()
@@ -100,9 +101,11 @@ def sample_records():
 
 # --- Reporter Tests ---
 
+
 class TestAuditReporter:
     def test_markdown_report(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
+
         logger = AuditLogger(tmp_path)
         for r in sample_records:
             logger.log(r)
@@ -116,6 +119,7 @@ class TestAuditReporter:
 
     def test_json_report(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
+
         logger = AuditLogger(tmp_path)
         for r in sample_records:
             logger.log(r)
@@ -130,6 +134,7 @@ class TestAuditReporter:
 
     def test_csv_report(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
+
         logger = AuditLogger(tmp_path)
         for r in sample_records:
             logger.log(r)
@@ -143,6 +148,7 @@ class TestAuditReporter:
 
     def test_no_records(self, tmp_path):
         from safeclaw.audit.logger import AuditLogger
+
         logger = AuditLogger(tmp_path)
         reporter = AuditReporter(logger)
         report = reporter.generate_session_report("unknown")
@@ -150,6 +156,7 @@ class TestAuditReporter:
 
     def test_statistics(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
+
         reporter = AuditReporter(AuditLogger(tmp_path))
         stats = reporter.get_statistics(sample_records)
         assert stats["total"] == 3
@@ -162,12 +169,14 @@ class TestAuditReporter:
 
     def test_empty_statistics(self, tmp_path):
         from safeclaw.audit.logger import AuditLogger
+
         reporter = AuditReporter(AuditLogger(tmp_path))
         stats = reporter.get_statistics([])
         assert stats["total"] == 0
 
     def test_compliance_report(self, tmp_path, sample_records):
         from safeclaw.audit.logger import AuditLogger
+
         reporter = AuditReporter(AuditLogger(tmp_path))
         report = reporter.generate_compliance_report(sample_records)
         assert "# SafeClaw Compliance Report" in report
@@ -178,12 +187,14 @@ class TestAuditReporter:
 
     def test_compliance_report_empty(self, tmp_path):
         from safeclaw.audit.logger import AuditLogger
+
         reporter = AuditReporter(AuditLogger(tmp_path))
         report = reporter.generate_compliance_report([])
         assert "No records" in report
 
 
 # --- GraphBuilder Tests ---
+
 
 class TestGraphBuilder:
     def test_build_graph(self, kg):

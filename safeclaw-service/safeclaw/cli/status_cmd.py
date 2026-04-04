@@ -11,9 +11,7 @@ status_app = typer.Typer(
 
 @status_app.command("check")
 def status_check(
-    url: str = typer.Option(
-        "http://localhost:8420/api/v1", help="SafeClaw service base URL"
-    ),
+    url: str = typer.Option("http://localhost:8420/api/v1", help="SafeClaw service base URL"),
 ):
     """Probe a running SafeClaw service for health, version, and component status.
 
@@ -42,7 +40,9 @@ def status_check(
     except httpx.HTTPStatusError as e:
         console.print(f"[red]Error: Service returned HTTP {e.response.status_code}[/red]")
         if e.response.status_code == 401:
-            console.print("Authentication required. Check SAFECLAW_REQUIRE_AUTH and API key settings.")
+            console.print(
+                "Authentication required. Check SAFECLAW_REQUIRE_AUTH and API key settings."
+            )
         elif e.response.status_code >= 500:
             console.print("Server error. Check the service logs for details.")
         raise typer.Exit(code=1)
@@ -67,14 +67,18 @@ def status_check(
         table.add_row("Knowledge Graph", f"{kg.get('triples', 0):,} triples")
 
         llm = components.get("llm", {})
-        llm_status = "[green]configured[/green]" if llm.get("configured") else "[dim]not configured[/dim]"
+        llm_status = (
+            "[green]configured[/green]" if llm.get("configured") else "[dim]not configured[/dim]"
+        )
         table.add_row("LLM", llm_status)
 
         sessions = components.get("sessions", {})
         table.add_row("Sessions", f"{sessions.get('active', 0)} active")
 
         agents = components.get("agents", {})
-        table.add_row("Agents", f"{agents.get('registered', 0)} registered, {agents.get('active', 0)} active")
+        table.add_row(
+            "Agents", f"{agents.get('registered', 0)} registered, {agents.get('active', 0)} active"
+        )
 
         console.print(table)
 
@@ -106,7 +110,9 @@ def status_diagnose():
     bundled_dir = Path(__file__).parent.parent / "ontologies"
     ttl_files = list(bundled_dir.rglob("*.ttl")) if bundled_dir.exists() else []
     if ttl_files:
-        console.print(f"[green]OK[/green]  Ontology files: {len(ttl_files)} .ttl files in {bundled_dir}")
+        console.print(
+            f"[green]OK[/green]  Ontology files: {len(ttl_files)} .ttl files in {bundled_dir}"
+        )
     else:
         console.print(f"[red]ISSUE[/red]  No .ttl files found in {bundled_dir}")
         all_ok = False
@@ -116,7 +122,9 @@ def status_diagnose():
     if audit_dir.exists():
         console.print(f"[green]OK[/green]  Audit directory: {audit_dir}")
     else:
-        console.print(f"[yellow]ISSUE[/yellow]  Audit directory missing: {audit_dir} (will be created on first run)")
+        console.print(
+            f"[yellow]ISSUE[/yellow]  Audit directory missing: {audit_dir} (will be created on first run)"
+        )
 
     # 4. Mistral API key
     import os

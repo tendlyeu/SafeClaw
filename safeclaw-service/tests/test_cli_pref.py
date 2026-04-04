@@ -58,8 +58,7 @@ def test_pref_set_writes_to_data_dir(tmp_path):
     bundled_users.mkdir(parents=True)
     default_ttl = bundled_users / "user-default.ttl"
     default_ttl.write_text(
-        '@prefix su: <http://safeclaw.uku.ai/ontology/user#> .\n'
-        'su:confirmBeforeDelete false .\n'
+        "@prefix su: <http://safeclaw.uku.ai/ontology/user#> .\nsu:confirmBeforeDelete false .\n"
     )
     mock_cfg.get_ontology_dir.return_value = tmp_path / "bundled"
 
@@ -74,7 +73,7 @@ def test_pref_set_writes_to_data_dir(tmp_path):
     user_file = tmp_path / "ontologies" / "users" / "user-testuser.ttl"
     assert user_file.exists()
     # confirmBeforeDelete is a bare boolean in Turtle (not quoted)
-    assert 'su:confirmBeforeDelete true' in user_file.read_text()
+    assert "su:confirmBeforeDelete true" in user_file.read_text()
 
 
 def test_pref_set_max_files_per_commit_rejects_zero():
@@ -107,8 +106,7 @@ def test_pref_set_max_files_per_commit_accepts_valid(tmp_path):
     bundled_users.mkdir(parents=True)
     default_ttl = bundled_users / "user-default.ttl"
     default_ttl.write_text(
-        '@prefix su: <http://safeclaw.uku.ai/ontology/user#> .\n'
-        'su:maxFilesPerCommit 10 .\n'
+        "@prefix su: <http://safeclaw.uku.ai/ontology/user#> .\nsu:maxFilesPerCommit 10 .\n"
     )
     mock_cfg.get_ontology_dir.return_value = tmp_path / "bundled"
 
@@ -120,7 +118,7 @@ def test_pref_set_max_files_per_commit_accepts_valid(tmp_path):
     assert result.exit_code == 0
 
     user_file = tmp_path / "ontologies" / "users" / "user-testuser.ttl"
-    assert 'su:maxFilesPerCommit 25' in user_file.read_text()
+    assert "su:maxFilesPerCommit 25" in user_file.read_text()
 
 
 def test_pref_set_never_modify_paths_rejects_empty():
@@ -138,8 +136,7 @@ def test_pref_set_never_modify_paths_accepts_valid(tmp_path):
     bundled_users.mkdir(parents=True)
     default_ttl = bundled_users / "user-default.ttl"
     default_ttl.write_text(
-        '@prefix su: <http://safeclaw.uku.ai/ontology/user#> .\n'
-        'su:neverModifyPaths "old/path" .\n'
+        '@prefix su: <http://safeclaw.uku.ai/ontology/user#> .\nsu:neverModifyPaths "old/path" .\n'
     )
     mock_cfg.get_ontology_dir.return_value = tmp_path / "bundled"
 

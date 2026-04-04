@@ -71,9 +71,7 @@ class TestLoadConfig:
     def test_deep_merge_preserves_nested_defaults(self, tmp_path):
         config_path = tmp_path / "config.json"
         # Only override one nested key
-        config_path.write_text(json.dumps({
-            "audit": {"retentionDays": 30}
-        }))
+        config_path.write_text(json.dumps({"audit": {"retentionDays": 30}}))
         config = load_config(config_path)
         # Override applied
         assert config["audit"]["retentionDays"] == 30
@@ -93,6 +91,7 @@ class TestLoadConfig:
 def test_llm_config_defaults():
     """LLM config fields exist with correct defaults."""
     from safeclaw.config import SafeClawConfig
+
     config = SafeClawConfig()
     assert config.mistral_api_key == ""
     assert config.mistral_model == "mistral-small-latest"
@@ -105,5 +104,6 @@ def test_llm_config_defaults():
 def test_llm_disabled_without_api_key():
     """LLM is considered disabled when no API key is set."""
     from safeclaw.config import SafeClawConfig
+
     config = SafeClawConfig()
     assert config.mistral_api_key == ""

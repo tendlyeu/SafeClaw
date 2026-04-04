@@ -74,11 +74,12 @@ def _grant_expiry_cell(grant) -> str:
     return ", ".join(parts) if parts else "no expiry"
 
 
-def register(rt, get_engine, csrf_field=None, verify_csrf=None):
+def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=None):
     @rt("/agents")
     def agents_page(sess):
         engine = get_engine()
         agent_list = engine.agent_registry.list_agents()
+        token = get_csrf_token(sess) if get_csrf_token else ""
 
         if not agent_list:
             empty = Div(
@@ -87,7 +88,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
                 cls="empty-state",
             )
             content = Div(H2("Registered Agents"), empty, cls="panel")
-            return Page("Agents", content, active="agents")
+            return Page("Agents", content, active="agents", csrf_token=token)
 
         csrf = csrf_field(sess) if csrf_field else ""
 
@@ -251,7 +252,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
         )
 
         panel = Div(H2("Registered Agents"), agent_table, cls="panel")
-        return Page("Agents", panel, active="agents")
+        return Page("Agents", panel, active="agents", csrf_token=token)
 
     @rt("/agents/{agent_id}/kill", methods=["post"])
     def kill_agent(agent_id: str, sess, _csrf: str = ""):

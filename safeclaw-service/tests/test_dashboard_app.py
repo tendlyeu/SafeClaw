@@ -95,12 +95,19 @@ def test_home_page_shows_stats():
 
 
 def test_logout_clears_session(auth_client):
-    """After logging in, GET /logout redirects to /login and clears the session."""
+    """After logging in, POST /logout with CSRF token redirects to /login."""
+    import re
+
     # Log in first
     auth_client.post("/login", data={"password": "testpass123"})
 
-    # Logout
-    resp = auth_client.get("/logout")
+    # Visit an authenticated page to get the CSRF token from the logout form
+    page = auth_client.get("/", follow_redirects=True)
+    match = re.search(r'value="([^"]+)"[^>]*name="_csrf"', page.text)
+    csrf_token = match.group(1) if match else ""
+
+    # Logout via POST with CSRF token
+    resp = auth_client.post("/logout", data={"_csrf": csrf_token})
     assert resp.status_code == 303
     assert "/login" in resp.headers["location"]
 

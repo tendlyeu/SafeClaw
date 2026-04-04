@@ -23,9 +23,10 @@ import safeclaw.dashboard.components as _comp
 from safeclaw.dashboard.components import DecisionBadge, Page, RiskBadge
 
 
-def register(rt, get_engine):
+def register(rt, get_engine, get_csrf_token=None):
     @rt("/audit")
     def audit(
+        sess,
         filter: str = "",
         session_id: str = "",
         tool_name: str = "",
@@ -218,7 +219,15 @@ def register(rt, get_engine):
 
         results_panel = Div(H2("Results"), results_table, cls="panel")
 
-        return Page("Audit Log", filter_panel, export_row, results_panel, active="audit")
+        token = get_csrf_token(sess) if get_csrf_token else ""
+        return Page(
+            "Audit Log",
+            filter_panel,
+            export_row,
+            results_panel,
+            active="audit",
+            csrf_token=token,
+        )
 
     @rt("/audit/detail/{audit_id}")
     def audit_detail(audit_id: str):

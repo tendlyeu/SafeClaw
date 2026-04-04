@@ -31,6 +31,14 @@ async def lifespan(app: FastAPI):
     logger.info("Starting SafeClaw engine...")
     engine = FullEngine(_config, api_key_manager=_api_key_manager)
     logger.info("SafeClaw engine ready")
+    if _config.dev_mode:
+        logger.critical(
+            "DEV MODE ENABLED — admin endpoints have NO authentication. Do not use in production."
+        )
+    elif _config.admin_password:
+        logger.info("Admin auth: password required")
+    else:
+        logger.info("Admin auth: blocked (set SAFECLAW_ADMIN_PASSWORD or SAFECLAW_DEV_MODE=true)")
     yield
     logger.info("Shutting down SafeClaw engine")
     # Known benign race: engine may still be referenced by in-flight requests
@@ -58,6 +66,7 @@ app.add_middleware(
 _api_key_manager = None
 if _config.require_auth and _config.db_path:
     from safeclaw.auth.api_key import SQLiteAPIKeyManager
+
     _api_key_manager = SQLiteAPIKeyManager(_config.db_path)
 app.add_middleware(
     APIKeyAuthMiddleware,
@@ -117,9 +126,7 @@ async def health():
             "sessions": {"active": len(engine.session_tracker._sessions)},
             "agents": {
                 "registered": len(engine.agent_registry.list_agents()),
-                "active": sum(
-                    1 for a in engine.agent_registry.list_agents() if not a.killed
-                ),
+                "active": sum(1 for a in engine.agent_registry.list_agents() if not a.killed),
             },
         }
     return result

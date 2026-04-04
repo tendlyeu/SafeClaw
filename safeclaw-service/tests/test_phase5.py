@@ -7,6 +7,7 @@ from safeclaw.auth.api_key import APIKeyManager
 
 # --- APIKeyManager Tests ---
 
+
 class TestAPIKeyManager:
     def test_create_key_returns_raw_and_record(self):
         mgr = APIKeyManager()
@@ -208,10 +209,7 @@ class TestSQLiteAPIKeyManager:
             ")"
         )
         conn.execute(
-            "CREATE TABLE user ("
-            "  id INTEGER PRIMARY KEY,"
-            "  mistral_api_key TEXT DEFAULT ''"
-            ")"
+            "CREATE TABLE user (  id INTEGER PRIMARY KEY,  mistral_api_key TEXT DEFAULT '')"
         )
         conn.execute("INSERT INTO user (id, mistral_api_key) VALUES (?, ?)", (42, "mist_test_key"))
         conn.commit()
@@ -241,10 +239,7 @@ class TestSQLiteAPIKeyManager:
             ")"
         )
         conn.execute(
-            "CREATE TABLE user ("
-            "  id INTEGER PRIMARY KEY,"
-            "  mistral_api_key TEXT DEFAULT ''"
-            ")"
+            "CREATE TABLE user (  id INTEGER PRIMARY KEY,  mistral_api_key TEXT DEFAULT '')"
         )
         conn.execute("INSERT INTO user (id, mistral_api_key) VALUES (?, ?)", (42, ""))
         conn.commit()
@@ -255,6 +250,7 @@ class TestSQLiteAPIKeyManager:
 
 
 # --- APIKeyAuthMiddleware Tests ---
+
 
 class TestAPIKeyAuthMiddleware:
     """Tests for the auth middleware using mocked ASGI components."""
@@ -277,6 +273,7 @@ class TestAPIKeyAuthMiddleware:
 
 
 # --- Per-User LLM Client Tests ---
+
 
 class TestPerUserLLMClient:
     def test_get_llm_client_for_user_no_manager(self):

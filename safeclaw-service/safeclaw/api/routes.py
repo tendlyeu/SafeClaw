@@ -1,6 +1,7 @@
 """FastAPI route definitions for SafeClaw API."""
 
 import logging
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -48,6 +49,56 @@ from safeclaw.engine.core import (
 
 logger = logging.getLogger("safeclaw.api")
 
+# ── Module-level constants for inbound message evaluation ──────────
+# Compiled once at import time instead of per-request.
+
+_CHANNEL_TRUST: dict[str, str] = {
+    "direct_message": "high",
+    "dm": "high",
+    "group_message": "medium",
+    "group": "medium",
+    "public_channel": "low",
+    "public": "low",
+    "webhook": "untrusted",
+    "webhook_message": "untrusted",
+    "api": "untrusted",
+}
+
+_INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (
+        re.compile(
+            r"(?i)ignore\s+(all\s+)?(previous|prior|above)"
+            r"\s+(instructions?|prompts?|rules?)",
+        ),
+        "prompt_injection_ignore_instructions",
+    ),
+    (
+        re.compile(r"(?i)you\s+are\s+now\s+(a|an|in)\s+"),
+        "prompt_injection_role_override",
+    ),
+    (
+        re.compile(r"(?i)system\s*prompt\s*[:=]"),
+        "prompt_injection_system_prompt",
+    ),
+    (
+        re.compile(
+            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)"
+            r"\s+(rules|guidelines|instructions)",
+        ),
+        "prompt_injection_rule_override",
+    ),
+    (
+        re.compile(
+            r"(?i)\[/?INST\]|\[/?SYS\]|<\|im_start\|>|<\|im_end\|>",
+        ),
+        "prompt_injection_special_tokens",
+    ),
+    (
+        re.compile(r"(?i)pretend\s+(you\s+)?(are|to\s+be)\s+"),
+        "prompt_injection_pretend",
+    ),
+]
+
 router = APIRouter()
 
 
@@ -85,9 +136,7 @@ async def require_admin(request: Request):
         return
     provided = request.headers.get("X-Admin-Password", "")
     if not engine.config.verify_admin_password(provided):
-        raise HTTPException(
-            status_code=403, detail="Admin access required"
-        )
+        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 def _get_engine():
@@ -118,11 +167,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
     _verify_agent_token(engine, request.agentId, request.agentToken)
     # Use org_id from API key auth (numeric DB user ID) if available,
     # otherwise fall back to client-supplied userId, then "default"
-    user_id = (
-        getattr(req.state, "org_id", None)
-        or request.userId
-        or f"anon:{request.sessionId}"
-    )
+    user_id = getattr(req.state, "org_id", None) or request.userId or f"anon:{request.sessionId}"
     # Sanitize params to strip control characters that could be used for
     # prompt injection when params are later included in LLM prompts
     sanitized_params = _sanitize_params(request.params)
@@ -165,11 +210,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
 async def evaluate_message(request: MessageRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = (
-        getattr(req.state, "org_id", None)
-        or request.userId
-        or f"anon:{request.sessionId}"
-    )
+    user_id = getattr(req.state, "org_id", None) or request.userId or f"anon:{request.sessionId}"
     # Sanitize message content to strip control characters
     sanitized_content = _sanitize_string(request.content)
     event = MessageEvent(
@@ -191,7 +232,9 @@ async def evaluate_message(request: MessageRequest, req: Request) -> DecisionRes
 
 
 @router.post("/evaluate/inbound-message", response_model=InboundMessageResponse)
-async def evaluate_inbound_message(request: InboundMessageRequest, req: Request) -> InboundMessageResponse:
+async def evaluate_inbound_message(
+    request: InboundMessageRequest, req: Request
+) -> InboundMessageResponse:
     """Evaluate inbound messages for prompt injection risk.
 
     Assesses risk based on:
@@ -199,28 +242,14 @@ async def evaluate_inbound_message(request: InboundMessageRequest, req: Request)
     - Content analysis for prompt injection patterns
     - Sender metadata
     """
-    import re
-
     engine = _get_engine()
     _verify_agent_token(engine, request.userId, getattr(request, "agentToken", None))
     sanitized_content = _sanitize_string(request.content)
     flags: list[str] = []
     warnings: list[str] = []
 
-    # Channel trust mapping — derived from the channel ontology
-    channel_trust: dict[str, str] = {
-        "direct_message": "high",
-        "dm": "high",
-        "group_message": "medium",
-        "group": "medium",
-        "public_channel": "low",
-        "public": "low",
-        "webhook": "untrusted",
-        "webhook_message": "untrusted",
-        "api": "untrusted",
-    }
     channel_key = request.channel.lower().replace("-", "_").replace(" ", "_")
-    trust_level = channel_trust.get(channel_key, "low")
+    trust_level = _CHANNEL_TRUST.get(channel_key, "low")
 
     # Start with risk based on channel trust
     risk_level = "low"
@@ -231,29 +260,7 @@ async def evaluate_inbound_message(request: InboundMessageRequest, req: Request)
         risk_level = "low"
         flags.append("low_trust_channel")
 
-    # Prompt injection detection patterns
-    injection_patterns = [
-        (re.compile(
-            r"(?i)ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)",
-        ), "prompt_injection_ignore_instructions"),
-        (re.compile(
-            r"(?i)you\s+are\s+now\s+(a|an|in)\s+",
-        ), "prompt_injection_role_override"),
-        (re.compile(
-            r"(?i)system\s*prompt\s*[:=]",
-        ), "prompt_injection_system_prompt"),
-        (re.compile(
-            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)\s+(rules|guidelines|instructions)",
-        ), "prompt_injection_rule_override"),
-        (re.compile(
-            r"(?i)\[/?INST\]|\[/?SYS\]|<\|im_start\|>|<\|im_end\|>",
-        ), "prompt_injection_special_tokens"),
-        (re.compile(
-            r"(?i)pretend\s+(you\s+)?(are|to\s+be)\s+",
-        ), "prompt_injection_pretend"),
-    ]
-
-    for pattern, flag in injection_patterns:
+    for pattern, flag in _INJECTION_PATTERNS:
         if pattern.search(sanitized_content):
             flags.append(flag)
 
@@ -269,9 +276,7 @@ async def evaluate_inbound_message(request: InboundMessageRequest, req: Request)
             risk_level = "high"
         else:
             risk_level = "medium"
-        warnings.append(
-            f"Prompt injection pattern detected: {injection_flags[0]}"
-        )
+        warnings.append(f"Prompt injection pattern detected: {injection_flags[0]}")
 
     # Empty sender from untrusted channel is suspicious
     if not request.sender and trust_level == "untrusted":
@@ -305,15 +310,19 @@ async def evaluate_sandbox_policy(
     policy = request.policy
 
     if not policy.get("toolPolicy"):
-        violations.append({
-            "field": "toolPolicy",
-            "message": "Sandbox must define a tool policy",
-        })
+        violations.append(
+            {
+                "field": "toolPolicy",
+                "message": "Sandbox must define a tool policy",
+            }
+        )
     if not policy.get("filesystemPolicy"):
-        violations.append({
-            "field": "filesystemPolicy",
-            "message": "Sandbox must define filesystem boundaries",
-        })
+        violations.append(
+            {
+                "field": "filesystemPolicy",
+                "message": "Sandbox must define filesystem boundaries",
+            }
+        )
 
     # Validate mount points if present
     fs_policy = policy.get("filesystemPolicy", {})
@@ -323,16 +332,20 @@ async def evaluate_sandbox_policy(
             if not isinstance(mount, dict):
                 continue
             if not mount.get("path"):
-                violations.append({
-                    "field": f"filesystemPolicy.mounts[{i}].path",
-                    "message": "Mount point must specify a path",
-                })
+                violations.append(
+                    {
+                        "field": f"filesystemPolicy.mounts[{i}].path",
+                        "message": "Mount point must specify a path",
+                    }
+                )
             mode = mount.get("mode", "")
             if mode not in ("read-only", "read-write"):
-                violations.append({
-                    "field": f"filesystemPolicy.mounts[{i}].mode",
-                    "message": "Mount mode must be read-only or read-write",
-                })
+                violations.append(
+                    {
+                        "field": f"filesystemPolicy.mounts[{i}].mode",
+                        "message": "Mount mode must be read-only or read-write",
+                    }
+                )
 
     # Validate denied tools have names
     tool_policy = policy.get("toolPolicy", {})
@@ -340,10 +353,12 @@ async def evaluate_sandbox_policy(
     if isinstance(denied, list):
         for i, tool in enumerate(denied):
             if isinstance(tool, dict) and not tool.get("name"):
-                violations.append({
-                    "field": f"toolPolicy.denied[{i}].name",
-                    "message": "Denied tool must specify a name",
-                })
+                violations.append(
+                    {
+                        "field": f"toolPolicy.denied[{i}].name",
+                        "message": "Denied tool must specify a name",
+                    }
+                )
 
     return SandboxPolicyValidationResponse(
         conformant=len(violations) == 0,
@@ -374,11 +389,7 @@ async def start_session(request: SessionStartRequest, req: Request) -> SessionSt
     """
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = (
-        getattr(req.state, "org_id", None)
-        or request.userId
-        or f"anon:{request.sessionId}"
-    )
+    user_id = getattr(req.state, "org_id", None) or request.userId or f"anon:{request.sessionId}"
     owner_id = request.agentId or user_id
 
     # Initialize session tracker state with the owner
@@ -427,11 +438,7 @@ async def end_session(request: SessionEndRequest, req: Request):
 async def record_tool_result(request: ToolResultRequest, req: Request):
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
-    user_id = (
-        getattr(req.state, "org_id", None)
-        or request.userId
-        or f"anon:{request.sessionId}"
-    )
+    user_id = getattr(req.state, "org_id", None) or request.userId or f"anon:{request.sessionId}"
     # Sanitize params: strip control characters from string values that could be
     # used for prompt injection when session history is injected into LLM context
     sanitized_params = _sanitize_params(request.params)
@@ -451,7 +458,9 @@ async def record_tool_result(request: ToolResultRequest, req: Request):
 
 
 @router.post("/evaluate/subagent-spawn", response_model=SubagentSpawnResponse)
-async def evaluate_subagent_spawn(request: SubagentSpawnRequest, req: Request) -> SubagentSpawnResponse:
+async def evaluate_subagent_spawn(
+    request: SubagentSpawnRequest, req: Request
+) -> SubagentSpawnResponse:
     """Evaluate whether a subagent spawn should be allowed.
 
     Checks for delegation bypass: if the parent agent has recent blocks and the
@@ -487,9 +496,7 @@ async def evaluate_subagent_spawn(request: SubagentSpawnRequest, req: Request) -
         detector = engine.delegation_detector
         if detector.mode != "disabled":
             now = monotonic()
-            child_tool_set = {
-                _normalize_tool_name(t) for t in child_tools if isinstance(t, str)
-            }
+            child_tool_set = {_normalize_tool_name(t) for t in child_tools if isinstance(t, str)}
             for record in detector._blocks:
                 if (
                     record.agent_id == parent_id
@@ -516,7 +523,9 @@ async def evaluate_subagent_spawn(request: SubagentSpawnRequest, req: Request) -
 
 
 @router.post("/record/subagent-ended", response_model=SubagentEndedResponse)
-async def record_subagent_ended(request: SubagentEndedRequest, req: Request) -> SubagentEndedResponse:
+async def record_subagent_ended(
+    request: SubagentEndedRequest, req: Request
+) -> SubagentEndedResponse:
     """Record subagent completion for audit trail."""
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
@@ -611,8 +620,6 @@ async def get_preferences(user_id: str):
 @router.post("/preferences/{user_id}", dependencies=[Depends(require_admin)])
 async def update_preferences(user_id: str, request: PreferencesRequest):
     """Update user preferences — writes Turtle file."""
-    import re
-
     engine = _get_engine()
     safe_user_id = re.sub(r"[^a-zA-Z0-9_-]", "", user_id)
 

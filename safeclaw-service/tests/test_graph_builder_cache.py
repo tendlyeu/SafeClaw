@@ -30,18 +30,14 @@ def test_new_kg_gets_fresh_generation_even_if_same_id():
     gc.collect()
 
     # The finalizer should have cleaned up the stale entry
-    assert kg1_id not in _kg_generations, (
-        "_kg_generations should not contain the old id after GC"
-    )
+    assert kg1_id not in _kg_generations, "_kg_generations should not contain the old id after GC"
 
     # Create a new KG — CPython often reuses the same address
     kg2 = KnowledgeGraph()
     gen2 = _get_generation(kg2)
 
     # Even if id(kg2) == kg1_id, the generation must be different
-    assert gen2 != gen1, (
-        f"New KG got stale generation {gen1}; expected a fresh one"
-    )
+    assert gen2 != gen1, f"New KG got stale generation {gen1}; expected a fresh one"
 
 
 def test_generation_stable_while_kg_alive():

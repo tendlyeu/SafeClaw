@@ -11,6 +11,7 @@ from safeclaw.engine.knowledge_store import KnowledgeStore
 
 # --- Helpers ---
 
+
 def _make_action(
     ontology_class: str = "ReadFile",
     risk_level: str = "LowRisk",
@@ -45,6 +46,7 @@ def _make_derived_result(requires_confirmation: bool = False, reason: str = ""):
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def mock_classifier():
     return MagicMock()
@@ -76,8 +78,11 @@ def user_prefs():
 
 # --- PlanReasoner Tests ---
 
+
 class TestPlanReasoner:
-    def test_all_safe_steps_no_errors(self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs):
+    def test_all_safe_steps_no_errors(
+        self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs
+    ):
         """assess_plan with all-safe steps returns no errors."""
         safe_action = _make_action("ReadFile", "LowRisk")
         mock_classifier.classify.return_value = safe_action
@@ -94,7 +99,9 @@ class TestPlanReasoner:
         assert not assessment.has_warnings
         assert assessment.total_risk_score == 2  # 1 + 1
 
-    def test_detects_policy_violation(self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs):
+    def test_detects_policy_violation(
+        self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs
+    ):
         """assess_plan detects policy violations."""
         action = _make_action("DeleteFile", "CriticalRisk", is_reversible=False)
         mock_classifier.classify.return_value = action
@@ -103,7 +110,9 @@ class TestPlanReasoner:
         )
         mock_derived_checker.check.return_value = _make_derived_result(requires_confirmation=False)
 
-        steps = [PlanStep(tool_name="exec", params={"command": "rm -rf /etc"}, description="Delete")]
+        steps = [
+            PlanStep(tool_name="exec", params={"command": "rm -rf /etc"}, description="Delete")
+        ]
         assessment = reasoner.assess_plan(steps, user_prefs)
 
         assert assessment.has_errors
@@ -112,16 +121,24 @@ class TestPlanReasoner:
         assert policy_issues[0].severity == "error"
         assert "Deleting protected file" in policy_issues[0].message
 
-    def test_detects_irreversible_action(self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs):
+    def test_detects_irreversible_action(
+        self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs
+    ):
         """assess_plan detects irreversible actions requiring confirmation."""
-        action = _make_action("ForcePush", "CriticalRisk", is_reversible=False, affects_scope="SharedState")
+        action = _make_action(
+            "ForcePush", "CriticalRisk", is_reversible=False, affects_scope="SharedState"
+        )
         mock_classifier.classify.return_value = action
         mock_policy_checker.check.return_value = _make_policy_result(violated=False)
         mock_derived_checker.check.return_value = _make_derived_result(
             requires_confirmation=True, reason="CriticalRisk and irreversible"
         )
 
-        steps = [PlanStep(tool_name="exec", params={"command": "git push --force"}, description="Force push")]
+        steps = [
+            PlanStep(
+                tool_name="exec", params={"command": "git push --force"}, description="Force push"
+            )
+        ]
         assessment = reasoner.assess_plan(steps, user_prefs)
 
         assert assessment.has_warnings
@@ -129,7 +146,9 @@ class TestPlanReasoner:
         assert len(irreversible_issues) == 1
         assert irreversible_issues[0].severity == "warning"
 
-    def test_detects_cumulative_risk_above_threshold(self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs):
+    def test_detects_cumulative_risk_above_threshold(
+        self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs
+    ):
         """assess_plan detects cumulative risk above threshold (>30)."""
         # CriticalRisk score is 15, so 3 steps = 45 > 30
         action = _make_action("DeleteFile", "CriticalRisk", is_reversible=False)
@@ -149,7 +168,9 @@ class TestPlanReasoner:
         assert len(cumulative_issues) == 1
         assert "45" in cumulative_issues[0].message
 
-    def test_detects_dependency_ordering_later(self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs):
+    def test_detects_dependency_ordering_later(
+        self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs
+    ):
         """assess_plan detects dependency ordering issues when requirement appears later."""
         # GitPush requires RunTests. Put GitPush first, RunTests second.
         actions = [
@@ -172,7 +193,9 @@ class TestPlanReasoner:
         assert "RunTests" in error_deps[0].message
         assert "later" in error_deps[0].message
 
-    def test_detects_missing_dependency(self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs):
+    def test_detects_missing_dependency(
+        self, reasoner, mock_classifier, mock_policy_checker, mock_derived_checker, user_prefs
+    ):
         """assess_plan detects missing dependencies not present in plan."""
         # GitPush requires RunTests, but RunTests is not in the plan at all
         actions = [
@@ -200,20 +223,30 @@ class TestPlanReasoner:
         assert not empty.has_warnings
 
         from safeclaw.engine.plan_reasoner import PlanIssue
-        with_error = PlanAssessment(issues=[
-            PlanIssue(step_index=0, severity="error", issue_type="policy_violation", message="bad"),
-        ])
+
+        with_error = PlanAssessment(
+            issues=[
+                PlanIssue(
+                    step_index=0, severity="error", issue_type="policy_violation", message="bad"
+                ),
+            ]
+        )
         assert with_error.has_errors
         assert not with_error.has_warnings
 
-        with_warning = PlanAssessment(issues=[
-            PlanIssue(step_index=0, severity="warning", issue_type="irreversible", message="careful"),
-        ])
+        with_warning = PlanAssessment(
+            issues=[
+                PlanIssue(
+                    step_index=0, severity="warning", issue_type="irreversible", message="careful"
+                ),
+            ]
+        )
         assert not with_warning.has_errors
         assert with_warning.has_warnings
 
 
 # --- KnowledgeStore Tests ---
+
 
 class TestKnowledgeStore:
     def test_record_and_get_fact(self, tmp_path):
@@ -280,6 +313,7 @@ class TestKnowledgeStore:
     def test_eviction_when_max_entries_exceeded(self, tmp_path, monkeypatch):
         """Eviction when MAX_ENTRIES exceeded removes oldest entries."""
         import safeclaw.engine.knowledge_store as ks_mod
+
         monkeypatch.setattr(ks_mod, "MAX_ENTRIES", 20)
 
         store = KnowledgeStore(tmp_path / "kb")
@@ -313,5 +347,3 @@ class TestKnowledgeStore:
         assert len(store.get_facts()) == 0
         assert store.get_fact("file_structure:a.py") is None
         assert not store_file.exists()
-
-

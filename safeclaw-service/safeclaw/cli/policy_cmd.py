@@ -71,9 +71,7 @@ def add_policy(
         "-t",
         help="prohibition = blocks actions, obligation = requires actions, permission = allows actions",
     ),
-    reason: str = typer.Option(
-        ..., "--reason", "-r", help="Human-readable reason for this policy"
-    ),
+    reason: str = typer.Option(..., "--reason", "-r", help="Human-readable reason for this policy"),
     path_pattern: str = typer.Option(
         None, "--path-pattern", help="Regex for forbidden file paths (e.g., 'staging/.*')"
     ),
@@ -115,7 +113,9 @@ def add_policy(
 
     if not _re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]*", name):
         console.print(f"[red]Error: Invalid policy name '{name}'.[/red]")
-        console.print("Must start with a letter or underscore, followed by letters, digits, hyphens, or underscores.")
+        console.print(
+            "Must start with a letter or underscore, followed by letters, digits, hyphens, or underscores."
+        )
         console.print("Examples: NoProdDeploy, require_tests, block-rm-rf")
         raise typer.Exit(1)
 
@@ -314,7 +314,9 @@ def add_nl(
         console.print("[red]Error: Failed to compile policy:[/red]")
         for err in result.validation_errors:
             console.print(f"  - {err}")
-        console.print("\nTry rephrasing your description or use [bold]safeclaw policy add[/bold] for manual entry.")
+        console.print(
+            "\nTry rephrasing your description or use [bold]safeclaw policy add[/bold] for manual entry."
+        )
         raise typer.Exit(1)
 
     # Validate LLM-generated policy name is safe for Turtle IRI

@@ -28,6 +28,7 @@ class KnowledgeGraph:
                 self.load_ontology(ttl_file)
             except Exception as e:
                 import logging
+
                 logging.getLogger("safeclaw.kg").error(f"Failed to parse {ttl_file}: {e}")
                 self.failed_files.append(str(ttl_file))
                 continue

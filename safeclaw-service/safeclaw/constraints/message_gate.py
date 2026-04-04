@@ -14,13 +14,19 @@ SENSITIVE_PATTERNS = [
     # Base64: match 40+ base64 chars optionally followed by padding.
     # Valid base64 with padding has a last group of 2-3 chars + 1-2 '=' padding,
     # so we allow the final group to be 2-4 chars.
-    (re.compile(
-        r"(?:^|[\s=])(?:[A-Za-z0-9+/]{4}){9,}[A-Za-z0-9+/]{2,4}={1,2}(?:\s|$)",
-        re.MULTILINE,
-    ), "Base64 encoded string (possible secret)"),
-    (re.compile(
-        r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*\S+",
-    ), "API key or token"),
+    (
+        re.compile(
+            r"(?:^|[\s=])(?:[A-Za-z0-9+/]{4}){9,}[A-Za-z0-9+/]{2,4}={1,2}(?:\s|$)",
+            re.MULTILINE,
+        ),
+        "Base64 encoded string (possible secret)",
+    ),
+    (
+        re.compile(
+            r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*\S+",
+        ),
+        "API key or token",
+    ),
     (re.compile(r"(?i)(password|passwd|pwd)\s*[:=]\s*\S+"), "Password"),
     # GitHub tokens: classic (ghp_/gho_/ghu_/ghs_/ghr_) and fine-grained (github_pat_)
     (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b"), "GitHub token"),
@@ -28,9 +34,13 @@ SENSITIVE_PATTERNS = [
     # OpenAI keys: classic (sk-...) and project-scoped (sk-proj-...)
     (re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9-]{20,}\b"), "OpenAI/Stripe secret key"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AWS Access Key ID"),
-    (re.compile(
-        r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----", re.MULTILINE,
-    ), "Private key"),
+    (
+        re.compile(
+            r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----",
+            re.MULTILINE,
+        ),
+        "Private key",
+    ),
 ]
 
 # Patterns for risk level classification (case-insensitive)

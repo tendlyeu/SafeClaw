@@ -1,6 +1,5 @@
 """Tests for the audit system."""
 
-
 from safeclaw.audit.logger import AuditLogger
 from safeclaw.audit.models import (
     ActionDetail,

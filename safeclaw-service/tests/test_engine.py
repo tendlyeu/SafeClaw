@@ -165,6 +165,7 @@ def test_policy_checker_safe_match_malformed_regex():
     kg.graph.add((policy_node, SP["forbiddenCommandPattern"], Literal("[unclosed")))
     kg.graph.add((policy_node, SP["reason"], Literal("Bad regex test")))
     from rdflib import RDF
+
     kg.graph.add((policy_node, RDF.type, sp["Prohibition"]))
 
     checker = PolicyChecker(kg)

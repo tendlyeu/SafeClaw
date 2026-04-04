@@ -60,7 +60,7 @@ def _mask_key(key: str) -> str:
     return key[:4] + "..." + key[-4:]
 
 
-def register(rt, get_engine, csrf_field=None, verify_csrf=None):
+def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=None):
     @rt("/settings")
     def settings(sess):
         engine = get_engine()
@@ -200,6 +200,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             cls="panel",
         )
 
+        token = get_csrf_token(sess) if get_csrf_token else ""
         return Page(
             "Settings",
             flash_el,
@@ -209,6 +210,7 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
             preferences_panel,
             config_panel,
             active="settings",
+            csrf_token=token,
         )
 
     @rt("/settings/api-key", methods=["post"])
@@ -377,7 +379,14 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None):
         safe_user_id = re.sub(r"[^a-zA-Z0-9_-]", "", user_id)
 
         # Validate autonomy_level against allowlist to prevent Turtle injection
-        VALID_AUTONOMY_LEVELS = {"autonomous", "moderate", "supervised", "conservative", "locked", "cautious"}
+        VALID_AUTONOMY_LEVELS = {
+            "autonomous",
+            "moderate",
+            "supervised",
+            "conservative",
+            "locked",
+            "cautious",
+        }
         if autonomy_level not in VALID_AUTONOMY_LEVELS:
             return Response("Invalid autonomy level", status_code=400)
 

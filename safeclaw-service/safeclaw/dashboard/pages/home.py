@@ -138,12 +138,13 @@ def _build_home_content(engine):
     )
 
 
-def register(rt, get_engine):
+def register(rt, get_engine, get_csrf_token=None):
     @rt("/")
-    def home():
+    def home(sess):
         engine = get_engine()
         content = _build_home_content(engine)
-        return Page("Home", content, active="home")
+        token = get_csrf_token(sess) if get_csrf_token else ""
+        return Page("Home", content, active="home", csrf_token=token)
 
     @rt("/partials/home-stats")
     def home_stats_partial():

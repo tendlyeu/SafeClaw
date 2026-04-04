@@ -11,10 +11,16 @@ def db_with_user(tmp_path):
     """Create a writable SQLite DB with a user who has audit_logging enabled."""
     db_path = str(tmp_path / "test.db")
     conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE user (id INTEGER PRIMARY KEY, mistral_api_key TEXT DEFAULT '', audit_logging INTEGER DEFAULT 1)")
+    conn.execute(
+        "CREATE TABLE user (id INTEGER PRIMARY KEY, mistral_api_key TEXT DEFAULT '', audit_logging INTEGER DEFAULT 1)"
+    )
     conn.execute("INSERT INTO user (id, audit_logging) VALUES (1, 1)")
-    conn.execute("CREATE TABLE api_key (id INTEGER PRIMARY KEY, user_id INTEGER, key_id TEXT, key_hash TEXT, label TEXT, scope TEXT, created_at TEXT, is_active BOOLEAN)")
-    conn.execute("CREATE TABLE audit_log (id INTEGER PRIMARY KEY, user_id INTEGER, timestamp TEXT, session_id TEXT, tool_name TEXT, params_summary TEXT, decision TEXT, risk_level TEXT, reason TEXT, elapsed_ms REAL)")
+    conn.execute(
+        "CREATE TABLE api_key (id INTEGER PRIMARY KEY, user_id INTEGER, key_id TEXT, key_hash TEXT, label TEXT, scope TEXT, created_at TEXT, is_active BOOLEAN)"
+    )
+    conn.execute(
+        "CREATE TABLE audit_log (id INTEGER PRIMARY KEY, user_id INTEGER, timestamp TEXT, session_id TEXT, tool_name TEXT, params_summary TEXT, decision TEXT, risk_level TEXT, reason TEXT, elapsed_ms REAL)"
+    )
     conn.commit()
     conn.close()
     return db_path

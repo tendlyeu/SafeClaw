@@ -140,16 +140,18 @@ def create_dashboard(get_engine_fn, mount_prefix: str = ""):
             return RedirectResponse(f"{_prefix}/", status_code=303)
         return RedirectResponse(f"{_prefix}/login?error=1", status_code=303)
 
-    @rt("/logout")
-    def logout(sess):
+    @rt("/logout", methods=["post"])
+    def logout(sess, _csrf: str = ""):
+        if not verify_csrf(sess, _csrf):
+            return RedirectResponse(f"{_prefix}/login", status_code=303)
         sess.clear()
         return RedirectResponse(f"{_prefix}/login", status_code=303)
 
     # ── Register page modules ───────────────────────────────────
 
-    home.register(rt, _engine)
-    audit.register(rt, _engine)
-    agents.register(rt, _engine, csrf_field, verify_csrf)
-    settings.register(rt, _engine, csrf_field, verify_csrf)
+    home.register(rt, _engine, get_csrf_token)
+    audit.register(rt, _engine, get_csrf_token)
+    agents.register(rt, _engine, csrf_field, verify_csrf, get_csrf_token)
+    settings.register(rt, _engine, csrf_field, verify_csrf, get_csrf_token)
 
     return app

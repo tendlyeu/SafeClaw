@@ -26,10 +26,15 @@ class TestConnectCommand:
         config_path = tmp_path / ".safeclaw" / "config.json"
         monkeypatch.setattr("safeclaw.cli.connect_cmd.get_config_path", lambda: config_path)
 
-        result = runner.invoke(app, [
-            "connect", "sc_test_key_12345",
-            "--service-url", "http://localhost:8420/api/v1",
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "sc_test_key_12345",
+                "--service-url",
+                "http://localhost:8420/api/v1",
+            ],
+        )
         assert result.exit_code == 0
 
         config = json.loads(config_path.read_text())
@@ -44,11 +49,15 @@ class TestConnectCommand:
     def test_connect_merges_existing_config(self, tmp_path, monkeypatch):
         config_path = tmp_path / ".safeclaw" / "config.json"
         config_path.parent.mkdir(parents=True)
-        config_path.write_text(json.dumps({
-            "enabled": True,
-            "userId": "existing-user",
-            "remote": {"serviceUrl": "http://old.example.com", "apiKey": "old_key"},
-        }))
+        config_path.write_text(
+            json.dumps(
+                {
+                    "enabled": True,
+                    "userId": "existing-user",
+                    "remote": {"serviceUrl": "http://old.example.com", "apiKey": "old_key"},
+                }
+            )
+        )
         monkeypatch.setattr("safeclaw.cli.connect_cmd.get_config_path", lambda: config_path)
 
         result = runner.invoke(app, ["connect", "sc_new_key_67890"])

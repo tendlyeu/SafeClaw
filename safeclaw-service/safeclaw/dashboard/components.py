@@ -2,8 +2,11 @@
 
 from fasthtml.common import (
     A,
+    Button,
     Div,
+    Form,
     H1,
+    Hidden,
     Main,
     Nav,
     Script,
@@ -325,17 +328,23 @@ _NAV_PATHS = [
 ]
 
 
-def NavBar(active: str = "home"):
+def NavBar(active: str = "home", csrf_token: str = ""):
     """Sticky top navigation bar."""
     p = MOUNT_PREFIX
     links = [
         A(label, href=f"{p}{path}", cls="active" if key == active else "")
         for label, path, key in _NAV_PATHS
     ]
+    logout_form = Form(
+        Hidden(name="_csrf", value=csrf_token),
+        Button("Logout", type="submit", cls="nav-logout-btn"),
+        method="post",
+        action=f"{p}/logout",
+    )
     return Nav(
         A("SafeClaw Admin", href=f"{p}/", cls="logo"),
         Div(*links, cls="nav-links"),
-        Div(A("Logout", href=f"{p}/logout"), cls="nav-right"),
+        Div(logout_form, cls="nav-right"),
         cls="dashboard-nav",
     )
 
@@ -369,12 +378,12 @@ def NotificationListener():
     )
 
 
-def Page(title_text: str, *content, active: str = "home"):
+def Page(title_text: str, *content, active: str = "home", csrf_token: str = ""):
     """Wrap page content with the standard dashboard layout."""
     return (
         Title(f"{title_text} - SafeClaw Admin"),
         DashboardCSS(),
-        NavBar(active=active),
+        NavBar(active=active, csrf_token=csrf_token),
         Main(Div(H1(title_text), *content, cls="dashboard-container")),
         NotificationListener(),
     )

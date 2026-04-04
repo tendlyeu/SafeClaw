@@ -1,0 +1,161 @@
+<h2>Users Page — Admin View</h2>
+<p class="subtitle">The main user management page at /dashboard/users</p>
+
+<div class="mockup">
+  <div class="mockup-header">SafeClaw Dashboard — Users</div>
+  <div class="mockup-body" style="display:flex; min-height:500px; background:#0a0a0a; color:#e5e5e5;">
+    <!-- Sidebar -->
+    <div style="width:200px; min-width:200px; padding:20px; border-right:1px solid #2a2a2a; font-size:13px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:12px;">HA</div>
+        <div>
+          <div style="font-weight:600;">Henrik Aavik</div>
+          <div style="color:#888;font-size:11px;">henrikaavik</div>
+        </div>
+      </div>
+      <hr style="border-color:#2a2a2a;margin:12px 0;">
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <a href="#" style="color:#888;padding:6px 8px;border-radius:4px;text-decoration:none;">Overview</a>
+        <a href="#" style="color:#888;padding:6px 8px;border-radius:4px;text-decoration:none;">API Keys</a>
+        <a href="#" style="color:#888;padding:6px 8px;border-radius:4px;text-decoration:none;">Agents</a>
+        <a href="#" style="color:#888;padding:6px 8px;border-radius:4px;text-decoration:none;">Audit Log</a>
+        <a href="#" style="background:#1a1a3a;color:#60a5fa;padding:6px 8px;border-radius:4px;text-decoration:none;font-weight:600;">&#x1f465; Users</a>
+        <a href="#" style="color:#888;padding:6px 8px;border-radius:4px;text-decoration:none;">Preferences</a>
+      </div>
+    </div>
+    <!-- Main content -->
+    <div style="flex:1;padding:24px;max-width:800px;">
+      <h2 style="margin:0 0 4px;font-size:20px;color:#f5f5f5;">Users</h2>
+      <p style="color:#888;font-size:13px;margin:0 0 20px;">Manage SafeClaw users, roles, and access.</p>
+
+      <!-- Stats row -->
+      <div style="display:flex;gap:12px;margin-bottom:20px;">
+        <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:12px 16px;flex:1;">
+          <div style="color:#888;font-size:11px;text-transform:uppercase;">Total Users</div>
+          <div style="font-size:24px;font-weight:700;color:#f5f5f5;">4</div>
+        </div>
+        <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:12px 16px;flex:1;">
+          <div style="color:#888;font-size:11px;text-transform:uppercase;">Admins</div>
+          <div style="font-size:24px;font-weight:700;color:#60a5fa;">2</div>
+        </div>
+        <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:12px 16px;flex:1;">
+          <div style="color:#888;font-size:11px;text-transform:uppercase;">Disabled</div>
+          <div style="font-size:24px;font-weight:700;color:#f87171;">1</div>
+        </div>
+      </div>
+
+      <!-- User table -->
+      <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:1px solid #2a2a2a;">
+              <th style="text-align:left;padding:10px 14px;color:#888;font-weight:500;">User</th>
+              <th style="text-align:left;padding:10px 14px;color:#888;font-weight:500;">Role</th>
+              <th style="text-align:left;padding:10px 14px;color:#888;font-weight:500;">Status</th>
+              <th style="text-align:left;padding:10px 14px;color:#888;font-weight:500;">Last Login</th>
+              <th style="text-align:left;padding:10px 14px;color:#888;font-weight:500;">Keys</th>
+              <th style="text-align:right;padding:10px 14px;color:#888;font-weight:500;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid #1f1f1f;">
+              <td style="padding:10px 14px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:28px;height:28px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;">HA</div>
+                  <div>
+                    <div style="font-weight:500;">Henrik Aavik</div>
+                    <div style="color:#888;font-size:11px;">henrikaavik</div>
+                  </div>
+                </div>
+              </td>
+              <td style="padding:10px 14px;">
+                <span style="background:#1e3a5f;color:#60a5fa;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;">Admin</span>
+                <span style="background:#1a1a2e;color:#818cf8;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;margin-left:4px;">env</span>
+              </td>
+              <td style="padding:10px 14px;"><span style="color:#4ade80;">Active</span></td>
+              <td style="padding:10px 14px;color:#888;">2 hours ago</td>
+              <td style="padding:10px 14px;">3</td>
+              <td style="padding:10px 14px;text-align:right;">
+                <a href="#" style="color:#60a5fa;font-size:12px;text-decoration:none;">View &rarr;</a>
+              </td>
+            </tr>
+            <tr style="border-bottom:1px solid #1f1f1f;">
+              <td style="padding:10px 14px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:28px;height:28px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;">MK</div>
+                  <div>
+                    <div style="font-weight:500;">Marek Kask</div>
+                    <div style="color:#888;font-size:11px;">marekkask</div>
+                  </div>
+                </div>
+              </td>
+              <td style="padding:10px 14px;">
+                <span style="background:#1e3a5f;color:#60a5fa;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;">Admin</span>
+              </td>
+              <td style="padding:10px 14px;"><span style="color:#4ade80;">Active</span></td>
+              <td style="padding:10px 14px;color:#888;">Yesterday</td>
+              <td style="padding:10px 14px;">1</td>
+              <td style="padding:10px 14px;text-align:right;">
+                <a href="#" style="color:#60a5fa;font-size:12px;text-decoration:none;">View &rarr;</a>
+                <button style="background:#1e3a5f;color:#60a5fa;border:none;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:8px;">Demote</button>
+              </td>
+            </tr>
+            <tr style="border-bottom:1px solid #1f1f1f;">
+              <td style="padding:10px 14px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:28px;height:28px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;">JT</div>
+                  <div>
+                    <div style="font-weight:500;">Jaan Tamm</div>
+                    <div style="color:#888;font-size:11px;">jaantamm</div>
+                  </div>
+                </div>
+              </td>
+              <td style="padding:10px 14px;"><span style="color:#888;font-size:11px;">User</span></td>
+              <td style="padding:10px 14px;"><span style="color:#4ade80;">Active</span></td>
+              <td style="padding:10px 14px;color:#888;">3 days ago</td>
+              <td style="padding:10px 14px;">2</td>
+              <td style="padding:10px 14px;text-align:right;">
+                <a href="#" style="color:#60a5fa;font-size:12px;text-decoration:none;">View &rarr;</a>
+                <button style="background:#1e3a5f;color:#60a5fa;border:none;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:8px;">Promote</button>
+                <button style="background:#3f1a1a;color:#f87171;border:none;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:4px;">Disable</button>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:10px 14px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:28px;height:28px;border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-size:11px;opacity:0.5;">KL</div>
+                  <div style="opacity:0.5;">
+                    <div style="font-weight:500;">Kairi Lepik</div>
+                    <div style="color:#888;font-size:11px;">kairilepik</div>
+                  </div>
+                </div>
+              </td>
+              <td style="padding:10px 14px;opacity:0.5;"><span style="color:#888;font-size:11px;">User</span></td>
+              <td style="padding:10px 14px;"><span style="color:#f87171;">Disabled</span></td>
+              <td style="padding:10px 14px;color:#888;opacity:0.5;">2 weeks ago</td>
+              <td style="padding:10px 14px;opacity:0.5;">1</td>
+              <td style="padding:10px 14px;text-align:right;">
+                <a href="#" style="color:#60a5fa;font-size:12px;text-decoration:none;">View &rarr;</a>
+                <button style="background:#1a3a1a;color:#4ade80;border:none;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:8px;">Enable</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="color:#666;font-size:11px;margin-top:12px;">
+        <strong>env</strong> badge = admin set via SAFECLAW_ADMINS env var (cannot be demoted via UI). Your own row has no demote/disable buttons.
+      </p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:24px;">Key details in this design:</h3>
+<ul style="color:#ccc; font-size:14px; line-height:1.8;">
+  <li><strong>Stats bar</strong> — quick count of total, admins, disabled</li>
+  <li><strong>"env" badge</strong> — distinguishes env var admins from UI-promoted admins</li>
+  <li><strong>No self-actions</strong> — you can't demote or disable yourself</li>
+  <li><strong>Disabled users</strong> — shown dimmed with "Enable" button instead of Disable</li>
+  <li><strong>"View →"</strong> — drills into user detail (their keys, prefs, audit)</li>
+  <li><strong>Promote/Demote</strong> — toggles admin status (hidden for env var admins)</li>
+</ul>

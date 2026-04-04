@@ -36,6 +36,7 @@ from safeclaw.engine.temp_permissions import TempPermissionManager
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_record(session_id="sess-1", tool_name="exec", decision="allowed") -> DecisionRecord:
     return DecisionRecord(
         session_id=session_id,
@@ -54,7 +55,10 @@ def _make_record(session_id="sess-1", tool_name="exec", decision="allowed") -> D
 
 
 def _make_action(
-    cls="ExecuteCommand", risk="MediumRisk", tool="exec", reversible=True,
+    cls="ExecuteCommand",
+    risk="MediumRisk",
+    tool="exec",
+    reversible=True,
 ) -> ClassifiedAction:
     return ClassifiedAction(
         ontology_class=cls,
@@ -123,7 +127,8 @@ class TestIssue115ClassificationObserverLocking:
     def test_write_line_with_fcntl_import(self):
         """Verify fcntl is imported in the classification_observer module."""
         import safeclaw.llm.classification_observer as mod
-        assert hasattr(mod, 'fcntl')
+
+        assert hasattr(mod, "fcntl")
 
 
 class TestIssue161AuditLogRotation:
@@ -322,11 +327,13 @@ class TestIssue62ToolResultUserIdPropagation:
 
     def test_tool_result_request_has_user_id_field(self):
         from safeclaw.api.models import ToolResultRequest
+
         req = ToolResultRequest(toolName="exec", userId="user-123")
         assert req.userId == "user-123"
 
     def test_tool_result_event_accepts_user_id(self):
         from safeclaw.engine.core import ToolResultEvent
+
         event = ToolResultEvent(
             session_id="sess-1",
             tool_name="exec",
@@ -346,6 +353,7 @@ class TestIssue63EvaluateOnlyScope:
         # We test this by checking the source code of the module.
         import safeclaw.auth.middleware as mod
         import inspect
+
         source = inspect.getsource(mod)
         assert '"/api/v1/record/"' in source
         assert '"/api/v1/log/"' in source
@@ -378,15 +386,13 @@ class TestIssue82EventBusThreadSafety:
 
     def test_event_bus_has_lock(self):
         bus = EventBus()
-        assert hasattr(bus, '_lock')
+        assert hasattr(bus, "_lock")
         assert isinstance(bus._lock, asyncio.Lock)
 
     def test_publish_uses_snapshot(self):
         """publish() should iterate a snapshot, not the live list."""
         bus = EventBus()
-        event = SafeClawEvent(
-            event_type="test", severity="info", title="test", detail="test"
-        )
+        event = SafeClawEvent(event_type="test", severity="info", title="test", detail="test")
         # Publishing to empty bus should not raise
         bus.publish(event)
 
@@ -512,9 +518,7 @@ class TestIssue112RecordMessageBeforePreferenceCheck:
         record_pos = source.find("record_message")
         assert pref_pos > 0
         assert record_pos > 0
-        assert pref_pos < record_pos, (
-            "Preference check should come before record_message"
-        )
+        assert pref_pos < record_pos, "Preference check should come before record_message"
 
 
 class TestIssue148TemporalCheckerCaching:
@@ -551,7 +555,9 @@ class TestIssue149PhantomActionCounting:
         assert result.exceeded is False
 
         # No records should exist yet
-        assert limiter._sessions.get("sess-1") is None or len(limiter._sessions.get("sess-1", [])) == 0
+        assert (
+            limiter._sessions.get("sess-1") is None or len(limiter._sessions.get("sess-1", [])) == 0
+        )
 
     def test_only_successful_actions_recorded(self):
         """Only successful actions should be recorded in the rate limiter."""
@@ -583,6 +589,7 @@ class TestIssue24AtomicReload:
 
         # Verify the method exists and follows atomic swap pattern
         import inspect
+
         source = inspect.getsource(FullEngine._reload_kg_components)
 
         # Should build new components first (new_kg, new_shacl, etc.)

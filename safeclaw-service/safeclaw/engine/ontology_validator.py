@@ -47,8 +47,7 @@ class OntologyValidator:
             cls = target_uri.rsplit("#", 1)[-1] if "#" in target_uri else target_uri
             if cls not in known_classes:
                 warnings.append(
-                    f"Dangling reference: policy {r['policy']} applies to "
-                    f"unknown class '{cls}'"
+                    f"Dangling reference: policy {r['policy']} applies to unknown class '{cls}'"
                 )
         return warnings
 
@@ -65,12 +64,8 @@ class OntologyValidator:
         for r in results:
             allowed_uri = str(r["allowed"])
             denied_uri = str(r["denied"])
-            allowed_cls = (
-                allowed_uri.rsplit("#", 1)[-1] if "#" in allowed_uri else allowed_uri
-            )
-            denied_cls = (
-                denied_uri.rsplit("#", 1)[-1] if "#" in denied_uri else denied_uri
-            )
+            allowed_cls = allowed_uri.rsplit("#", 1)[-1] if "#" in allowed_uri else allowed_uri
+            denied_cls = denied_uri.rsplit("#", 1)[-1] if "#" in denied_uri else denied_uri
             # Direct conflict
             if allowed_cls == denied_cls:
                 warnings.append(
@@ -112,7 +107,5 @@ class OntologyValidator:
         for r in results:
             cls = str(r["cls"]).rsplit("#", 1)[-1]
             if cls not in action_hierarchy and cls not in non_action_classes:
-                warnings.append(
-                    f"Orphan class: '{cls}' is not part of the Action hierarchy"
-                )
+                warnings.append(f"Orphan class: '{cls}' is not part of the Action hierarchy")
         return warnings

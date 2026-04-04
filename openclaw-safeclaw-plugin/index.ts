@@ -343,7 +343,7 @@ export default {
         content: event.prompt ?? '',
         provider: event.provider ?? '',
         model: event.model ?? '',
-      }).catch(() => {});
+      }).catch((e) => log.warn('[SafeClaw] Failed to log LLM input:', e));
     });
 
     api.on('llm_output', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
@@ -353,7 +353,7 @@ export default {
         provider: event.provider ?? '',
         model: event.model ?? '',
         usage: event.usage ?? {},
-      }).catch(() => {});
+      }).catch((e) => log.warn('[SafeClaw] Failed to log LLM output:', e));
     });
 
     // (#195: use event.toolName, !event.error for success, add durationMs and error)
@@ -403,7 +403,7 @@ export default {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         parentAgentId: event.parentAgentId,
         childAgentId: event.childAgentId,
-      }).catch(() => {});
+      }).catch((e) => log.warn('[SafeClaw] Failed to record subagent ended:', e));
     });
 
     // Session lifecycle — notify service of session start (#189)
@@ -413,7 +413,7 @@ export default {
         userId: ctx.agentId ?? '',
         agentId: instanceId,
         metadata: event.metadata ?? {},
-      }).catch(() => {});
+      }).catch((e) => log.warn('[SafeClaw] Failed to record session start:', e));
     });
 
     // Session lifecycle — notify service of session end (#189)
@@ -422,7 +422,7 @@ export default {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
         agentId: instanceId,
-      }).catch(() => {});
+      }).catch((e) => log.warn('[SafeClaw] Failed to record session end:', e));
     });
 
     // Inbound message governance — evaluate received messages (#190)

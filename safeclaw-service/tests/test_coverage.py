@@ -24,12 +24,15 @@ def engine(tmp_path):
 
 # --- evaluate_message full pipeline ---
 
+
 @pytest.mark.asyncio
 async def test_message_never_contact_blocked(engine):
     engine.message_gate.add_never_contact("blocked@example.com")
     event = MessageEvent(
-        session_id="s1", user_id="default",
-        to="blocked@example.com", content="Hi there",
+        session_id="s1",
+        user_id="default",
+        to="blocked@example.com",
+        content="Hi there",
     )
     decision = await engine.evaluate_message(event)
     assert decision.block is True
@@ -40,8 +43,10 @@ async def test_message_never_contact_blocked(engine):
 async def test_message_default_user_confirm_preference(engine):
     """Default user has confirm_before_send=True, so messages should be blocked (R3-65)."""
     event = MessageEvent(
-        session_id="s1", user_id="default",
-        to="friend@example.com", content="Hello",
+        session_id="s1",
+        user_id="default",
+        to="friend@example.com",
+        content="Hello",
     )
     decision = await engine.evaluate_message(event)
     assert decision.block is True
@@ -51,13 +56,16 @@ async def test_message_default_user_confirm_preference(engine):
 
 # --- record_action_result ---
 
+
 @pytest.mark.asyncio
 async def test_record_action_result_updates_trackers(engine):
     session_id = "rec-test"
     event = ToolResultEvent(
-        session_id=session_id, tool_name="read",
+        session_id=session_id,
+        tool_name="read",
         params={"file_path": "/src/main.py"},
-        result="contents", success=True,
+        result="contents",
+        success=True,
     )
     await engine.record_action_result(event)
 
@@ -69,6 +77,7 @@ async def test_record_action_result_updates_trackers(engine):
 
     # Verify dependency was recorded by checking a dependent action no longer shows unmet
     from safeclaw.constraints.action_classifier import ClassifiedAction
+
     dep_action = ClassifiedAction(
         ontology_class="GitPush",
         risk_level="HighRisk",
@@ -85,6 +94,7 @@ async def test_record_action_result_updates_trackers(engine):
 
 # --- reload ---
 
+
 @pytest.mark.asyncio
 async def test_reload_reinitializes(engine):
     original_triple_count = len(engine.kg)
@@ -97,22 +107,27 @@ async def test_reload_reinitializes(engine):
 
 # --- clear_session ---
 
+
 @pytest.mark.asyncio
 async def test_clear_session_removes_state(engine):
     session_id = "clear-test"
 
     # Create some session state via an evaluation
     event = ToolCallEvent(
-        session_id=session_id, user_id="default",
-        tool_name="read", params={"file_path": "/src/main.py"},
+        session_id=session_id,
+        user_id="default",
+        tool_name="read",
+        params={"file_path": "/src/main.py"},
     )
     await engine.evaluate_tool_call(event)
 
     # Record a tool result to populate session tracker and dependency checker
     result_event = ToolResultEvent(
-        session_id=session_id, tool_name="read",
+        session_id=session_id,
+        tool_name="read",
         params={"file_path": "/src/main.py"},
-        result="contents", success=True,
+        result="contents",
+        success=True,
     )
     await engine.record_action_result(result_event)
 
@@ -127,6 +142,7 @@ async def test_clear_session_removes_state(engine):
 
     # Verify dependency checker was cleared: check() should show unmet deps again
     from safeclaw.constraints.action_classifier import ClassifiedAction
+
     dep_action = ClassifiedAction(
         ontology_class="GitPush",
         risk_level="HighRisk",

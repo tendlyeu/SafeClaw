@@ -18,7 +18,9 @@ console = Console()
 @audit_app.command("show")
 def show(
     last: int = typer.Option(20, help="Max number of decisions to display"),
-    blocked: bool = typer.Option(False, help="Show only blocked decisions (combinable with --session)"),
+    blocked: bool = typer.Option(
+        False, help="Show only blocked decisions (combinable with --session)"
+    ),
     session: str = typer.Option(None, help="Filter to a specific session ID"),
 ):
     """Display recent governance decisions in a table.
@@ -92,7 +94,9 @@ def report(
     report_format: ReportFormat = typer.Option(
         ReportFormat.markdown, "--format", "-f", help="Output format"
     ),
-    output: str = typer.Option(None, "--output", "-o", help="Write report to file instead of stdout"),
+    output: str = typer.Option(
+        None, "--output", "-o", help="Write report to file instead of stdout"
+    ),
 ):
     """Generate a detailed audit report for a single session.
 
@@ -153,7 +157,9 @@ def stats(
 @audit_app.command("compliance")
 def compliance(
     last: int = typer.Option(100, help="Number of recent records to include"),
-    output: str = typer.Option(None, "--output", "-o", help="Write report to file instead of stdout"),
+    output: str = typer.Option(
+        None, "--output", "-o", help="Write report to file instead of stdout"
+    ),
 ):
     """Generate a compliance report suitable for SOC 2 / ISO 27001 review."""
     from safeclaw.audit.reporter import AuditReporter

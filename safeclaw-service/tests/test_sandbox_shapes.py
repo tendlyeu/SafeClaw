@@ -56,8 +56,16 @@ def test_sandbox_ontology_properties_queryable():
     g.bind("sc", SC)
     g.parse(str(_sandbox_ttl), format="turtle")
 
-    for prop in [SC.hasToolPolicy, SC.hasFilesystemPolicy, SC.hasNetworkPolicy,
-                 SC.toolName, SC.mountPath, SC.mountMode, SC.allowedHost, SC.allowedPort]:
+    for prop in [
+        SC.hasToolPolicy,
+        SC.hasFilesystemPolicy,
+        SC.hasNetworkPolicy,
+        SC.toolName,
+        SC.mountPath,
+        SC.mountMode,
+        SC.allowedHost,
+        SC.allowedPort,
+    ]:
         results = list(g.triples((prop, RDF.type, None)))
         assert len(results) > 0, f"Property {prop} not found"
 
@@ -250,20 +258,23 @@ def client(tmp_path):
 
 def test_api_sandbox_policy_valid(client):
     """Valid sandbox policy should return conformant=True."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {
-            "toolPolicy": {
-                "allowed": ["read", "write"],
-                "denied": [{"name": "exec"}],
-            },
-            "filesystemPolicy": {
-                "mounts": [
-                    {"path": "/workspace", "mode": "read-write"},
-                    {"path": "/etc", "mode": "read-only"},
-                ],
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {
+                "toolPolicy": {
+                    "allowed": ["read", "write"],
+                    "denied": [{"name": "exec"}],
+                },
+                "filesystemPolicy": {
+                    "mounts": [
+                        {"path": "/workspace", "mode": "read-write"},
+                        {"path": "/etc", "mode": "read-only"},
+                    ],
+                },
             },
         },
-    })
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is True
@@ -272,13 +283,16 @@ def test_api_sandbox_policy_valid(client):
 
 def test_api_sandbox_policy_missing_tool_policy(client):
     """Missing toolPolicy should return conformant=False."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {
-            "filesystemPolicy": {
-                "mounts": [{"path": "/workspace", "mode": "read-write"}],
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {
+                "filesystemPolicy": {
+                    "mounts": [{"path": "/workspace", "mode": "read-write"}],
+                },
             },
         },
-    })
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is False
@@ -287,11 +301,14 @@ def test_api_sandbox_policy_missing_tool_policy(client):
 
 def test_api_sandbox_policy_missing_filesystem_policy(client):
     """Missing filesystemPolicy should return conformant=False."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {
-            "toolPolicy": {"allowed": ["read"]},
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {
+                "toolPolicy": {"allowed": ["read"]},
+            },
         },
-    })
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is False
@@ -300,9 +317,12 @@ def test_api_sandbox_policy_missing_filesystem_policy(client):
 
 def test_api_sandbox_policy_missing_both(client):
     """Missing both required sections should return two violations."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {},
-    })
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {},
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is False
@@ -313,14 +333,17 @@ def test_api_sandbox_policy_missing_both(client):
 
 def test_api_sandbox_policy_invalid_mount_mode(client):
     """Invalid mount mode should produce a violation."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {
-            "toolPolicy": {"allowed": ["read"]},
-            "filesystemPolicy": {
-                "mounts": [{"path": "/data", "mode": "execute"}],
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {
+                "toolPolicy": {"allowed": ["read"]},
+                "filesystemPolicy": {
+                    "mounts": [{"path": "/data", "mode": "execute"}],
+                },
             },
         },
-    })
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is False
@@ -329,14 +352,17 @@ def test_api_sandbox_policy_invalid_mount_mode(client):
 
 def test_api_sandbox_policy_mount_missing_path(client):
     """Mount point without path should produce a violation."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {
-            "toolPolicy": {"allowed": ["read"]},
-            "filesystemPolicy": {
-                "mounts": [{"mode": "read-only"}],
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {
+                "toolPolicy": {"allowed": ["read"]},
+                "filesystemPolicy": {
+                    "mounts": [{"mode": "read-only"}],
+                },
             },
         },
-    })
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is False
@@ -345,17 +371,20 @@ def test_api_sandbox_policy_mount_missing_path(client):
 
 def test_api_sandbox_policy_denied_tool_missing_name(client):
     """Denied tool without a name should produce a violation."""
-    resp = client.post("/api/v1/evaluate/sandbox-policy", json={
-        "policy": {
-            "toolPolicy": {
-                "allowed": ["read"],
-                "denied": [{"description": "dangerous tool"}],
-            },
-            "filesystemPolicy": {
-                "mounts": [{"path": "/workspace", "mode": "read-write"}],
+    resp = client.post(
+        "/api/v1/evaluate/sandbox-policy",
+        json={
+            "policy": {
+                "toolPolicy": {
+                    "allowed": ["read"],
+                    "denied": [{"description": "dangerous tool"}],
+                },
+                "filesystemPolicy": {
+                    "mounts": [{"path": "/workspace", "mode": "read-write"}],
+                },
             },
         },
-    })
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["conformant"] is False

@@ -6,7 +6,7 @@
  * and exposes helpers for saving and hashing config state.
  */
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import crypto from 'crypto';
@@ -181,6 +181,7 @@ export function saveConfig(config: SafeClawConfig): void {
 
   try {
     writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+    try { chmodSync(CONFIG_PATH, 0o600); } catch { /* best-effort */ }
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'EROFS') {
@@ -203,6 +204,7 @@ export function configHash(config: SafeClawConfig): string {
     enforcement: config.enforcement,
     failMode: config.failMode,
     serviceUrl: config.serviceUrl,
+    apiKeyFingerprint: config.apiKey ? config.apiKey.slice(0, 4) + config.apiKey.slice(-4) : '',
   });
   return crypto.createHash('sha256').update(payload).digest('hex');
 }

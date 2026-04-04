@@ -156,7 +156,9 @@ class AuditLogger:
 
         # Compute integrity hash chain
         record_hash = self._compute_hash(self._prev_hash, record_json)
-        line = f'{{"_hash":"{record_hash}","_prev_hash":"{self._prev_hash or ""}",{record_json[1:]}\n'
+        line = (
+            f'{{"_hash":"{record_hash}","_prev_hash":"{self._prev_hash or ""}",{record_json[1:]}\n'
+        )
 
         filepath = self._get_session_file(record.session_id)
         with self._lock:

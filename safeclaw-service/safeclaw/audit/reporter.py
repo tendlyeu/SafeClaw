@@ -61,7 +61,9 @@ class AuditReporter:
             if r.decision == "blocked":
                 for check in r.justification.constraints_checked:
                     if check.result == "violated":
-                        violations[check.constraint_uri] = violations.get(check.constraint_uri, 0) + 1
+                        violations[check.constraint_uri] = (
+                            violations.get(check.constraint_uri, 0) + 1
+                        )
         if violations:
             lines.append("## Most Violated Constraints")
             lines.append("")
@@ -72,8 +74,12 @@ class AuditReporter:
         # Decision trace
         lines.append("## Decision Trace")
         lines.append("")
-        lines.append("| Timestamp | Session | User | Tool | Action Class | Decision | Constraint | Reason |")
-        lines.append("|-----------|---------|------|------|-------------|----------|------------|--------|")
+        lines.append(
+            "| Timestamp | Session | User | Tool | Action Class | Decision | Constraint | Reason |"
+        )
+        lines.append(
+            "|-----------|---------|------|------|-------------|----------|------------|--------|"
+        )
         for r in records:
             constraint = ""
             reason = ""
@@ -120,9 +126,7 @@ class AuditReporter:
                             constraint_violations.get(check.constraint_uri, 0) + 1
                         )
 
-        avg_latency = (
-            sum(r.justification.elapsed_ms for r in records) / total if total else 0
-        )
+        avg_latency = sum(r.justification.elapsed_ms for r in records) / total if total else 0
 
         return {
             "total": total,
@@ -182,10 +186,19 @@ class AuditReporter:
     def _to_csv(self, records: list[DecisionRecord]) -> str:
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow([
-            "timestamp", "session_id", "user_id", "tool_name",
-            "ontology_class", "risk_level", "decision", "reason", "latency_ms",
-        ])
+        writer.writerow(
+            [
+                "timestamp",
+                "session_id",
+                "user_id",
+                "tool_name",
+                "ontology_class",
+                "risk_level",
+                "decision",
+                "reason",
+                "latency_ms",
+            ]
+        )
         for r in records:
             reason = ""
             for check in r.justification.constraints_checked:
@@ -196,10 +209,17 @@ class AuditReporter:
                 for pref in r.justification.preferences_applied:
                     reason = pref.effect
                     break
-            writer.writerow([
-                r.timestamp, r.session_id, r.user_id,
-                r.action.tool_name, r.action.ontology_class,
-                r.action.risk_level, r.decision, reason,
-                f"{r.justification.elapsed_ms:.1f}",
-            ])
+            writer.writerow(
+                [
+                    r.timestamp,
+                    r.session_id,
+                    r.user_id,
+                    r.action.tool_name,
+                    r.action.ontology_class,
+                    r.action.risk_level,
+                    r.decision,
+                    reason,
+                    f"{r.justification.elapsed_ms:.1f}",
+                ]
+            )
         return output.getvalue()

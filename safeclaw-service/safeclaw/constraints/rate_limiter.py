@@ -16,8 +16,8 @@ DEFAULT_LIMITS: dict[str, tuple[int, int]] = {
 
 # Hierarchy-wide rate limits: (max_count, window_seconds)
 HIERARCHY_LIMITS: dict[str, tuple[int, int]] = {
-    "HighRisk": (30, 3600),       # 30 per hierarchy per hour
-    "CriticalRisk": (10, 3600),   # 10 per hierarchy per hour
+    "HighRisk": (30, 3600),  # 30 per hierarchy per hour
+    "CriticalRisk": (10, 3600),  # 10 per hierarchy per hour
 }
 
 
@@ -61,11 +61,7 @@ class RateLimiter:
         if session_id in self._sessions:
             self._sessions[session_id] = records
             self._sessions.move_to_end(session_id)  # Update LRU position
-        count = sum(
-            1
-            for r in records
-            if r.risk_level == action.risk_level
-        )
+        count = sum(1 for r in records if r.risk_level == action.risk_level)
 
         if count >= max_count:
             return RateLimitResult(
@@ -111,7 +107,9 @@ class RateLimiter:
                 _ActionRecord(risk_level=action.risk_level, timestamp=time.monotonic())
             )
 
-    def check_hierarchy(self, action: ClassifiedAction, hierarchy_agent_ids: set[str]) -> RateLimitResult:
+    def check_hierarchy(
+        self, action: ClassifiedAction, hierarchy_agent_ids: set[str]
+    ) -> RateLimitResult:
         """Check combined rate across all agents in a hierarchy."""
         limit_entry = self._hierarchy_limits.get(action.risk_level)
         if limit_entry is None:
@@ -124,7 +122,9 @@ class RateLimiter:
         count = 0
         for agent_id in hierarchy_agent_ids:
             records = self._agent_records.get(agent_id, [])
-            count += sum(1 for r in records if r.risk_level == action.risk_level and r.timestamp >= cutoff)
+            count += sum(
+                1 for r in records if r.risk_level == action.risk_level and r.timestamp >= cutoff
+            )
 
         if count >= max_count:
             return RateLimitResult(

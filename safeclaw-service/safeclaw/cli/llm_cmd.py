@@ -33,7 +33,9 @@ def findings():
     console.print("  - API:  GET /api/v1/llm/findings")
     console.print("  - Logs: check your log aggregation system for 'safeclaw.llm.security'")
     console.print("")
-    console.print("To enable: set SAFECLAW_MISTRAL_API_KEY and ensure llm_security_review_enabled=true")
+    console.print(
+        "To enable: set SAFECLAW_MISTRAL_API_KEY and ensure llm_security_review_enabled=true"
+    )
 
 
 @llm_app.command("suggestions")

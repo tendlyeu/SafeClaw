@@ -16,7 +16,9 @@ def get_config_path() -> Path:
 
 
 def connect_cmd(
-    api_key: str = typer.Argument(help="Your SafeClaw API key (starts with sc_). Get one at https://safeclaw.eu/dashboard"),
+    api_key: str = typer.Argument(
+        help="Your SafeClaw API key (starts with sc_). Get one at https://safeclaw.eu/dashboard"
+    ),
     service_url: str = typer.Option(
         "https://api.safeclaw.eu/api/v1",
         help="SafeClaw remote service URL",

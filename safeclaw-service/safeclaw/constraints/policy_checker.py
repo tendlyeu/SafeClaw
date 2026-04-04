@@ -77,10 +77,21 @@ class PolicyChecker:
         self.kg = knowledge_graph
         self._hierarchy = hierarchy
         self._nemoclaw_enabled = nemoclaw_enabled
-        self._forbidden_paths: list[tuple[str, str, str]] = []
-        self._forbidden_commands: list[tuple[str, str, str]] = []
+        self._forbidden_paths: list[tuple[str, re.Pattern, str]] = []
+        self._forbidden_commands: list[tuple[str, re.Pattern, str]] = []
         self._class_prohibitions: list[tuple[str, str, str]] = []
+        self._nemo_net_rules: list[dict] = []
+        self._nemo_fs_rules: list[dict] = []
         self._load_patterns()
+
+    @staticmethod
+    def _compile_pattern(pattern: str) -> re.Pattern:
+        """Compile a regex pattern, falling back to escaped literal on error."""
+        try:
+            return re.compile(pattern)
+        except re.error:
+            logger.warning("Invalid regex in policy, treating as literal: %r", pattern)
+            return re.compile(re.escape(pattern))
 
     def _load_patterns(self) -> None:
         """Load forbidden patterns from the knowledge graph."""
@@ -94,7 +105,12 @@ class PolicyChecker:
             }}
         """)
         self._forbidden_paths = [
-            (str(r["policy"]), str(r["pattern"]).strip("/"), str(r["reason"])) for r in path_results
+            (
+                str(r["policy"]),
+                self._compile_pattern(str(r["pattern"]).strip("/")),
+                str(r["reason"]),
+            )
+            for r in path_results
         ]
 
         # Command constraints
@@ -107,7 +123,12 @@ class PolicyChecker:
             }}
         """)
         self._forbidden_commands = [
-            (str(r["policy"]), str(r["pattern"]), str(r["reason"])) for r in cmd_results
+            (
+                str(r["policy"]),
+                self._compile_pattern(str(r["pattern"])),
+                str(r["reason"]),
+            )
+            for r in cmd_results
         ]
 
         # Class-level prohibitions (sp:appliesTo)
@@ -120,19 +141,21 @@ class PolicyChecker:
                         sp:reason ?reason .
             }}
         """)
+        self._class_prohibitions = []
         for r in class_results:
             target_uri = str(r["target"])
             # Extract local name from URI
             target_class = target_uri.rsplit("#", 1)[-1] if "#" in target_uri else target_uri
             self._class_prohibitions.append((str(r["policy"]), target_class, str(r["reason"])))
 
-    def _safe_match(self, pattern: str, text: str) -> bool:
-        """Safely match a regex pattern, catching malformed patterns."""
-        try:
-            return bool(re.search(pattern, text))
-        except re.error:
-            logger.warning(f"Invalid regex pattern in policy: {pattern!r}")
-            return False
+        # Pre-load NemoClaw rules so SPARQL is not re-executed per request
+        self._load_nemo_network_rules()
+        self._load_nemo_filesystem_rules()
+
+    @staticmethod
+    def _safe_match(pattern: re.Pattern, text: str) -> bool:
+        """Match a pre-compiled regex pattern against text."""
+        return bool(pattern.search(text))
 
     def check(self, action: ClassifiedAction) -> PolicyCheckResult:
         """Check if action violates any policies."""
@@ -205,6 +228,46 @@ class PolicyChecker:
         return PolicyCheckResult(violated=False)
 
     # ------------------------------------------------------------------
+    # NemoClaw rule caching
+    # ------------------------------------------------------------------
+
+    def _load_nemo_network_rules(self) -> None:
+        """Pre-load NemoClaw network rules from the knowledge graph."""
+        if not self._nemoclaw_enabled:
+            self._nemo_net_rules = []
+            return
+
+        results = self.kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement
+            WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:allowsHost ?host .
+                OPTIONAL {{ ?rule sp:allowsPort ?port }}
+                OPTIONAL {{ ?rule sp:allowsProtocol ?protocol }}
+                OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
+                OPTIONAL {{ ?rule sp:enforcement ?enforcement }}
+            }}
+        """)
+        self._nemo_net_rules = list(results)
+
+    def _load_nemo_filesystem_rules(self) -> None:
+        """Pre-load NemoClaw filesystem rules from the knowledge graph."""
+        if not self._nemoclaw_enabled:
+            self._nemo_fs_rules = []
+            return
+
+        results = self.kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?rule ?path ?mode WHERE {{
+                ?rule a sp:NemoFilesystemRule ;
+                      sp:path ?path ;
+                      sp:accessMode ?mode .
+            }}
+        """)
+        self._nemo_fs_rules = list(results)
+
+    # ------------------------------------------------------------------
     # NemoClaw network allowlist check
     # ------------------------------------------------------------------
 
@@ -249,44 +312,28 @@ class PolicyChecker:
 
         Returns a violation dict if the action is blocked, or None if allowed.
         Allowlist semantics: no rules = skip, no match = block.
+        Uses cached rules from _load_nemo_network_rules().
         """
         if not self._is_network_action(action):
             return None
 
         url = self._extract_url(action)
         if not url:
-            # Fail-closed: if network rules exist but URL can't be extracted, block
-            has_rules = bool(
-                self.kg.query(f"""
-                PREFIX sp: <{SP}>
-                SELECT ?rule WHERE {{ ?rule a sp:NemoNetworkRule }} LIMIT 1
-            """)
-            )
-            if has_rules:
+            # Fail-closed: if network rules exist but URL can't be extracted
+            if self._nemo_net_rules:
                 return {
                     "policy_uri": "nemoclaw:network-allowlist",
                     "policy_type": "NemoNetworkRule",
                     "reason": (
-                        "Network activity detected but URL could not be extracted "
-                        "for allowlist verification"
+                        "Network activity detected but URL could not be "
+                        "extracted for allowlist verification"
                     ),
                 }
             return None
 
-        # Query all NemoClaw network rules (including optional binary restrictions)
-        results = self.kg.query(f"""
-            PREFIX sp: <{SP}>
-            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement WHERE {{
-                ?rule a sp:NemoNetworkRule ;
-                      sp:allowsHost ?host .
-                OPTIONAL {{ ?rule sp:allowsPort ?port }}
-                OPTIONAL {{ ?rule sp:allowsProtocol ?protocol }}
-                OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
-                OPTIONAL {{ ?rule sp:enforcement ?enforcement }}
-            }}
-        """)
+        results = self._nemo_net_rules
 
-        # No NemoClaw network rules in graph = not running with NemoClaw, skip
+        # No NemoClaw network rules cached = not running with NemoClaw, skip
         if not results:
             return None
 
@@ -325,9 +372,7 @@ class PolicyChecker:
 
         # Filter out disabled rules before matching
         active_rules = {
-            uri: info
-            for uri, info in rule_rows.items()
-            if info["enforcement"] != "disabled"
+            uri: info for uri, info in rule_rows.items() if info["enforcement"] != "disabled"
         }
 
         # If no active (non-disabled) rules remain, skip the check
@@ -426,6 +471,7 @@ class PolicyChecker:
 
         Returns a violation dict if the action is blocked, or None if allowed.
         Prefix matching: most specific (longest) rule path wins.
+        Uses cached rules from _load_nemo_filesystem_rules().
         """
         if not self._is_file_action(action):
             return None
@@ -434,17 +480,9 @@ class PolicyChecker:
         if not target_path:
             return None
 
-        # Query all NemoClaw filesystem rules
-        results = self.kg.query(f"""
-            PREFIX sp: <{SP}>
-            SELECT ?rule ?path ?mode WHERE {{
-                ?rule a sp:NemoFilesystemRule ;
-                      sp:path ?path ;
-                      sp:accessMode ?mode .
-            }}
-        """)
+        results = self._nemo_fs_rules
 
-        # No NemoClaw filesystem rules in graph = skip
+        # No NemoClaw filesystem rules cached = skip
         if not results:
             return None
 

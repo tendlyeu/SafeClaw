@@ -329,9 +329,10 @@ class FullEngine(SafeClawEngine):
         _MAX_VIOLATION_HISTORY = 10_000
         hist = new_context_builder._violation_history
         if len(hist) > _MAX_VIOLATION_HISTORY:
-            # Keep only the most recent entries per session
-            sorted_keys = sorted(hist.keys())
-            for k in sorted_keys[: len(hist) - _MAX_VIOLATION_HISTORY]:
+            # Remove oldest inserted entries (dict preserves insertion order)
+            excess = len(hist) - _MAX_VIOLATION_HISTORY
+            keys_to_remove = list(hist.keys())[:excess]
+            for k in keys_to_remove:
                 del hist[k]
 
         try:

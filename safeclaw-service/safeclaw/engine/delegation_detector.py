@@ -176,13 +176,17 @@ class DelegationDetector:
         return True
 
     @staticmethod
-    def _flatten_values(d: dict) -> set[str]:
-        """Extract all leaf string values from a nested dict."""
+    def _flatten_values(d: dict, min_length: int = 8) -> set[str]:
+        """Extract leaf string values from a nested dict.
+
+        Only includes values longer than min_length to avoid false
+        positives on common short strings like 'true' or 'main'.
+        """
         values: set[str] = set()
         for v in d.values():
             if isinstance(v, dict):
-                values.update(DelegationDetector._flatten_values(v))
-            elif isinstance(v, str):
+                values.update(DelegationDetector._flatten_values(v, min_length))
+            elif isinstance(v, str) and len(v) >= min_length:
                 values.add(v)
         return values
 
@@ -242,11 +246,7 @@ class DelegationDetector:
 
                 # Flattened value match: catches nesting bypass where blocked
                 # params are wrapped under a different key structure
-                if (
-                    not is_match
-                    and check_params is not None
-                    and record.params_keys
-                ):
+                if not is_match and check_params is not None and record.params_keys:
                     blocked_vals = self._flatten_values(record.params_keys)
                     new_vals = self._flatten_values(check_params)
                     if blocked_vals and blocked_vals.issubset(new_vals):

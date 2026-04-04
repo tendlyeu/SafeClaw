@@ -142,7 +142,7 @@ class TempGrantRequest(BaseModel):
     durationSeconds: int | None = None
     taskId: str | None = None
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def check_scope(self):
         if self.durationSeconds is None and self.taskId is None:
             raise ValueError("Either durationSeconds or taskId must be provided")
