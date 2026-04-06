@@ -63,6 +63,11 @@ DEFAULT_CONFIG: dict = {
         "delegationPolicy": "configurable",
         "requireTokenAuth": True,
     },
+    "llm": {
+        "provider": "",
+        "model": "",
+        "timeoutMs": 3000,
+    },
 }
 
 
