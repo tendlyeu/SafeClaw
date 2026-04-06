@@ -53,6 +53,7 @@ class User:
     onboarded: bool = False
     autonomy_level: str = "moderate"
     mistral_api_key: str = ""
+    llm_config: str = ""  # JSON: {"active_provider": "...", "keys": {...}, ...}
     confirm_before_delete: bool = True
     confirm_before_push: bool = True
     confirm_before_send: bool = True
