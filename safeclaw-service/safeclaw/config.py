@@ -38,7 +38,15 @@ class SafeClawConfig(BaseSettings):
     nemoclaw_enabled: bool = False
     nemoclaw_policy_dir: Path | None = None
 
-    # LLM layer (passive observer — all features gated on mistral_api_key)
+    # LLM layer (passive observer — all features gated on API key)
+    # New multi-provider fields
+    llm_provider: str = ""          # Provider ID from PROVIDERS registry
+    llm_api_key: str = ""           # API key for the selected provider
+    llm_model: str = ""             # Override default model (optional)
+    llm_model_large: str = ""       # Override default large model (optional)
+    llm_base_url: str = ""          # Custom base URL (for "custom" provider)
+    llm_timeout_ms: int = 3000
+    # Legacy Mistral fields — kept for backward compat
     mistral_api_key: str = ""
     mistral_model: str = "mistral-small-latest"
     mistral_model_large: str = "mistral-large-latest"

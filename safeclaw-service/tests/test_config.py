@@ -107,3 +107,30 @@ def test_llm_disabled_without_api_key():
 
     config = SafeClawConfig()
     assert config.mistral_api_key == ""
+
+
+def test_llm_new_config_fields_defaults():
+    """New llm_* config fields exist with correct defaults."""
+    from safeclaw.config import SafeClawConfig
+
+    config = SafeClawConfig()
+    assert config.llm_provider == ""
+    assert config.llm_api_key == ""
+    assert config.llm_model == ""
+    assert config.llm_model_large == ""
+    assert config.llm_base_url == ""
+    assert config.llm_timeout_ms == 3000
+
+
+def test_llm_new_fields_coexist_with_legacy():
+    """New llm_* fields don't break legacy mistral_* fields."""
+    from safeclaw.config import SafeClawConfig
+
+    config = SafeClawConfig(
+        mistral_api_key="old-key",
+        llm_provider="openai",
+        llm_api_key="new-key",
+    )
+    assert config.mistral_api_key == "old-key"
+    assert config.llm_provider == "openai"
+    assert config.llm_api_key == "new-key"
