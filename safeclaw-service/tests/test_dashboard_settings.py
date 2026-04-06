@@ -105,17 +105,21 @@ def test_write_config_safe_overwrites_existing_file(tmp_path):
 
 def test_api_key_save_writes_config_with_0600(tmp_path, settings_client):
     """POST /settings/api-key must write config.json with 0o600 permissions."""
+    from unittest.mock import patch
+
     client, engine = settings_client
     engine.config.data_dir = tmp_path
 
     page = client.get("/settings")
     csrf = _extract_csrf(page.text)
 
-    resp = client.post(
-        "/settings/api-key",
-        data={"api_key": "sk-new-key-12345678", "provider": "openai", "_csrf": csrf},
-        follow_redirects=False,
-    )
+    # Patch os.environ so the route's env var mutations don't leak into other tests
+    with patch.dict("os.environ", {}, clear=False):
+        resp = client.post(
+            "/settings/api-key",
+            data={"api_key": "sk-new-key-12345678", "provider": "openai", "_csrf": csrf},
+            follow_redirects=False,
+        )
     assert resp.status_code in (200, 303)
 
     config_path = tmp_path / "config.json"
