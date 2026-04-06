@@ -34,18 +34,19 @@ def SelfHostedHealthCard():
     )
 
 
-def MistralNudge():
-    """Banner shown when user has no Mistral API key configured."""
+def LLMNudge():
+    """Banner shown when user has no AI provider key configured."""
     return Card(
         DivLAligned(
             UkIcon("alert-triangle", height=20),
             Div(
-                P(Strong("LLM features disabled")),
+                P(Strong("AI features disabled")),
                 P("SafeClaw is running in rule-based mode only. "
-                  "Add your Mistral API key in ",
+                  "Add an AI provider key in ",
                   A("Preferences", href="/dashboard/prefs"),
                   " to unlock smart classification, security review, "
-                  "and plain-English decision explanations.",
+                  "and plain-English decision explanations. "
+                  "Several providers offer free tiers.",
                   cls=TextPresets.muted_sm),
             ),
         ),
@@ -76,7 +77,7 @@ def GettingStartedCard():
     )
 
 
-def OverviewContent(user, key_count: int, has_mistral_key: bool = True):
+def OverviewContent(user, key_count: int, has_llm_key: bool = True):
     """Main overview page content."""
     content = [
         Grid(
@@ -93,8 +94,8 @@ def OverviewContent(user, key_count: int, has_mistral_key: bool = True):
             cols=2,
         ),
     ]
-    if not has_mistral_key:
-        content.append(MistralNudge())
+    if not has_llm_key:
+        content.append(LLMNudge())
     if user.self_hosted:
         content.append(SelfHostedHealthCard())
     else:
