@@ -253,21 +253,44 @@ class SQLiteAPIKeyManager:
         except (sqlite3.OperationalError, ValueError):
             pass  # DB read-only, table missing, or non-numeric user_id — skip
 
-    def get_user_mistral_key(self, user_id: str) -> str | None:
-        """Look up a user's Mistral API key from the shared DB. Returns None if not set."""
+    def get_user_llm_config(self, user_id: str) -> dict | None:
+        """Look up a user's LLM config from the shared DB.
+
+        Tries llm_config JSON first, falls back to mistral_api_key for compat.
+        Returns parsed dict or None.
+        """
         import sqlite3
 
         try:
             conn = self._fresh_conn()
             try:
                 row = conn.execute(
-                    "SELECT mistral_api_key FROM user WHERE id = ?",
+                    "SELECT llm_config, mistral_api_key FROM user WHERE id = ?",
                     (user_id,),
                 ).fetchone()
             finally:
                 conn.close()
         except sqlite3.OperationalError:
-            return None  # Table doesn't exist yet
-        if row is None or not row[0]:
+            return None  # Table doesn't exist or columns missing
+
+        if row is None:
             return None
-        return row[0]
+
+        llm_config_str, mistral_key = row[0], row[1]
+
+        # Prefer llm_config JSON if populated
+        if llm_config_str:
+            try:
+                import json
+                return json.loads(llm_config_str)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Fall back to legacy mistral_api_key
+        if mistral_key:
+            return {
+                "active_provider": "mistral",
+                "keys": {"mistral": mistral_key},
+            }
+
+        return None
