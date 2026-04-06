@@ -1,25 +1,34 @@
 """Dashboard overview page."""
 
 import subprocess
+from pathlib import Path
 
 from fasthtml.common import *
 from monsterui.all import *
 
+# Cache version info at module load
+_VERSION_SHA = "unknown"
+_VERSION_TS = ""
 
-def _get_git_info() -> tuple[str, str]:
-    """Return (short_hash, timestamp) of the latest commit, or fallbacks."""
+# Try .version file first (Docker builds bake this via ARG)
+_version_file = Path(__file__).resolve().parent.parent / ".version"
+if _version_file.exists():
+    _parts = _version_file.read_text().strip().split(" ", 1)
+    _VERSION_SHA = _parts[0] if _parts else "unknown"
+    _VERSION_TS = _parts[1] if len(_parts) > 1 else ""
+else:
+    # Fall back to git (works in dev, not in Docker)
     try:
-        sha = subprocess.check_output(
+        _VERSION_SHA = subprocess.check_output(
             ["git", "log", "-1", "--format=%h"], text=True, timeout=2,
             stderr=subprocess.DEVNULL,
         ).strip()
-        ts = subprocess.check_output(
+        _VERSION_TS = subprocess.check_output(
             ["git", "log", "-1", "--format=%ci"], text=True, timeout=2,
             stderr=subprocess.DEVNULL,
         ).strip()
-        return sha, ts
     except Exception:
-        return "unknown", ""
+        pass
 
 
 def HostedStatusCard():
@@ -97,7 +106,7 @@ def GettingStartedCard():
 
 def OverviewContent(user, key_count: int, has_llm_key: bool = True):
     """Main overview page content."""
-    commit_sha, commit_ts = _get_git_info()
+    commit_sha, commit_ts = _VERSION_SHA, _VERSION_TS
     content = [
         Grid(
             Card(
