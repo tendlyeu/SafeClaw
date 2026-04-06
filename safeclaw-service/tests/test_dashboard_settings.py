@@ -42,7 +42,7 @@ def test_settings_page_renders(settings_client):
     client, _ = settings_client
     resp = client.get("/settings")
     assert resp.status_code == 200
-    assert "Mistral API Key" in resp.text or "API Key" in resp.text
+    assert "LLM Provider" in resp.text
 
 
 def test_settings_shows_llm_status(settings_client):
@@ -113,7 +113,7 @@ def test_api_key_save_writes_config_with_0600(tmp_path, settings_client):
 
     resp = client.post(
         "/settings/api-key",
-        data={"api_key": "sk-new-key-12345678", "_csrf": csrf},
+        data={"api_key": "sk-new-key-12345678", "provider": "openai", "_csrf": csrf},
         follow_redirects=False,
     )
     assert resp.status_code in (200, 303)
@@ -124,7 +124,8 @@ def test_api_key_save_writes_config_with_0600(tmp_path, settings_client):
     assert mode == 0o600, f"config.json has permissions {oct(mode)}, expected 0o600"
 
     data = json.loads(config_path.read_text())
-    assert data["mistral_api_key"] == "sk-new-key-12345678"
+    assert data["llm_provider"] == "openai"
+    assert data["llm_api_key"] == "sk-new-key-12345678"
 
 
 def test_preferences_save_writes_ttl_with_0600(tmp_path, settings_client):
