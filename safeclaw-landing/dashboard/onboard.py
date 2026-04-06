@@ -65,7 +65,7 @@ def OnboardStep1(csrf_token=""):
 
 def OnboardStep2LLM(csrf_token=""):
     """Step 2: Optional AI provider key for LLM features."""
-    from safeclaw.llm.providers import PROVIDERS
+    from providers import PROVIDERS
 
     free_providers = [
         ("mistral", PROVIDERS["mistral"]),

@@ -7,7 +7,7 @@ from monsterui.all import *
 
 
 def _get_providers():
-    from safeclaw.llm.providers import PROVIDERS
+    from providers import PROVIDERS
     return PROVIDERS
 
 

@@ -2194,7 +2194,7 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
     existing_llm = _parse_llm_config(user.llm_config)
 
     try:
-        from safeclaw.llm.providers import PROVIDERS
+        from providers import PROVIDERS
     except ImportError:
         PROVIDERS = None
 
@@ -2240,7 +2240,7 @@ async def set_llm_provider(req, sess, provider: str = "", _csrf_token: str = "")
         llm_config = {"active_provider": "mistral", "keys": {"mistral": user.mistral_api_key}}
 
     try:
-        from safeclaw.llm.providers import PROVIDERS
+        from providers import PROVIDERS
         if provider and provider not in PROVIDERS:
             return P("Unknown provider.", style="color:#f87171;")
     except ImportError:
