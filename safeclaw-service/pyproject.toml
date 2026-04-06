@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = ["mistralai>=1.0.0"]
+llm = ["openai>=1.0.0"]
 dashboard = [
     "python-fasthtml==0.13.1",
     "fastcore==1.12.31",
