@@ -17,8 +17,16 @@ def test_provider_info_is_frozen_dataclass():
 def test_all_ten_named_providers_exist():
     """All 10 named providers are in the registry."""
     expected = {
-        "mistral", "openai", "gemini", "groq", "xai",
-        "deepseek", "kimi", "qwen", "together", "openrouter",
+        "mistral",
+        "openai",
+        "gemini",
+        "groq",
+        "xai",
+        "deepseek",
+        "kimi",
+        "qwen",
+        "together",
+        "openrouter",
     }
     assert expected == {k for k in PROVIDERS if k != "custom"}
 

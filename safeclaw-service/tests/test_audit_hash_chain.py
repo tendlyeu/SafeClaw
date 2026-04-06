@@ -65,9 +65,9 @@ def test_hash_chain_continues_after_restart(tmp_path):
     logger2.log(_make_record())
     hash_after_second_log = logger2._prev_hash
     assert hash_after_second_log is not None
-    assert (
-        hash_after_second_log != hash_after_first_log
-    ), "Second log entry should produce a different hash"
+    assert hash_after_second_log != hash_after_first_log, (
+        "Second log entry should produce a different hash"
+    )
 
     # Verify the JSONL file contains correct _prev_hash references
     all_lines = []
@@ -105,9 +105,9 @@ def test_hash_chain_survives_multiple_restarts(tmp_path):
 
     for i in range(3):
         lgr = AuditLogger(tmp_path)
-        assert (
-            lgr._prev_hash == prev_hash
-        ), f"Restart {i}: expected _prev_hash={prev_hash!r}, got {lgr._prev_hash!r}"
+        assert lgr._prev_hash == prev_hash, (
+            f"Restart {i}: expected _prev_hash={prev_hash!r}, got {lgr._prev_hash!r}"
+        )
         lgr.log(_make_record(session_id=f"restart-{i}"))
         prev_hash = lgr._prev_hash
         del lgr
@@ -126,6 +126,6 @@ def test_hash_chain_survives_multiple_restarts(tmp_path):
     # Verify chain integrity: each entry's _prev_hash matches the prior entry's _hash
     assert all_lines[0]["_prev_hash"] == ""
     for j in range(1, len(all_lines)):
-        assert (
-            all_lines[j]["_prev_hash"] == all_lines[j - 1]["_hash"]
-        ), f"Entry {j}'s _prev_hash should match entry {j - 1}'s _hash"
+        assert all_lines[j]["_prev_hash"] == all_lines[j - 1]["_hash"], (
+            f"Entry {j}'s _prev_hash should match entry {j - 1}'s _hash"
+        )

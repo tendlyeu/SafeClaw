@@ -36,9 +36,9 @@ async def test_concurrent_get_session_lock_returns_same_lock(engine):
         engine._get_session_lock("session-1"),
     )
     lock_a, lock_b = results
-    assert (
-        lock_a is lock_b
-    ), "Concurrent _get_session_lock calls for the same session returned different lock objects"
+    assert lock_a is lock_b, (
+        "Concurrent _get_session_lock calls for the same session returned different lock objects"
+    )
     # Clean up ref counts
     await engine._release_session_lock_ref("session-1")
     await engine._release_session_lock_ref("session-1")
@@ -63,9 +63,9 @@ async def test_eviction_does_not_remove_in_use_lock(engine):
         lock_b = await engine._get_session_lock("session-B")
 
         # session-A must still be in the dict (not evicted while held)
-        assert (
-            "session-A" in engine._session_locks
-        ), "session-A was evicted while its lock was actively held"
+        assert "session-A" in engine._session_locks, (
+            "session-A was evicted while its lock was actively held"
+        )
         # Both locks should exist
         assert "session-B" in engine._session_locks
         # They must be different objects
@@ -98,9 +98,9 @@ async def test_eviction_does_not_remove_referenced_but_unacquired_lock(engine):
     lock_b = await engine._get_session_lock("session-B")
 
     # session-A must NOT have been evicted because it has refs > 0
-    assert (
-        "session-A" in engine._session_locks
-    ), "session-A was evicted while it had outstanding references (ref count > 0)"
+    assert "session-A" in engine._session_locks, (
+        "session-A was evicted while it had outstanding references (ref count > 0)"
+    )
     assert engine._session_locks["session-A"] is lock_a
 
     # Both should be in the dict (capacity exceeded but nothing is evictable)
@@ -127,9 +127,9 @@ async def test_eviction_reclaims_unreferenced_locks(engine):
     await engine._get_session_lock("session-B")
 
     # session-A should have been evicted (not locked, no refs)
-    assert (
-        "session-A" not in engine._session_locks
-    ), "session-A should have been evicted (no refs, not locked)"
+    assert "session-A" not in engine._session_locks, (
+        "session-A should have been evicted (no refs, not locked)"
+    )
     assert "session-B" in engine._session_locks
 
     # Clean up
@@ -207,9 +207,9 @@ async def test_eviction_with_multiple_concurrent_refs(engine):
     # But since max is 1 and we have session-A, session-B, session-C (3 entries),
     # eviction should remove session-A first (oldest), then session-B
     # (session-B has ref=1 so it won't be evicted, leaving us at 2)
-    assert (
-        "session-A" not in engine._session_locks
-    ), "session-A should have been evicted after all refs were released"
+    assert "session-A" not in engine._session_locks, (
+        "session-A should have been evicted after all refs were released"
+    )
 
     # Clean up
     await engine._release_session_lock_ref("session-B")

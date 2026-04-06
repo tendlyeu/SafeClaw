@@ -287,6 +287,7 @@ class SQLiteAPIKeyManager:
         if llm_config_str:
             try:
                 import json
+
                 return json.loads(llm_config_str)
             except (json.JSONDecodeError, TypeError):
                 pass

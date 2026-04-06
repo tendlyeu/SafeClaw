@@ -561,12 +561,12 @@ class TestEngineMultiAgentIntegration:
         )
         decision = await engine.evaluate_tool_call(event)
         assert decision.block is True
-        assert (
-            "denied access" in decision.reason.lower()
-        ), f"Expected role-based resource denial but got: {decision.reason}"
-        assert (
-            "/secrets/api-key.txt" in decision.reason
-        ), f"Expected denied path in reason but got: {decision.reason}"
+        assert "denied access" in decision.reason.lower(), (
+            f"Expected role-based resource denial but got: {decision.reason}"
+        )
+        assert "/secrets/api-key.txt" in decision.reason, (
+            f"Expected denied path in reason but got: {decision.reason}"
+        )
 
     @pytest.mark.asyncio
     async def test_resource_deny_with_alternate_param_key(self, engine):

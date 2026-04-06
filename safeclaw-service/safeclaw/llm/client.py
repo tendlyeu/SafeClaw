@@ -1,13 +1,17 @@
 """OpenAI-compatible LLM client with timeout, error handling, and backward compat."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
-
-from openai import AsyncOpenAI
+from typing import TYPE_CHECKING
 
 from safeclaw.config import SafeClawConfig
 from safeclaw.llm.providers import PROVIDERS
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 logger = logging.getLogger("safeclaw.llm")
 
@@ -127,6 +131,8 @@ def create_client(config: SafeClawConfig) -> SafeClawLLMClient | None:
         timeout_ms = config.mistral_timeout_ms
 
     try:
+        from openai import AsyncOpenAI
+
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         return SafeClawLLMClient(
             openai_client=client,

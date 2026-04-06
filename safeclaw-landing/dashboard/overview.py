@@ -1,7 +1,25 @@
 """Dashboard overview page."""
 
+import subprocess
+
 from fasthtml.common import *
 from monsterui.all import *
+
+
+def _get_git_info() -> tuple[str, str]:
+    """Return (short_hash, timestamp) of the latest commit, or fallbacks."""
+    try:
+        sha = subprocess.check_output(
+            ["git", "log", "-1", "--format=%h"], text=True, timeout=2,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        ts = subprocess.check_output(
+            ["git", "log", "-1", "--format=%ci"], text=True, timeout=2,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        return sha, ts
+    except Exception:
+        return "unknown", ""
 
 
 def HostedStatusCard():
@@ -79,6 +97,7 @@ def GettingStartedCard():
 
 def OverviewContent(user, key_count: int, has_llm_key: bool = True):
     """Main overview page content."""
+    commit_sha, commit_ts = _get_git_info()
     content = [
         Grid(
             Card(
@@ -92,6 +111,10 @@ def OverviewContent(user, key_count: int, has_llm_key: bool = True):
                 footer=A("Edit preferences ->", href="/dashboard/prefs"),
             ),
             cols=2,
+        ),
+        Card(
+            DivLAligned(UkIcon("git-commit", height=20), H4("Version")),
+            P(Code(commit_sha), "  ", Span(commit_ts, cls=TextPresets.muted_sm)),
         ),
     ]
     if not has_llm_key:

@@ -1,16 +1,22 @@
 """Tests for the OpenAI-compatible LLM client wrapper."""
 
+import sys
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from safeclaw.config import SafeClawConfig
+
+# Ensure 'openai' module exists for patching, even if not installed.
+if "openai" not in sys.modules:
+    _mock_openai = MagicMock()
+    sys.modules["openai"] = _mock_openai
 
 
 def test_create_client_with_new_provider():
     """create_client uses llm_provider + llm_api_key when set."""
     from safeclaw.llm.client import create_client
 
-    with patch("safeclaw.llm.client.AsyncOpenAI") as mock_cls:
+    with patch("openai.AsyncOpenAI") as mock_cls:
         mock_cls.return_value = MagicMock()
         config = SafeClawConfig(llm_provider="openai", llm_api_key="sk-test")
         client = create_client(config)
@@ -27,7 +33,7 @@ def test_create_client_legacy_mistral_fallback():
     """create_client falls back to mistral_api_key when llm_provider is not set."""
     from safeclaw.llm.client import create_client
 
-    with patch("safeclaw.llm.client.AsyncOpenAI") as mock_cls:
+    with patch("openai.AsyncOpenAI") as mock_cls:
         mock_cls.return_value = MagicMock()
         config = SafeClawConfig(mistral_api_key="old-mistral-key")
         client = create_client(config)
@@ -43,7 +49,7 @@ def test_create_client_new_provider_overrides_legacy():
     """When both llm_provider and mistral_api_key are set, llm_provider wins."""
     from safeclaw.llm.client import create_client
 
-    with patch("safeclaw.llm.client.AsyncOpenAI") as mock_cls:
+    with patch("openai.AsyncOpenAI") as mock_cls:
         mock_cls.return_value = MagicMock()
         config = SafeClawConfig(
             llm_provider="groq",
@@ -63,7 +69,7 @@ def test_create_client_custom_provider():
     """create_client works with custom provider using user-supplied base_url."""
     from safeclaw.llm.client import create_client
 
-    with patch("safeclaw.llm.client.AsyncOpenAI") as mock_cls:
+    with patch("openai.AsyncOpenAI") as mock_cls:
         mock_cls.return_value = MagicMock()
         config = SafeClawConfig(
             llm_provider="custom",
@@ -84,7 +90,7 @@ def test_create_client_custom_provider_no_key():
     """Custom provider works without API key (for Ollama etc.)."""
     from safeclaw.llm.client import create_client
 
-    with patch("safeclaw.llm.client.AsyncOpenAI") as mock_cls:
+    with patch("openai.AsyncOpenAI") as mock_cls:
         mock_cls.return_value = MagicMock()
         config = SafeClawConfig(
             llm_provider="custom",
@@ -112,7 +118,7 @@ def test_create_client_model_override():
     """llm_model and llm_model_large override provider defaults."""
     from safeclaw.llm.client import create_client
 
-    with patch("safeclaw.llm.client.AsyncOpenAI") as mock_cls:
+    with patch("openai.AsyncOpenAI") as mock_cls:
         mock_cls.return_value = MagicMock()
         config = SafeClawConfig(
             llm_provider="openai",

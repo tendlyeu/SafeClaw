@@ -245,6 +245,7 @@ class FullEngine(SafeClawEngine):
 
         # Cache key: provider+key combo (hash key material to avoid storing raw keys)
         import hashlib
+
         cache_key = f"{provider_id}:{hashlib.sha256(user_key.encode()).hexdigest()[:16]}"
         if cache_key in self._user_llm_clients:
             self._user_llm_clients.move_to_end(cache_key)

@@ -79,7 +79,9 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
         status_text = "Configured" if key_configured else "Not configured"
         status_cls = "text-green" if key_configured else "text-red"
         masked = _mask_key(current_key)
-        provider_name = PROVIDERS[current_provider].name if current_provider in PROVIDERS else "None"
+        provider_name = (
+            PROVIDERS[current_provider].name if current_provider in PROVIDERS else "None"
+        )
 
         csrf = csrf_field(sess) if csrf_field else ""
 
@@ -93,7 +95,11 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
             if pid != "custom"
         ]
         provider_options.append(
-            Option("Custom (OpenAI-compatible)", value="custom", selected=(current_provider == "custom"))
+            Option(
+                "Custom (OpenAI-compatible)",
+                value="custom",
+                selected=(current_provider == "custom"),
+            )
         )
 
         api_key_panel = Div(
@@ -197,9 +203,15 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
             ("ontology_dir", str(config.ontology_dir) if config.ontology_dir else "bundled"),
             ("audit_dir", str(config.audit_dir) if config.audit_dir else "default"),
             ("require_auth", config.require_auth),
-            ("llm_provider", config.llm_provider or ("mistral (legacy)" if config.mistral_api_key else "none")),
+            (
+                "llm_provider",
+                config.llm_provider or ("mistral (legacy)" if config.mistral_api_key else "none"),
+            ),
             ("llm_model", config.llm_model or config.mistral_model),
-            ("llm_timeout_ms", config.llm_timeout_ms if config.llm_provider else config.mistral_timeout_ms),
+            (
+                "llm_timeout_ms",
+                config.llm_timeout_ms if config.llm_provider else config.mistral_timeout_ms,
+            ),
             ("llm_security_review_enabled", config.llm_security_review_enabled),
             ("llm_classification_observe", config.llm_classification_observe),
             ("log_level", config.log_level),

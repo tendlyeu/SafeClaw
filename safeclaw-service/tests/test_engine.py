@@ -71,9 +71,9 @@ async def test_delete_blocked_by_shacl_missing_filepath(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert (
-        "file path" in decision.reason.lower()
-    ), f"Expected SHACL file path violation but got: {decision.reason}"
+    assert "file path" in decision.reason.lower(), (
+        f"Expected SHACL file path violation but got: {decision.reason}"
+    )
 
 
 @pytest.mark.asyncio
@@ -89,9 +89,9 @@ async def test_delete_non_root_blocked_by_shacl_missing_filepath(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert (
-        "file path" in decision.reason.lower()
-    ), f"Expected SHACL file path violation but got: {decision.reason}"
+    assert "file path" in decision.reason.lower(), (
+        f"Expected SHACL file path violation but got: {decision.reason}"
+    )
 
 
 @pytest.mark.asyncio
@@ -106,9 +106,9 @@ async def test_git_push_blocked_by_preference(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert (
-        "confirmation before pushing" in decision.reason.lower()
-    ), f"Expected confirmBeforePush preference violation but got: {decision.reason}"
+    assert "confirmation before pushing" in decision.reason.lower(), (
+        f"Expected confirmBeforePush preference violation but got: {decision.reason}"
+    )
 
 
 @pytest.mark.asyncio
@@ -148,9 +148,9 @@ async def test_engine_blocks_rm_rf_root(engine):
     )
     decision = await engine.evaluate_tool_call(event)
     assert decision.block is True
-    assert (
-        "file path" in decision.reason.lower()
-    ), f"Expected SHACL file path violation but got: {decision.reason}"
+    assert "file path" in decision.reason.lower(), (
+        f"Expected SHACL file path violation but got: {decision.reason}"
+    )
 
 
 def test_policy_checker_safe_match_malformed_regex():

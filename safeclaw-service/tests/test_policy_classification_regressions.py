@@ -121,9 +121,9 @@ class TestIssue27RunTestsClassification:
     def test_shell_patterns_contain_run_tests(self):
         """SHELL_PATTERNS must include at least one RunTests entry."""
         run_tests_patterns = [p for p in SHELL_PATTERNS if p[1] == "RunTests"]
-        assert (
-            len(run_tests_patterns) >= 4
-        ), f"Expected at least 4 RunTests patterns, found {len(run_tests_patterns)}"
+        assert len(run_tests_patterns) >= 4, (
+            f"Expected at least 4 RunTests patterns, found {len(run_tests_patterns)}"
+        )
 
 
 # ===========================================================================
@@ -136,9 +136,9 @@ class TestIssue30UnknownClassHierarchy:
 
     def test_unknown_class_has_action_superclass(self, hierarchy):
         supers = hierarchy.get_superclasses("CompletelyUnknownClass")
-        assert (
-            "Action" in supers
-        ), "Unknown classes must include 'Action' as superclass for prohibition matching"
+        assert "Action" in supers, (
+            "Unknown classes must include 'Action' as superclass for prohibition matching"
+        )
 
     def test_unknown_class_includes_self(self, hierarchy):
         supers = hierarchy.get_superclasses("CompletelyUnknownClass")
@@ -173,9 +173,9 @@ class TestIssue44NeverModifyPathsNaming:
 
         checker = PreferenceChecker(kg)
         prefs = checker.get_preferences("test44")
-        assert (
-            prefs.never_modify_paths is not None
-        ), "neverModifyPaths preference should be loaded (plural form in TTL)"
+        assert prefs.never_modify_paths is not None, (
+            "neverModifyPaths preference should be loaded (plural form in TTL)"
+        )
         assert "*.env" in prefs.never_modify_paths
 
 
@@ -278,9 +278,9 @@ class TestIssue48SHACLSubclassInference:
 
         result = validator.validate(graph)
         # GitPush is a subclass of ShellAction, so ShellAction shapes should fire
-        assert (
-            result.conforms is True
-        ), f"SHACL should validate subclass instance, got violations: {result.violations}"
+        assert result.conforms is True, (
+            f"SHACL should validate subclass instance, got violations: {result.violations}"
+        )
 
     def test_shacl_file_action_shape_fires_for_delete(self):
         """FileAction shapes should fire for DeleteFile (a subclass)."""
@@ -357,9 +357,9 @@ class TestIssue122DuplicateViolations:
         assert result.violated
         # Should have exactly one violation from NoForcePush, not two
         no_fp_violations = [v for v in result.all_violations if "NoForcePush" in v["policy_uri"]]
-        assert (
-            len(no_fp_violations) == 1
-        ), f"Expected 1 NoForcePush violation, got {len(no_fp_violations)}"
+        assert len(no_fp_violations) == 1, (
+            f"Expected 1 NoForcePush violation, got {len(no_fp_violations)}"
+        )
 
     def test_reset_hard_single_violation(self, policy_checker):
         action = ClassifiedAction(
@@ -373,9 +373,9 @@ class TestIssue122DuplicateViolations:
         result = policy_checker.check(action)
         assert result.violated
         no_rh_violations = [v for v in result.all_violations if "NoResetHard" in v["policy_uri"]]
-        assert (
-            len(no_rh_violations) == 1
-        ), f"Expected 1 NoResetHard violation, got {len(no_rh_violations)}"
+        assert len(no_rh_violations) == 1, (
+            f"Expected 1 NoResetHard violation, got {len(no_rh_violations)}"
+        )
 
 
 # ===========================================================================
