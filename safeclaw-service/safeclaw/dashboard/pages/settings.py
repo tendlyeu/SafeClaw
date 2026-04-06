@@ -70,20 +70,43 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
         flash_msg = sess.pop("settings_flash", None) if sess else None
         flash_el = Div(flash_msg, cls="flash flash-success") if flash_msg else ""
 
-        # ── Mistral API Key panel ────────────────────────────────
-        key_configured = bool(config.mistral_api_key)
+        # ── LLM Provider panel ───────────────────────────────────
+        from safeclaw.llm.providers import PROVIDERS
+
+        current_provider = config.llm_provider or ("mistral" if config.mistral_api_key else "")
+        current_key = config.llm_api_key or config.mistral_api_key
+        key_configured = bool(current_key)
         status_text = "Configured" if key_configured else "Not configured"
         status_cls = "text-green" if key_configured else "text-red"
-        masked = _mask_key(config.mistral_api_key)
+        masked = _mask_key(current_key)
+        provider_name = PROVIDERS[current_provider].name if current_provider in PROVIDERS else "None"
 
         csrf = csrf_field(sess) if csrf_field else ""
 
+        provider_options = [
+            Option(
+                info.name,
+                value=pid,
+                selected=(pid == current_provider),
+            )
+            for pid, info in PROVIDERS.items()
+            if pid != "custom"
+        ]
+        provider_options.append(
+            Option("Custom (OpenAI-compatible)", value="custom", selected=(current_provider == "custom"))
+        )
+
         api_key_panel = Div(
-            H2("Mistral API Key"),
+            H2("LLM Provider"),
             Div(
                 Div(
                     Span("Status: ", cls="text-muted"),
                     Span(status_text, cls=status_cls),
+                    cls="mb-1",
+                ),
+                Div(
+                    Span("Provider: ", cls="text-muted"),
+                    Span(provider_name, cls="text-mono"),
                     cls="mb-1",
                 ),
                 Div(
@@ -93,6 +116,15 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
                 ),
                 Form(
                     csrf,
+                    Div(
+                        Label("Provider", _for="provider"),
+                        Select(
+                            *provider_options,
+                            name="provider",
+                            id="provider",
+                        ),
+                        style="margin-bottom: 0.75rem;",
+                    ),
                     Div(
                         Input(
                             type="password",
@@ -165,9 +197,9 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
             ("ontology_dir", str(config.ontology_dir) if config.ontology_dir else "bundled"),
             ("audit_dir", str(config.audit_dir) if config.audit_dir else "default"),
             ("require_auth", config.require_auth),
-            ("mistral_model", config.mistral_model),
-            ("mistral_model_large", config.mistral_model_large),
-            ("mistral_timeout_ms", config.mistral_timeout_ms),
+            ("llm_provider", config.llm_provider or ("mistral (legacy)" if config.mistral_api_key else "none")),
+            ("llm_model", config.llm_model or config.mistral_model),
+            ("llm_timeout_ms", config.llm_timeout_ms if config.llm_provider else config.mistral_timeout_ms),
             ("llm_security_review_enabled", config.llm_security_review_enabled),
             ("llm_classification_observe", config.llm_classification_observe),
             ("log_level", config.log_level),
@@ -214,24 +246,36 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
         )
 
     @rt("/settings/api-key", methods=["post"])
-    def update_api_key(api_key: str, sess, _csrf: str = ""):
+    def update_api_key(api_key: str, provider: str = "", sess=None, _csrf: str = ""):
         if verify_csrf and not verify_csrf(sess, _csrf):
             return Response("CSRF token invalid", status_code=403)
         engine = get_engine()
-        engine.config.mistral_api_key = api_key
-        os.environ["SAFECLAW_MISTRAL_API_KEY"] = api_key
 
-        # Persist to config.json
+        if provider:
+            engine.config.llm_provider = provider
+            engine.config.llm_api_key = api_key
+            os.environ["SAFECLAW_LLM_PROVIDER"] = provider
+            os.environ["SAFECLAW_LLM_API_KEY"] = api_key
+        else:
+            engine.config.mistral_api_key = api_key
+            os.environ["SAFECLAW_MISTRAL_API_KEY"] = api_key
+
         config_path = engine.config.data_dir / "config.json"
         try:
             cfg_data = json.loads(config_path.read_text())
         except (FileNotFoundError, json.JSONDecodeError):
             cfg_data = {}
-        cfg_data["mistral_api_key"] = api_key
+
+        if provider:
+            cfg_data["llm_provider"] = provider
+            cfg_data["llm_api_key"] = api_key
+        else:
+            cfg_data["mistral_api_key"] = api_key
+
         config_path.parent.mkdir(parents=True, exist_ok=True)
         _write_config_safe(config_path, json.dumps(cfg_data, indent=2))
 
-        sess["settings_flash"] = "API key saved and applied."
+        sess["settings_flash"] = "LLM provider settings saved and applied."
         return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)
 
     @rt("/settings/reload", methods=["post"])

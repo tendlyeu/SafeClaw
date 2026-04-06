@@ -199,13 +199,13 @@ class FullEngine(SafeClawEngine):
         # Audit
         self.audit = AuditLogger(audit_dir)
 
-        # LLM layer (passive observer — gated on API key)
+        # LLM layer (passive observer — gated on provider config or legacy key)
         self.llm_client = None
         self.security_reviewer = None
         self.classification_observer = None
         self.explainer = None
 
-        if config.mistral_api_key:
+        if config.llm_provider or config.mistral_api_key:
             from safeclaw.llm.client import create_client
             from safeclaw.llm.security_reviewer import SecurityReviewer
             from safeclaw.llm.classification_observer import ClassificationObserver
@@ -221,49 +221,72 @@ class FullEngine(SafeClawEngine):
                 self.explainer = DecisionExplainer(self.llm_client)
                 logger.info("LLM layer initialized (security review, observer, explainer)")
 
-        # Per-user LLM client cache (bounded LRU, keyed by Mistral API key)
+        # Per-user LLM client cache (bounded LRU, keyed by provider+key combo)
         self._user_llm_clients: OrderedDict = OrderedDict()
         self._max_user_llm_clients = 500
 
     def get_llm_client_for_user(self, user_id: str):
         """Get LLM client for a specific user, falling back to global client.
 
-        Looks up the user's Mistral key from the shared DB, caches clients by key.
+        Looks up the user's LLM config from the shared DB, caches clients by key.
         """
-        if self.api_key_manager is None or not hasattr(
-            self.api_key_manager, "get_user_mistral_key"
-        ):
+        if self.api_key_manager is None or not hasattr(self.api_key_manager, "get_user_llm_config"):
             return self.llm_client  # Fall back to global
 
-        user_key = self.api_key_manager.get_user_mistral_key(user_id)
-        if not user_key:
+        user_llm = self.api_key_manager.get_user_llm_config(user_id)
+        if not user_llm:
             return self.llm_client  # Fall back to global
 
-        # Check cache (move to end for LRU)
-        if user_key in self._user_llm_clients:
-            self._user_llm_clients.move_to_end(user_key)
-            return self._user_llm_clients[user_key]
+        provider_id = user_llm.get("active_provider", "")
+        keys = user_llm.get("keys", {})
+        user_key = keys.get(provider_id, "")
+        if not user_key and provider_id != "custom":
+            return self.llm_client
 
-        # Create new client for this key
+        # Cache key: provider+key combo (hash key material to avoid storing raw keys)
+        import hashlib
+        cache_key = f"{provider_id}:{hashlib.sha256(user_key.encode()).hexdigest()[:16]}"
+        if cache_key in self._user_llm_clients:
+            self._user_llm_clients.move_to_end(cache_key)
+            return self._user_llm_clients[cache_key]
+
+        # Create new client for this user's provider config
         from safeclaw.llm.client import SafeClawLLMClient
+        from safeclaw.llm.providers import PROVIDERS
+
+        if provider_id not in PROVIDERS:
+            return self.llm_client
+
+        info = PROVIDERS[provider_id]
+        base_url = user_llm.get("custom_base_url", "") if provider_id == "custom" else info.base_url
+        if provider_id == "custom" and not base_url:
+            return self.llm_client
+        model = user_llm.get("custom_model", "") or info.default_model
+        if not model:
+            return self.llm_client
+        api_key_val = user_key or "unused"
 
         try:
-            from mistralai import Mistral
+            from openai import AsyncOpenAI
 
-            mistral = Mistral(api_key=user_key)
-            client = SafeClawLLMClient(
-                mistral_client=mistral,
-                model=self.config.mistral_model,
-                model_large=self.config.mistral_model_large,
-                timeout_ms=self.config.mistral_timeout_ms,
+            openai_client = AsyncOpenAI(api_key=api_key_val, base_url=base_url)
+            timeout = (
+                self.config.llm_timeout_ms
+                if self.config.llm_provider
+                else self.config.mistral_timeout_ms
             )
-            self._user_llm_clients[user_key] = client
-            # Evict oldest if over limit
+            client = SafeClawLLMClient(
+                openai_client=openai_client,
+                model=model,
+                model_large=info.default_model_large or model,
+                timeout_ms=timeout,
+            )
+            self._user_llm_clients[cache_key] = client
             while len(self._user_llm_clients) > self._max_user_llm_clients:
                 self._user_llm_clients.popitem(last=False)
             return client
         except Exception:
-            logger.warning("Failed to create per-user Mistral client for user %s", user_id)
+            logger.warning("Failed to create per-user LLM client for user %s", user_id)
             return self.llm_client
 
     def _reload_kg_components(self) -> None:

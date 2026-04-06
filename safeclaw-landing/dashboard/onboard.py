@@ -63,12 +63,36 @@ def OnboardStep1(csrf_token=""):
     )
 
 
-def OnboardStep2Mistral(csrf_token=""):
-    """Step 2: Optional Mistral API key for LLM features."""
+def OnboardStep2LLM(csrf_token=""):
+    """Step 2: Optional AI provider key for LLM features."""
+    from safeclaw.llm.providers import PROVIDERS
+
+    free_providers = [
+        ("mistral", PROVIDERS["mistral"]),
+        ("gemini", PROVIDERS["gemini"]),
+        ("groq", PROVIDERS["groq"]),
+        ("qwen", PROVIDERS["qwen"]),
+    ]
+
+    provider_options = []
+    for pid, info in free_providers:
+        provider_options.append(
+            Card(
+                DivLAligned(
+                    Input(type="radio", name="llm_provider", value=pid, cls="uk-radio"),
+                    H4(info.name),
+                    Span(info.free_tier, style="font-size:0.7rem; background:#065f46; color:#6ee7b7; padding:1px 6px; border-radius:8px; margin-left:auto;"),
+                ),
+                P("Get a key at ",
+                  A(info.console_url.replace("https://", ""), href=info.console_url, target="_blank"),
+                  cls=TextPresets.muted_sm),
+            )
+        )
+
     return Div(
         Div(
-            H2("Enable LLM Features"),
-            P("Without an LLM key, SafeClaw uses rule-based classification only — "
+            H2("Enable AI Features"),
+            P("Without an AI key, SafeClaw uses rule-based classification only — "
               "it maps tool names to action categories using exact matches. "
               "This works for common tools but can miss unusual or custom ones.",
               cls=TextPresets.muted_sm),
@@ -76,7 +100,7 @@ def OnboardStep2Mistral(csrf_token=""):
         ),
         Divider(),
         Div(
-            P("With a Mistral API key, SafeClaw adds:", cls=TextPresets.muted_sm),
+            P("With an AI provider key, SafeClaw adds:", cls=TextPresets.muted_sm),
             Ul(
                 Li(Strong("Smart classification"), " — understands what a tool call "
                    "actually does, even for unfamiliar tools"),
@@ -87,23 +111,26 @@ def OnboardStep2Mistral(csrf_token=""):
                 cls="uk-list uk-list-disc",
                 style="font-size:0.875rem; color:var(--muted-foreground, #888);",
             ),
+            P("API keys are separate from consumer subscriptions (ChatGPT Plus, etc.). "
+              "These providers all offer free tiers:",
+              style="font-size:0.8rem; color:var(--muted-foreground, #888); margin-top:0.5rem;"),
             cls="space-y-2",
         ),
         Divider(),
         Form(
             Input(type="hidden", name="_csrf_token", value=csrf_token),
+            Div(*provider_options, cls="space-y-3"),
             Div(
                 LabelInput(
-                    "Mistral API Key",
-                    id="mistral_api_key",
+                    "API Key",
+                    id="llm_api_key",
                     type="password",
-                    placeholder="Enter your Mistral API key",
+                    placeholder="Paste your API key here",
                 ),
-                P("Get a free key at ",
-                  A("console.mistral.ai", href="https://console.mistral.ai", target="_blank"),
-                  ". You can add this later from Preferences.",
+                P("You can add more providers or change this later in Preferences.",
                   cls=TextPresets.muted_sm),
                 cls="space-y-1",
+                style="margin-top:1rem;",
             ),
             DivLAligned(
                 Button("Next", cls=ButtonT.primary, type="submit"),

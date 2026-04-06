@@ -1813,7 +1813,7 @@ def dashboard(req, sess):
         Title("Dashboard — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
         DashboardLayout("Overview",
-                        *OverviewContent(user, key_count, has_mistral_key=bool(user.mistral_api_key)),
+                        *OverviewContent(user, key_count, has_llm_key=bool(user.llm_config or user.mistral_api_key)),
                         user=user, active="overview", is_admin=is_user_admin(user)),
     )
 
@@ -1860,7 +1860,7 @@ async def health_check(req, sess):
 from datetime import datetime, timezone
 
 from dashboard.keys import KeysContent, KeyTable, generate_api_key, hash_key, NewKeyModal
-from dashboard.onboard import OnboardStep1, OnboardStep2Mistral, OnboardStep3
+from dashboard.onboard import OnboardStep1, OnboardStep2LLM, OnboardStep3
 
 
 @rt("/dashboard/keys")
@@ -1944,17 +1944,25 @@ def onboard_step1(req, sess, autonomy_level: str = "moderate", _csrf_token: str 
         autonomy_level = "moderate"
     user.autonomy_level = autonomy_level
     users.update(user)
-    return OnboardStep2Mistral(csrf_token=token)
+    return OnboardStep2LLM(csrf_token=token)
 
 
 @rt("/dashboard/onboard/step2", methods=["POST"])
-def onboard_step2(req, sess, mistral_api_key: str = "", _csrf_token: str = ""):
+def onboard_step2(req, sess, llm_provider: str = "", llm_api_key: str = "",
+                  mistral_api_key: str = "", _csrf_token: str = ""):
     if err := _verify_csrf(sess, _csrf_token):
         return P(err, style="color:#f87171;")
     user = req.scope.get("user")
     token = _generate_csrf_token(sess)
-    if mistral_api_key.strip():
-        user.mistral_api_key = mistral_api_key.strip()
+    import json as _json
+    provider = llm_provider.strip()
+    key = llm_api_key.strip() or mistral_api_key.strip()
+    if provider and key:
+        llm_cfg = {"active_provider": provider, "keys": {provider: key}}
+        user.llm_config = _json.dumps(llm_cfg)
+    elif key:
+        user.mistral_api_key = key
+    if key:
         users.update(user)
     # Guard: don't create duplicate keys on re-submit
     existing = api_keys(where="user_id = ? AND label = ? AND is_active = 1",
@@ -2125,16 +2133,17 @@ async def dashboard_prefs(req, sess):
         "audit_logging": bool(user.audit_logging),
     }
 
-    # Mask Mistral key for display: show last 4 chars only
+    from dashboard.prefs import _parse_llm_config
+    llm_config = _parse_llm_config(user.llm_config)
+    if not llm_config.get("active_provider") and user.mistral_api_key:
+        llm_config = {"active_provider": "mistral", "keys": {"mistral": user.mistral_api_key}}
     masked_key = ""
-    if user.mistral_api_key:
-        masked_key = "••••" + user.mistral_api_key[-4:]
 
     token = _generate_csrf_token(sess)
     return (
         Title("Preferences — SafeClaw"),
         *MUITheme.blue.headers(mode='dark'),
-        DashboardLayout("Preferences", *PrefsContent(prefs, mistral_api_key=masked_key, csrf_token=token), user=user, active="prefs", is_admin=is_user_admin(user)),
+        DashboardLayout("Preferences", *PrefsContent(prefs, llm_config=llm_config, csrf_token=token), user=user, active="prefs", is_admin=is_user_admin(user)),
     )
 
 
@@ -2179,15 +2188,69 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
     if admin_password:
         user.admin_password = hash_admin_password(admin_password)
 
-    # Save Mistral key if changed (not the masked placeholder) (#105)
-    if mistral_api_key and not mistral_api_key.startswith("\u2022\u2022\u2022\u2022"):
-        user.mistral_api_key = mistral_api_key.strip()
-    elif not mistral_api_key:
-        # Empty string means user wants to clear the key (#105)
-        user.mistral_api_key = ""
+    # Save LLM provider keys from the card inputs
+    import json as _json
+    from dashboard.prefs import _parse_llm_config
+    existing_llm = _parse_llm_config(user.llm_config)
+
+    try:
+        from safeclaw.llm.providers import PROVIDERS
+    except ImportError:
+        PROVIDERS = None
+
+    if PROVIDERS:
+        form_data = await req.form()
+        keys = existing_llm.get("keys", {})
+        for pid in PROVIDERS:
+            form_key = form_data.get(f"llm_key_{pid}", "")
+            if form_key and not form_key.startswith("\u2022\u2022\u2022\u2022"):
+                keys[pid] = form_key.strip()
+            elif form_key == "":
+                keys.pop(pid, None)
+        existing_llm["keys"] = keys
+        custom_base = form_data.get("custom_base_url", "")
+        custom_model = form_data.get("custom_model", "")
+        if custom_base:
+            parsed = urlparse(custom_base.strip())
+            if parsed.scheme not in ("http", "https"):
+                return P("Custom base URL must use http or https.", style="color:#f87171;")
+            existing_llm["custom_base_url"] = custom_base.strip()
+        if custom_model:
+            existing_llm["custom_model"] = custom_model.strip()
+        user.llm_config = _json.dumps(existing_llm)
+
+    if existing_llm.get("active_provider") == "mistral":
+        user.mistral_api_key = existing_llm.get("keys", {}).get("mistral", "")
 
     users.update(user)
     return P("Preferences saved.", style="color:#4ade80;")
+
+
+@rt("/dashboard/prefs/set-llm-provider", methods=["POST"])
+async def set_llm_provider(req, sess, provider: str = "", _csrf_token: str = ""):
+    """Switch the active LLM provider (HTMX partial)."""
+    if err := _verify_csrf(sess, _csrf_token):
+        return P(err, style="color:#f87171;")
+    user = req.scope.get("user")
+    import json as _json
+    from dashboard.prefs import _parse_llm_config, _llm_cards_section
+
+    llm_config = _parse_llm_config(user.llm_config)
+    if not llm_config.get("active_provider") and user.mistral_api_key:
+        llm_config = {"active_provider": "mistral", "keys": {"mistral": user.mistral_api_key}}
+
+    try:
+        from safeclaw.llm.providers import PROVIDERS
+        if provider and provider not in PROVIDERS:
+            return P("Unknown provider.", style="color:#f87171;")
+    except ImportError:
+        pass
+
+    llm_config["active_provider"] = provider
+    user.llm_config = _json.dumps(llm_config)
+    users.update(user)
+
+    return _llm_cards_section(llm_config)
 
 
 @rt("/dashboard/audit")

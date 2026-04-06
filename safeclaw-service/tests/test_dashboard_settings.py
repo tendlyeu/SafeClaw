@@ -42,7 +42,7 @@ def test_settings_page_renders(settings_client):
     client, _ = settings_client
     resp = client.get("/settings")
     assert resp.status_code == 200
-    assert "Mistral API Key" in resp.text or "API Key" in resp.text
+    assert "LLM Provider" in resp.text
 
 
 def test_settings_shows_llm_status(settings_client):
@@ -105,17 +105,21 @@ def test_write_config_safe_overwrites_existing_file(tmp_path):
 
 def test_api_key_save_writes_config_with_0600(tmp_path, settings_client):
     """POST /settings/api-key must write config.json with 0o600 permissions."""
+    from unittest.mock import patch
+
     client, engine = settings_client
     engine.config.data_dir = tmp_path
 
     page = client.get("/settings")
     csrf = _extract_csrf(page.text)
 
-    resp = client.post(
-        "/settings/api-key",
-        data={"api_key": "sk-new-key-12345678", "_csrf": csrf},
-        follow_redirects=False,
-    )
+    # Patch os.environ so the route's env var mutations don't leak into other tests
+    with patch.dict("os.environ", {}, clear=False):
+        resp = client.post(
+            "/settings/api-key",
+            data={"api_key": "sk-new-key-12345678", "provider": "openai", "_csrf": csrf},
+            follow_redirects=False,
+        )
     assert resp.status_code in (200, 303)
 
     config_path = tmp_path / "config.json"
@@ -124,7 +128,8 @@ def test_api_key_save_writes_config_with_0600(tmp_path, settings_client):
     assert mode == 0o600, f"config.json has permissions {oct(mode)}, expected 0o600"
 
     data = json.loads(config_path.read_text())
-    assert data["mistral_api_key"] == "sk-new-key-12345678"
+    assert data["llm_provider"] == "openai"
+    assert data["llm_api_key"] == "sk-new-key-12345678"
 
 
 def test_preferences_save_writes_ttl_with_0600(tmp_path, settings_client):

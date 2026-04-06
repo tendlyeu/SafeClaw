@@ -209,15 +209,23 @@ class TestSQLiteAPIKeyManager:
             ")"
         )
         conn.execute(
-            "CREATE TABLE user (  id INTEGER PRIMARY KEY,  mistral_api_key TEXT DEFAULT '')"
+            "CREATE TABLE user ("
+            "  id INTEGER PRIMARY KEY,"
+            "  mistral_api_key TEXT DEFAULT '',"
+            "  llm_config TEXT DEFAULT NULL"
+            ")"
         )
         conn.execute("INSERT INTO user (id, mistral_api_key) VALUES (?, ?)", (42, "mist_test_key"))
         conn.commit()
         conn.close()
 
         mgr = SQLiteAPIKeyManager(str(db_path))
-        assert mgr.get_user_mistral_key("42") == "mist_test_key"
-        assert mgr.get_user_mistral_key("999") is None
+        # get_user_llm_config falls back to mistral_api_key column for legacy compat
+        result = mgr.get_user_llm_config("42")
+        assert result is not None
+        assert result["active_provider"] == "mistral"
+        assert result["keys"]["mistral"] == "mist_test_key"
+        assert mgr.get_user_llm_config("999") is None
 
     def test_get_user_mistral_key_empty(self, tmp_path):
         import sqlite3
@@ -239,14 +247,18 @@ class TestSQLiteAPIKeyManager:
             ")"
         )
         conn.execute(
-            "CREATE TABLE user (  id INTEGER PRIMARY KEY,  mistral_api_key TEXT DEFAULT '')"
+            "CREATE TABLE user ("
+            "  id INTEGER PRIMARY KEY,"
+            "  mistral_api_key TEXT DEFAULT '',"
+            "  llm_config TEXT DEFAULT NULL"
+            ")"
         )
         conn.execute("INSERT INTO user (id, mistral_api_key) VALUES (?, ?)", (42, ""))
         conn.commit()
         conn.close()
 
         mgr = SQLiteAPIKeyManager(str(db_path))
-        assert mgr.get_user_mistral_key("42") is None  # empty string = no key
+        assert mgr.get_user_llm_config("42") is None  # empty string = no key
 
 
 # --- APIKeyAuthMiddleware Tests ---
@@ -298,7 +310,7 @@ class TestPerUserLLMClient:
         assert result is engine.llm_client
 
     def test_get_llm_client_for_user_with_manager(self):
-        """With a manager that returns a key, creates a per-user client."""
+        """With a manager that returns an LLM config, creates a per-user client."""
         from safeclaw.engine.full_engine import FullEngine
         from safeclaw.config import SafeClawConfig
 
@@ -306,11 +318,12 @@ class TestPerUserLLMClient:
         engine = FullEngine(config)
 
         mock_manager = MagicMock()
-        mock_manager.get_user_mistral_key.return_value = "mist_test_key"
+        mock_manager.get_user_llm_config.return_value = {
+            "active_provider": "mistral",
+            "keys": {"mistral": "mist_test_key"},
+        }
         engine.api_key_manager = mock_manager
 
-        # This will try to import mistralai which may not be installed in test env
-        # So we test the fallback path: if Mistral import fails, returns global
         engine.get_llm_client_for_user("42")
-        # Should either return a new client or fall back to global (if mistralai not installed)
-        mock_manager.get_user_mistral_key.assert_called_once_with("42")
+        # get_user_llm_config is called to look up per-user LLM settings
+        mock_manager.get_user_llm_config.assert_called_once_with("42")
