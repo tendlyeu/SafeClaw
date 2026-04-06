@@ -132,9 +132,14 @@ class SQLiteAPIKeyManager:
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS user ("
                 "  id INTEGER PRIMARY KEY,"
-                "  mistral_api_key TEXT DEFAULT ''"
+                "  mistral_api_key TEXT DEFAULT '',"
+                "  llm_config TEXT DEFAULT ''"
                 ")"
             )
+            try:
+                self._conn.execute("ALTER TABLE user ADD COLUMN llm_config TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS audit_log ("
                 "  id INTEGER PRIMARY KEY,"

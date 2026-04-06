@@ -2211,6 +2211,9 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
         custom_base = form_data.get("custom_base_url", "")
         custom_model = form_data.get("custom_model", "")
         if custom_base:
+            parsed = urlparse(custom_base.strip())
+            if parsed.scheme not in ("http", "https"):
+                return P("Custom base URL must use http or https.", style="color:#f87171;")
             existing_llm["custom_base_url"] = custom_base.strip()
         if custom_model:
             existing_llm["custom_model"] = custom_model.strip()
@@ -2235,6 +2238,13 @@ async def set_llm_provider(req, sess, provider: str = "", _csrf_token: str = "")
     llm_config = _parse_llm_config(user.llm_config)
     if not llm_config.get("active_provider") and user.mistral_api_key:
         llm_config = {"active_provider": "mistral", "keys": {"mistral": user.mistral_api_key}}
+
+    try:
+        from safeclaw.llm.providers import PROVIDERS
+        if provider and provider not in PROVIDERS:
+            return P("Unknown provider.", style="color:#f87171;")
+    except ImportError:
+        pass
 
     llm_config["active_provider"] = provider
     user.llm_config = _json.dumps(llm_config)

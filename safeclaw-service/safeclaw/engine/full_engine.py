@@ -243,8 +243,9 @@ class FullEngine(SafeClawEngine):
         if not user_key and provider_id != "custom":
             return self.llm_client
 
-        # Cache key: provider+key combo
-        cache_key = f"{provider_id}:{user_key}"
+        # Cache key: provider+key combo (hash key material to avoid storing raw keys)
+        import hashlib
+        cache_key = f"{provider_id}:{hashlib.sha256(user_key.encode()).hexdigest()[:16]}"
         if cache_key in self._user_llm_clients:
             self._user_llm_clients.move_to_end(cache_key)
             return self._user_llm_clients[cache_key]
@@ -258,7 +259,11 @@ class FullEngine(SafeClawEngine):
 
         info = PROVIDERS[provider_id]
         base_url = user_llm.get("custom_base_url", "") if provider_id == "custom" else info.base_url
+        if provider_id == "custom" and not base_url:
+            return self.llm_client
         model = user_llm.get("custom_model", "") or info.default_model
+        if not model:
+            return self.llm_client
         api_key_val = user_key or "unused"
 
         try:
