@@ -7,9 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Coolify passes SOURCE_COMMIT automatically; falls back to build date
-ARG SOURCE_COMMIT=unknown
-RUN echo "${SOURCE_COMMIT} $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .version
+# Bake deploy timestamp at build time
+RUN date -u '+%Y-%m-%d %H:%M:%S UTC' > .version
 
 RUN groupadd -r safeclaw && useradd -m -r -g safeclaw safeclaw
 
