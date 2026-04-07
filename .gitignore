@@ -45,3 +45,6 @@ audit_logs/
 # Worktrees
 .worktrees/
 .superpowers/
+
+# Generated at Docker build time
+safeclaw-landing/.version
