@@ -3,6 +3,7 @@
 import hashlib
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -101,11 +102,14 @@ class SQLiteAPIKeyManager:
     Used in SaaS mode when db_path is configured.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, llm_config_cache_ttl: int = 60):
         import sqlite3
 
         self._db_path = db_path
         self._write_lock = threading.Lock()
+        # TTL cache for user LLM configs to avoid DB round-trips on every call
+        self._llm_config_cache: dict[str, tuple[dict | None, float]] = {}
+        self._llm_config_cache_ttl = llm_config_cache_ttl
         # Keep a connection for writes (audit logging) but read operations
         # open fresh connections to always see the latest data from the
         # landing site's WAL writes.
@@ -263,7 +267,19 @@ class SQLiteAPIKeyManager:
 
         Tries llm_config JSON first, falls back to mistral_api_key for compat.
         Returns parsed dict or None.
+
+        Results are cached for the configured TTL (default 60s) to avoid
+        DB round-trips on every call.
         """
+        now = time.monotonic()
+        # Check cache first
+        if user_id in self._llm_config_cache:
+            cached_value, cached_at = self._llm_config_cache[user_id]
+            if now - cached_at < self._llm_config_cache_ttl:
+                return cached_value
+            # Expired — remove stale entry
+            del self._llm_config_cache[user_id]
+
         import sqlite3
 
         try:
@@ -282,6 +298,7 @@ class SQLiteAPIKeyManager:
             return None
 
         llm_config_str, mistral_key = row[0], row[1]
+        result: dict | None = None
 
         # Prefer llm_config JSON if populated
         if llm_config_str:
@@ -297,15 +314,17 @@ class SQLiteAPIKeyManager:
                         data["keys"] = decrypt_keys_dict(data["keys"])
                     except ImportError:
                         pass  # No encryption module — keys are plaintext
-                return data
+                result = data
             except (json.JSONDecodeError, TypeError):
                 pass
 
         # Fall back to legacy mistral_api_key
-        if mistral_key:
-            return {
+        if result is None and mistral_key:
+            result = {
                 "active_provider": "mistral",
                 "keys": {"mistral": mistral_key},
             }
 
-        return None
+        # Store in cache
+        self._llm_config_cache[user_id] = (result, now)
+        return result
