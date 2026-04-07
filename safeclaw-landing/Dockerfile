@@ -1,7 +1,5 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY requirements.txt .
@@ -9,8 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Generate version info from git at build time (Coolify clones the repo)
-RUN git log -1 --format='%h %ci' > .version 2>/dev/null || echo "unknown" > .version
+# Coolify passes SOURCE_COMMIT automatically; falls back to build date
+ARG SOURCE_COMMIT=unknown
+RUN echo "${SOURCE_COMMIT} $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .version
 
 RUN groupadd -r safeclaw && useradd -m -r -g safeclaw safeclaw
 

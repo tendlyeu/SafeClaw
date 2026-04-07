@@ -14,7 +14,8 @@ _VERSION_TS = ""
 _version_file = Path(__file__).resolve().parent.parent / ".version"
 if _version_file.exists():
     _parts = _version_file.read_text().strip().split(" ", 1)
-    _VERSION_SHA = _parts[0] if _parts else "unknown"
+    _sha = _parts[0] if _parts else "unknown"
+    _VERSION_SHA = _sha[:7] if len(_sha) > 7 else _sha  # Short hash
     _VERSION_TS = _parts[1] if len(_parts) > 1 else ""
 else:
     # Fall back to git (works in dev, not in Docker)
