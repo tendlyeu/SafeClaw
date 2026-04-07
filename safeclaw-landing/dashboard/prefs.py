@@ -17,13 +17,18 @@ def _field_group(*children):
 
 
 def _parse_llm_config(raw: str) -> dict:
-    """Parse the llm_config JSON string, returning a safe default."""
+    """Parse the llm_config JSON string and decrypt keys."""
     if not raw:
         return {"active_provider": "", "keys": {}}
     try:
         data = json.loads(raw)
         if not isinstance(data, dict):
             return {"active_provider": "", "keys": {}}
+        # Decrypt keys for in-memory use
+        if data.get("keys"):
+            from key_crypto import decrypt_keys_dict
+
+            data["keys"] = decrypt_keys_dict(data["keys"])
         return data
     except (json.JSONDecodeError, TypeError):
         return {"active_provider": "", "keys": {}}

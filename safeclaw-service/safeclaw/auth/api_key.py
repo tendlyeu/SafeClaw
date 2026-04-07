@@ -288,7 +288,16 @@ class SQLiteAPIKeyManager:
             try:
                 import json
 
-                return json.loads(llm_config_str)
+                data = json.loads(llm_config_str)
+                # Decrypt keys if encryption module is available
+                if data.get("keys"):
+                    try:
+                        from safeclaw.key_crypto import decrypt_keys_dict
+
+                        data["keys"] = decrypt_keys_dict(data["keys"])
+                    except ImportError:
+                        pass  # No encryption module — keys are plaintext
+                return data
             except (json.JSONDecodeError, TypeError):
                 pass
 

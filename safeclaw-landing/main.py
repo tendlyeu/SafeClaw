@@ -1958,7 +1958,9 @@ def onboard_step2(req, sess, llm_provider: str = "", llm_api_key: str = "",
     provider = llm_provider.strip()
     key = llm_api_key.strip() or mistral_api_key.strip()
     if provider and key:
-        llm_cfg = {"active_provider": provider, "keys": {provider: key}}
+        from key_crypto import encrypt_key
+
+        llm_cfg = {"active_provider": provider, "keys": {provider: encrypt_key(key)}}
         user.llm_config = _json.dumps(llm_cfg)
     elif key:
         user.mistral_api_key = key
@@ -2199,6 +2201,8 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
         PROVIDERS = None
 
     if PROVIDERS:
+        from key_crypto import encrypt_keys_dict
+
         form_data = await req.form()
         keys = existing_llm.get("keys", {})
         for pid in PROVIDERS:
@@ -2207,7 +2211,7 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
                 keys[pid] = form_key.strip()
             elif form_key == "":
                 keys.pop(pid, None)
-        existing_llm["keys"] = keys
+        existing_llm["keys"] = encrypt_keys_dict(keys)
         custom_base = form_data.get("custom_base_url", "")
         custom_model = form_data.get("custom_model", "")
         if custom_base:
@@ -2220,7 +2224,9 @@ async def save_prefs(req, sess, autonomy_level: str = "moderate",
         user.llm_config = _json.dumps(existing_llm)
 
     if existing_llm.get("active_provider") == "mistral":
-        user.mistral_api_key = existing_llm.get("keys", {}).get("mistral", "")
+        from key_crypto import decrypt_key
+
+        user.mistral_api_key = decrypt_key(existing_llm.get("keys", {}).get("mistral", ""))
 
     users.update(user)
     return P("Preferences saved.", style="color:#4ade80;")

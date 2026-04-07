@@ -2,3 +2,4 @@ python-fasthtml==0.13.1
 fastcore==1.12.31
 monsterui==1.0.45
 httpx
+cryptography>=43.0
