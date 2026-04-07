@@ -77,7 +77,7 @@ def decrypt_key(stored: str) -> str:
     if not stored.startswith(_ENC_PREFIX):
         return stored  # Legacy plaintext — will be encrypted on next save
     try:
-        return _get_fernet().decrypt(stored[len(_ENC_PREFIX):].encode()).decode()
+        return _get_fernet().decrypt(stored[len(_ENC_PREFIX) :].encode()).decode()
     except InvalidToken:
         logger.warning("Failed to decrypt API key — encryption key may have changed")
         return ""

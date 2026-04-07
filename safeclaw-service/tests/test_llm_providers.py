@@ -54,6 +54,6 @@ def test_provider_base_urls_end_correctly():
     for pid, info in PROVIDERS.items():
         if pid == "custom":
             continue
-        assert not info.base_url.endswith("/"), (
-            f"Provider {pid} base_url should not end with slash: {info.base_url}"
-        )
+        assert not info.base_url.endswith(
+            "/"
+        ), f"Provider {pid} base_url should not end with slash: {info.base_url}"
