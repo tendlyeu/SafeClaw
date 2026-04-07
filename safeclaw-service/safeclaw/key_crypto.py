@@ -3,19 +3,40 @@
 Keys are stored with an ``enc:`` prefix so plaintext legacy values can be
 detected and auto-migrated on the next save.
 
-The encryption key is auto-generated on first use and stored at
-``~/.safeclaw-landing/.encryption_key`` with 0o600 permissions.
+The encryption key is co-located with the shared SQLite DB so both the
+landing site and the SafeClaw service can access the same key.
 """
 
+import logging
 import os
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+logger = logging.getLogger(__name__)
+
 _ENC_PREFIX = "enc:"
 
-_DB_DIR = Path(os.environ.get("SAFECLAW_DB_DIR", os.path.expanduser("~/.safeclaw-landing")))
-_KEY_PATH = _DB_DIR / ".encryption_key"
+
+def _resolve_key_dir() -> Path:
+    """Find the directory containing the encryption key.
+
+    Priority:
+    1. SAFECLAW_DB_DIR env var (landing site sets this)
+    2. Parent of SAFECLAW_DB_PATH (service sets this to the shared DB file)
+    3. ~/.safeclaw-landing (local dev default)
+    """
+    db_dir = os.environ.get("SAFECLAW_DB_DIR")
+    if db_dir:
+        return Path(db_dir)
+    db_path = os.environ.get("SAFECLAW_DB_PATH")
+    if db_path:
+        return Path(db_path).parent
+    return Path.home() / ".safeclaw-landing"
+
+
+_KEY_DIR = _resolve_key_dir()
+_KEY_PATH = _KEY_DIR / ".encryption_key"
 
 _fernet = None
 
@@ -26,7 +47,7 @@ def _get_fernet() -> Fernet:
     if _fernet is not None:
         return _fernet
 
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    _KEY_DIR.mkdir(parents=True, exist_ok=True)
 
     if _KEY_PATH.exists():
         key = _KEY_PATH.read_bytes().strip()
@@ -58,7 +79,8 @@ def decrypt_key(stored: str) -> str:
     try:
         return _get_fernet().decrypt(stored[len(_ENC_PREFIX):].encode()).decode()
     except InvalidToken:
-        return ""  # Corrupted or wrong key — treat as empty
+        logger.warning("Failed to decrypt API key — encryption key may have changed")
+        return ""
 
 
 def encrypt_keys_dict(keys: dict) -> dict:

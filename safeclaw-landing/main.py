@@ -2260,7 +2260,14 @@ async def set_llm_provider(req, sess, provider: str = "", _csrf_token: str = "")
         return P("Please set a base URL for the custom provider first.", style="color:#f87171;")
 
     llm_config["active_provider"] = provider
-    user.llm_config = _json.dumps(llm_config)
+
+    # Re-encrypt keys before writing back to DB
+    from key_crypto import encrypt_keys_dict
+
+    store_config = dict(llm_config)
+    if store_config.get("keys"):
+        store_config["keys"] = encrypt_keys_dict(store_config["keys"])
+    user.llm_config = _json.dumps(store_config)
     users.update(user)
 
     return _llm_cards_section(llm_config)

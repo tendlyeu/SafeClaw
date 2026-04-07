@@ -58,7 +58,12 @@ def decrypt_key(stored: str) -> str:
     try:
         return _get_fernet().decrypt(stored[len(_ENC_PREFIX):].encode()).decode()
     except InvalidToken:
-        return ""  # Corrupted or wrong key — treat as empty
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Failed to decrypt API key — encryption key may have changed"
+        )
+        return ""
 
 
 def encrypt_keys_dict(keys: dict) -> dict:
