@@ -92,6 +92,12 @@ def _resolve_llm_config(
         base_url = config.llm_base_url if provider_id == "custom" else info.base_url
         if provider_id == "custom" and not base_url:
             return None
+        if provider_id == "custom" and base_url:
+            from urllib.parse import urlparse
+
+            if urlparse(base_url).scheme not in ("http", "https"):
+                logger.warning("Custom base URL has invalid scheme: %s", base_url)
+                return None
 
         model = config.llm_model or info.default_model
         model_large = config.llm_model_large or info.default_model_large

@@ -2241,10 +2241,17 @@ async def set_llm_provider(req, sess, provider: str = "", _csrf_token: str = "")
 
     try:
         from providers import PROVIDERS
+
         if provider and provider not in PROVIDERS:
             return P("Unknown provider.", style="color:#f87171;")
     except ImportError:
         pass
+
+    keys = llm_config.get("keys", {})
+    if provider and provider != "custom" and not keys.get(provider):
+        return P("Please save an API key for this provider first.", style="color:#f87171;")
+    if provider == "custom" and not llm_config.get("custom_base_url"):
+        return P("Please set a base URL for the custom provider first.", style="color:#f87171;")
 
     llm_config["active_provider"] = provider
     user.llm_config = _json.dumps(llm_config)

@@ -264,6 +264,11 @@ def register(rt, get_engine, csrf_field=None, verify_csrf=None, get_csrf_token=N
         engine = get_engine()
 
         if provider:
+            from safeclaw.llm.providers import PROVIDERS
+
+            if provider not in PROVIDERS:
+                sess["settings_flash"] = f"Unknown provider: {provider}"
+                return RedirectResponse(f"{_comp.MOUNT_PREFIX}/settings", status_code=303)
             engine.config.llm_provider = provider
             engine.config.llm_api_key = api_key
             os.environ["SAFECLAW_LLM_PROVIDER"] = provider

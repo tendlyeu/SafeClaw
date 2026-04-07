@@ -51,6 +51,13 @@ jobs:
       - run: npm install
       - run: npm run typecheck
 
+  providers-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: diff safeclaw-service/safeclaw/llm/providers.py safeclaw-landing/providers.py
+        name: Verify providers.py copies are in sync
+
   landing-check:
     runs-on: ubuntu-latest
     defaults:
