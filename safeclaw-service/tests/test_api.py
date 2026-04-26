@@ -103,6 +103,17 @@ def test_session_end(client):
 
 
 def test_record_tool_result(client):
+    eval_resp = client.post(
+        "/api/v1/evaluate/tool-call",
+        json={
+            "sessionId": "api-test-session",
+            "toolName": "read",
+            "params": {"file_path": "/src/main.py"},
+        },
+    )
+    assert eval_resp.status_code == 200
+    assert eval_resp.json()["block"] is False
+
     resp = client.post(
         "/api/v1/record/tool-result",
         json={

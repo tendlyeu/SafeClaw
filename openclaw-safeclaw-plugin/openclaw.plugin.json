@@ -2,7 +2,7 @@
   "id": "safeclaw",
   "name": "SafeClaw Neurosymbolic Governance",
   "description": "Validates AI agent actions against OWL ontologies and SHACL constraints before execution",
-  "version": "1.3.0",
+  "version": "1.5.0",
   "author": "Tendly EU",
   "license": "MIT",
   "homepage": "https://safeclaw.eu",

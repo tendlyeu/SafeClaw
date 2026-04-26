@@ -104,6 +104,16 @@ async function get(path: string): Promise<Record<string, unknown> | null> {
   }
 }
 
+function approvalSeverityForRisk(riskLevel: string): 'info' | 'warning' | 'critical' {
+  if (riskLevel === 'CriticalRisk' || riskLevel === 'HighRisk') return 'critical';
+  if (riskLevel === 'MediumRisk') return 'warning';
+  return 'info';
+}
+
+function approvalTimeoutBehaviorForRisk(riskLevel: string): 'allow' | 'deny' {
+  return riskLevel === 'CriticalRisk' || riskLevel === 'HighRisk' ? 'deny' : 'allow';
+}
+
 // --- Plugin Definition ---
 
 let handshakeCompleted = false;
@@ -270,9 +280,9 @@ export default {
           requireApproval: {
             title: 'SafeClaw Governance Check',
             description: (r.reason as string) || 'This action requires confirmation',
-            severity: riskLevel === 'HighRisk' ? 'critical' : riskLevel === 'MediumRisk' ? 'warning' : 'info',
+            severity: approvalSeverityForRisk(riskLevel),
             timeoutMs: 30_000,
-            timeoutBehavior: riskLevel === 'HighRisk' ? 'deny' : 'allow',
+            timeoutBehavior: approvalTimeoutBehaviorForRisk(riskLevel),
           },
         } satisfies BeforeToolCallResult;
       }
@@ -360,12 +370,14 @@ export default {
     api.on('after_tool_call', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
       post('/record/tool-result', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        userId: ctx.agentId ?? '',
         toolName: event.toolName ?? '',
         params: event.params ?? {},
         result: event.result ?? '',
         success: !event.error,
         error: event.error ? String(event.error) : '',
         durationMs: event.durationMs ?? 0,
+        runId: ctx.runId ?? event.runId ?? '',
       }).catch((e) => log.warn('[SafeClaw] Failed to record tool result:', e));
     });
 

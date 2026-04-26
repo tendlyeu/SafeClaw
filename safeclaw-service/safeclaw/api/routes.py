@@ -38,6 +38,7 @@ from safeclaw.api.models import (
     TempGrantResponse,
     ToolCallRequest,
     ToolResultRequest,
+    ToolResultResponse,
 )
 from safeclaw.engine.core import (
     AgentStartEvent,
@@ -177,6 +178,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         session_history=request.sessionHistory,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        run_id=request.runId,
     )
 
     # When dryRun is True, skip the full engine pipeline to avoid side effects
@@ -241,7 +243,7 @@ async def evaluate_inbound_message(
     - Sender metadata
     """
     engine = _get_engine()
-    _verify_agent_token(engine, request.userId, getattr(request, "agentToken", None))
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     sanitized_content = _sanitize_string(request.content)
     flags: list[str] = []
     warnings: list[str] = []
@@ -432,8 +434,8 @@ async def end_session(request: SessionEndRequest, req: Request):
     return {"ok": True, "sessionId": request.sessionId}
 
 
-@router.post("/record/tool-result")
-async def record_tool_result(request: ToolResultRequest, req: Request):
+@router.post("/record/tool-result", response_model=ToolResultResponse)
+async def record_tool_result(request: ToolResultRequest, req: Request) -> ToolResultResponse:
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
     user_id = getattr(req.state, "org_id", None) or request.userId or f"anon:{request.sessionId}"
@@ -450,9 +452,10 @@ async def record_tool_result(request: ToolResultRequest, req: Request):
         user_id=user_id,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        run_id=request.runId,
     )
-    await engine.record_action_result(event)
-    return {"ok": True}
+    recorded = await engine.record_action_result(event)
+    return ToolResultResponse(ok=recorded)
 
 
 @router.post("/evaluate/subagent-spawn", response_model=SubagentSpawnResponse)

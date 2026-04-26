@@ -230,6 +230,31 @@ class TestInboundMessageEvaluation:
         assert data["riskLevel"] == "low"
         assert len(data["flags"]) == 0
 
+    def test_registered_agent_token_is_verified_against_agent_id(self, client):
+        """Registered inbound-message agents must authenticate with agentToken."""
+        import safeclaw.main as main_module
+
+        main_module.engine.agent_registry.register_agent(
+            agent_id="inbound-agent",
+            role="developer",
+            session_id="s1",
+        )
+
+        resp = client.post(
+            "/api/v1/evaluate/inbound-message",
+            json={
+                "sessionId": "s1",
+                "channel": "dm",
+                "sender": "alice",
+                "content": "Hello",
+                "agentId": "inbound-agent",
+                "agentToken": "wrong-token",
+            },
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Invalid agent token"
+
 
 class TestChannelOntology:
     def test_ontology_loads(self):

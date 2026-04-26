@@ -13,6 +13,7 @@ class ToolCallEvent:
     session_history: list[str] = field(default_factory=list)
     agent_id: str | None = None
     agent_token: str = ""
+    run_id: str | None = None
 
 
 @dataclass
@@ -43,6 +44,7 @@ class ToolResultEvent:
     user_id: str = "default"
     agent_id: str | None = None
     agent_token: str = ""
+    run_id: str | None = None
 
 
 @dataclass
@@ -81,7 +83,11 @@ class SafeClawEngine(ABC):
     async def build_context(self, event: AgentStartEvent) -> ContextResult: ...
 
     @abstractmethod
-    async def record_action_result(self, event: ToolResultEvent) -> None: ...
+    async def record_action_result(self, event: ToolResultEvent) -> bool:
+        """Return True if the result matched a previously allowed tool call
+        and was recorded; False if rejected (auth failure, killed agent, or
+        no matching pending entry from a prior evaluate_tool_call)."""
+        ...
 
     @abstractmethod
     async def log_llm_io(self, event: LlmIOEvent) -> None: ...

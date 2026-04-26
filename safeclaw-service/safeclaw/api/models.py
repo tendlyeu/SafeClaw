@@ -74,8 +74,9 @@ class ToolResultRequest(BaseModel):
     params: dict = {}
     result: str = ""
     success: bool = True
-    agentId: str = ""
+    agentId: str | None = None
     agentToken: str = ""
+    runId: str | None = None
     error: str | None = None
     durationMs: float | None = None
 
@@ -83,6 +84,16 @@ class ToolResultRequest(BaseModel):
     @classmethod
     def check_params(cls, v: dict) -> dict:
         return _validate_params(v)
+
+
+class ToolResultResponse(BaseModel):
+    """Response from /record/tool-result. `ok=False` is HTTP 200 by design:
+    the most common cause is that the result didn't match a previously allowed
+    tool call (e.g., the eval was blocked, never sent, or already consumed),
+    which plugins should not treat as a transient error and retry.
+    """
+
+    ok: bool
 
 
 class LlmIORequest(BaseModel):
