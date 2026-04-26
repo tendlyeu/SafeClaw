@@ -61,8 +61,8 @@ def HostedAgentsContent():
             Divider(),
             H4("How it works"),
             Ul(
-                Li("Your AI agent's plugin sends every tool call to SafeClaw before execution"),
-                Li("SafeClaw validates it against your governance rules and preferences"),
+                Li("Your AI agent's plugin sends tool calls, messages, session events, and subagent events to SafeClaw"),
+                Li("SafeClaw validates them against your governance rules, preferences, roles, and sandbox policies"),
                 Li("Blocked actions are logged and the agent receives a clear explanation"),
                 Li("All decisions are recorded in the audit trail"),
                 cls="uk-list uk-list-disc",

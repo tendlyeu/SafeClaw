@@ -203,6 +203,9 @@ a:hover { opacity: 0.8; }
 .feature-card:nth-child(4) { border-left-color: var(--red); }
 .feature-card:nth-child(5) { border-left-color: var(--blue); }
 .feature-card:nth-child(6) { border-left-color: var(--purple); }
+.feature-card:nth-child(7) { border-left-color: var(--green); }
+.feature-card:nth-child(8) { border-left-color: var(--orange); }
+.feature-card:nth-child(9) { border-left-color: var(--blue); }
 
 .feature-icon {
   font-size: 1.6rem;
@@ -390,7 +393,7 @@ a:hover { opacity: 0.8; }
   justify-content: center;
   gap: 8px;
   align-items: center;
-  max-width: 800px;
+  max-width: 1000px;
   margin: 0 auto;
 }
 
