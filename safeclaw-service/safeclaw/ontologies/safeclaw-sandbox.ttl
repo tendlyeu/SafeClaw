@@ -34,6 +34,40 @@ sc:MountPoint a owl:Class ;
     rdfs:subClassOf sc:FilesystemPolicy ;
     rdfs:label "Mount Point" .
 
+# === Hardening classes (OpenClaw 2026.6.x sandbox dimensions) ===
+
+# These are standalone sandbox facet classes (NOT subclasses of SandboxPolicy/
+# MountPoint/NetworkPolicy) so the SandboxPolicyShape and MountPointShape do not
+# transitively apply their required-field constraints to them.
+
+sc:SeccompPolicy a owl:Class ;
+    rdfs:label "Seccomp Policy" ;
+    rdfs:comment "Policy governing the seccomp syscall-filtering profile of a sandbox" .
+
+sc:EnvironmentPolicy a owl:Class ;
+    rdfs:label "Environment Policy" ;
+    rdfs:comment "Policy governing host environment-variable inheritance (credential leak surface)" .
+
+sc:BindMount a owl:Class ;
+    rdfs:label "Bind Mount" ;
+    rdfs:comment "A host bind mount whose source path must be validated, especially when writable" .
+
+sc:EgressPolicy a owl:Class ;
+    rdfs:label "Egress Policy" ;
+    rdfs:comment "Policy governing outbound network egress and its allowlist" .
+
+sc:hasSeccompPolicy a owl:ObjectProperty ;
+    rdfs:domain sc:SandboxPolicy ;
+    rdfs:range sc:SeccompPolicy .
+
+sc:hasEnvironmentPolicy a owl:ObjectProperty ;
+    rdfs:domain sc:SandboxPolicy ;
+    rdfs:range sc:EnvironmentPolicy .
+
+sc:hasEgressPolicy a owl:ObjectProperty ;
+    rdfs:domain sc:NetworkPolicy ;
+    rdfs:range sc:EgressPolicy .
+
 sc:hasToolPolicy a owl:ObjectProperty ;
     rdfs:domain sc:SandboxPolicy ;
     rdfs:range sc:ToolPolicy .
@@ -66,3 +100,35 @@ sc:allowedHost a owl:DatatypeProperty ;
 sc:allowedPort a owl:DatatypeProperty ;
     rdfs:domain sc:NetworkPolicy ;
     rdfs:range xsd:integer .
+
+# === Hardening properties (OpenClaw 2026.6.x sandbox dimensions) ===
+
+sc:seccompProfile a owl:DatatypeProperty ;
+    rdfs:domain sc:SeccompPolicy ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Seccomp profile name. 'unconfined' (or disabled) removes syscall filtering and is rejected." .
+
+sc:inheritsHostEnv a owl:DatatypeProperty ;
+    rdfs:domain sc:EnvironmentPolicy ;
+    rdfs:range xsd:boolean ;
+    rdfs:comment "Whether the sandbox inherits the host process environment. true leaks host credentials and is rejected." .
+
+sc:bindSource a owl:DatatypeProperty ;
+    rdfs:domain sc:BindMount ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Validated absolute host source path for a bind mount. Required, especially for writable binds." .
+
+sc:bindSourceValidated a owl:DatatypeProperty ;
+    rdfs:domain sc:BindMount ;
+    rdfs:range xsd:boolean ;
+    rdfs:comment "Whether the bind mount source path has been validated against the allowed source set." .
+
+sc:allowsOutbound a owl:DatatypeProperty ;
+    rdfs:domain sc:EgressPolicy ;
+    rdfs:range xsd:boolean ;
+    rdfs:comment "Whether the sandbox permits outbound network egress." .
+
+sc:egressAllowlist a owl:DatatypeProperty ;
+    rdfs:domain sc:EgressPolicy ;
+    rdfs:range xsd:string ;
+    rdfs:comment "An allowlisted outbound egress destination. Required when outbound egress is allowed." .

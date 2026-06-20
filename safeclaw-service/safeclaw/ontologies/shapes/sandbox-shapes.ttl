@@ -2,9 +2,17 @@
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
 
 # === Sandbox Policy Shapes ===
 # SHACL constraints for validating sandbox policy configurations.
+
+# Prefix declaration object so sh:sparql constraints can resolve sc:.
+<http://safeclaw.uku.ai/ontology/agent#> a owl:Ontology ;
+    sh:declare [
+        sh:prefix "sc" ;
+        sh:namespace "http://safeclaw.uku.ai/ontology/agent#"^^xsd:anyURI
+    ] .
 
 sc:SandboxPolicyShape a sh:NodeShape ;
     sh:targetClass sc:SandboxPolicy ;
@@ -66,4 +74,92 @@ sc:AllowedToolShape a sh:NodeShape ;
         sh:datatype xsd:string ;
         sh:name "tool name" ;
         sh:message "Allowed tool must specify a name"
+    ] .
+
+# === Hardening shapes (OpenClaw 2026.6.x sandbox dimensions) ===
+
+# Seccomp: a profile must be declared and must not be 'unconfined'/'disabled'.
+sc:SeccompPolicyShape a sh:NodeShape ;
+    sh:targetClass sc:SeccompPolicy ;
+    rdfs:label "Seccomp Policy Shape" ;
+    rdfs:comment "Requires a non-unconfined seccomp profile so syscall filtering stays enabled" ;
+    sh:property [
+        sh:path sc:seccompProfile ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "seccomp profile" ;
+        sh:message "Sandbox must declare a seccomp profile"
+    ] ;
+    sh:sparql [
+        sh:message "Seccomp profile must not be unconfined or disabled" ;
+        sh:prefixes <http://safeclaw.uku.ai/ontology/agent#> ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this sc:seccompProfile ?profile .
+                FILTER ( LCASE(STR(?profile)) IN ( "unconfined", "disabled", "none", "off" ) )
+            }
+        """
+    ] .
+
+# Host environment inheritance leaks host credentials into the sandbox.
+sc:EnvironmentPolicyShape a sh:NodeShape ;
+    sh:targetClass sc:EnvironmentPolicy ;
+    rdfs:label "Environment Policy Shape" ;
+    rdfs:comment "Rejects host environment inheritance to prevent credential leakage" ;
+    sh:property [
+        sh:path sc:inheritsHostEnv ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:name "host env inheritance"
+    ] ;
+    sh:sparql [
+        sh:message "Sandbox must not inherit host environment variables (credential leak)" ;
+        sh:prefixes <http://safeclaw.uku.ai/ontology/agent#> ;
+        sh:select """
+            SELECT $this
+            WHERE { $this sc:inheritsHostEnv true . }
+        """
+    ] .
+
+# Bind mounts must declare a validated source path, especially when writable.
+sc:BindMountShape a sh:NodeShape ;
+    sh:targetClass sc:BindMount ;
+    rdfs:label "Bind Mount Shape" ;
+    rdfs:comment "Requires a validated bind source path for host bind mounts" ;
+    sh:property [
+        sh:path sc:bindSource ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:name "bind source" ;
+        sh:message "Bind mount must specify a host source path"
+    ] ;
+    sh:sparql [
+        sh:message "Bind mount source must be validated against the allowed source set" ;
+        sh:prefixes <http://safeclaw.uku.ai/ontology/agent#> ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS { $this sc:bindSourceValidated true }
+            }
+        """
+    ] .
+
+# When outbound egress is allowed, an explicit allowlist is mandatory.
+sc:EgressPolicyShape a sh:NodeShape ;
+    sh:targetClass sc:EgressPolicy ;
+    rdfs:label "Egress Policy Shape" ;
+    rdfs:comment "Requires an egress allowlist whenever outbound egress is permitted" ;
+    sh:sparql [
+        sh:message "Outbound egress requires an explicit egress allowlist" ;
+        sh:prefixes <http://safeclaw.uku.ai/ontology/agent#> ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this sc:allowsOutbound true .
+                FILTER NOT EXISTS { $this sc:egressAllowlist ?dest }
+            }
+        """
     ] .

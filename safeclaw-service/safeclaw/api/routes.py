@@ -360,6 +360,77 @@ async def evaluate_sandbox_policy(
                     }
                 )
 
+    # --- OpenClaw 2026.6.x sandbox hardening dimensions ---
+
+    # Seccomp profile: when a seccomp policy is declared it must not disable
+    # syscall filtering (unconfined). Absence is handled by other defaults.
+    seccomp = policy.get("seccompPolicy")
+    if isinstance(seccomp, dict):
+        profile = seccomp.get("profile")
+        if not profile:
+            violations.append(
+                {
+                    "field": "seccompPolicy.profile",
+                    "message": "Sandbox must declare a seccomp profile",
+                }
+            )
+        elif str(profile).lower() in ("unconfined", "disabled", "none", "off"):
+            violations.append(
+                {
+                    "field": "seccompPolicy.profile",
+                    "message": "Seccomp profile must not be unconfined or disabled",
+                }
+            )
+
+    # Host environment inheritance leaks host credentials into the sandbox.
+    env_policy = policy.get("environmentPolicy", {})
+    if isinstance(env_policy, dict) and env_policy.get("inheritHostEnv") is True:
+        violations.append(
+            {
+                "field": "environmentPolicy.inheritHostEnv",
+                "message": "Sandbox must not inherit host environment variables (credential leak)",
+            }
+        )
+
+    # Bind mounts must declare a validated host source path, especially when writable.
+    if isinstance(mounts, list):
+        for i, mount in enumerate(mounts):
+            if not isinstance(mount, dict):
+                continue
+            is_bind = mount.get("type") == "bind" or "source" in mount
+            if not is_bind:
+                continue
+            if not mount.get("source"):
+                violations.append(
+                    {
+                        "field": f"filesystemPolicy.mounts[{i}].source",
+                        "message": "Bind mount must specify a host source path",
+                    }
+                )
+            elif mount.get("sourceValidated") is not True:
+                # Fail-closed: a bind mount source is UNVALIDATED unless explicitly
+                # proven validated. Both an omitted flag and an explicit false are flagged.
+                violations.append(
+                    {
+                        "field": f"filesystemPolicy.mounts[{i}].sourceValidated",
+                        "message": (
+                            "Bind mount source must be validated against the allowed source set"
+                        ),
+                    }
+                )
+
+    # Outbound egress requires an explicit allowlist.
+    net_policy = policy.get("networkPolicy", {})
+    if isinstance(net_policy, dict) and net_policy.get("allowOutbound") is True:
+        allowlist = net_policy.get("egressAllowlist")
+        if not allowlist:
+            violations.append(
+                {
+                    "field": "networkPolicy.egressAllowlist",
+                    "message": "Outbound egress requires an explicit egress allowlist",
+                }
+            )
+
     return SandboxPolicyValidationResponse(
         conformant=len(violations) == 0,
         violations=violations,
