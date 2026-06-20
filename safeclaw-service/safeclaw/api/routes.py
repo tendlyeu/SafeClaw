@@ -407,7 +407,9 @@ async def evaluate_sandbox_policy(
                         "message": "Bind mount must specify a host source path",
                     }
                 )
-            elif mount.get("sourceValidated") is False:
+            elif mount.get("sourceValidated") is not True:
+                # Fail-closed: a bind mount source is UNVALIDATED unless explicitly
+                # proven validated. Both an omitted flag and an explicit false are flagged.
                 violations.append(
                     {
                         "field": f"filesystemPolicy.mounts[{i}].sourceValidated",

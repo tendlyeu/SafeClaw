@@ -141,7 +141,9 @@ sc:BindMountShape a sh:NodeShape ;
         sh:prefixes <http://safeclaw.uku.ai/ontology/agent#> ;
         sh:select """
             SELECT $this
-            WHERE { $this sc:bindSourceValidated false . }
+            WHERE {
+                FILTER NOT EXISTS { $this sc:bindSourceValidated true }
+            }
         """
     ] .
 

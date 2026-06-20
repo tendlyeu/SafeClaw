@@ -343,6 +343,48 @@ def test_bind_source_unvalidated_rejected():
 
 
 @requires_sandbox
+def test_bind_source_omitted_flag_rejected():
+    """A bind mount with a source but NO validation flag must fail (fail-closed)."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_bind_omitted_flag"]
+    g.add((node, RDF.type, SC.BindMount))
+    g.add((node, SC.mountPath, Literal("/workspace", datatype=XSD.string)))
+    g.add((node, SC.mountMode, Literal("read-write")))
+    g.add((node, SC.bindSource, Literal("/host/secrets", datatype=XSD.string)))
+    # NOTE: no bindSourceValidated triple at all -> must be treated as unvalidated.
+
+    result = validator.validate(g)
+    assert result.conforms is False, "Omitted validation flag must be non-conformant (fail-closed)"
+    messages = [v["message"].lower() for v in result.violations]
+    assert any("source" in m and "validat" in m for m in messages)
+
+
+@requires_sandbox
+def test_bind_source_validated_true_conformant():
+    """A bind mount explicitly proven validated (true) must still conform."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_bind_validated"]
+    g.add((node, RDF.type, SC.BindMount))
+    g.add((node, SC.mountPath, Literal("/workspace", datatype=XSD.string)))
+    g.add((node, SC.mountMode, Literal("read-write")))
+    g.add((node, SC.bindSource, Literal("/srv/workspace", datatype=XSD.string)))
+    g.add((node, SC.bindSourceValidated, Literal(True)))
+
+    result = validator.validate(g)
+    assert result.conforms is True, f"Expected conformant, got: {result.violations}"
+
+
+@requires_sandbox
 def test_bind_source_missing_rejected():
     """A bind mount without a source path should fail validation."""
     validator = SHACLValidator()
@@ -628,6 +670,43 @@ def test_api_sandbox_bind_source_unvalidated(client):
     data = resp.json()
     assert data["conformant"] is False
     assert any("sourceValidated" in v["field"] for v in data["violations"])
+
+
+def test_api_sandbox_bind_source_omitted_flag(client):
+    """A bind mount with a source but NO sourceValidated flag must be flagged (fail-closed)."""
+    policy = _base_policy()
+    policy["filesystemPolicy"]["mounts"] = [
+        {
+            "path": "/workspace",
+            "mode": "read-write",
+            "type": "bind",
+            "source": "/host/secrets",
+            # NOTE: no sourceValidated key at all.
+        }
+    ]
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is False, "Omitted sourceValidated must fail-closed"
+    assert any("sourceValidated" in v["field"] for v in data["violations"])
+
+
+def test_api_sandbox_bind_source_validated_true_ok(client):
+    """A bind mount with sourceValidated=True must still conform (no over-blocking)."""
+    policy = _base_policy()
+    policy["filesystemPolicy"]["mounts"] = [
+        {
+            "path": "/workspace",
+            "mode": "read-write",
+            "type": "bind",
+            "source": "/srv/workspace",
+            "sourceValidated": True,
+        }
+    ]
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is True, data["violations"]
 
 
 def test_api_sandbox_egress_without_allowlist(client):
