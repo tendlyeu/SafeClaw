@@ -233,6 +233,172 @@ def test_denied_tool_missing_name():
     assert any("name" in m.lower() or "tool" in m.lower() for m in messages)
 
 
+# ── Hardening ontology tests (OpenClaw 2026.6.x dimensions, #323) ──
+
+
+@requires_sandbox
+def test_sandbox_hardening_properties_queryable():
+    """Verify the new hardening properties are present in the ontology."""
+    g = Graph()
+    g.bind("sc", SC)
+    g.parse(str(_sandbox_ttl), format="turtle")
+
+    for prop in [
+        SC.seccompProfile,
+        SC.inheritsHostEnv,
+        SC.bindSource,
+        SC.egressAllowlist,
+    ]:
+        results = list(g.triples((prop, RDF.type, None)))
+        assert len(results) > 0, f"Property {prop} not found"
+
+
+@requires_sandbox
+def test_sandbox_hardening_classes_queryable():
+    """Verify the new hardening classes are present in the ontology."""
+    g = Graph()
+    g.bind("sc", SC)
+    g.parse(str(_sandbox_ttl), format="turtle")
+
+    for cls in [SC.SeccompPolicy, SC.EnvironmentPolicy, SC.BindMount, SC.EgressPolicy]:
+        results = list(g.triples((cls, RDF.type, None)))
+        assert len(results) > 0, f"Class {cls} not found"
+
+
+@requires_sandbox
+def test_seccomp_unconfined_rejected():
+    """A seccomp profile set to 'unconfined' should fail validation."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_seccomp_unconfined"]
+    g.add((node, RDF.type, SC.SeccompPolicy))
+    g.add((node, SC.seccompProfile, Literal("unconfined", datatype=XSD.string)))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    messages = [v["message"].lower() for v in result.violations]
+    assert any("unconfined" in m or "seccomp" in m for m in messages)
+
+
+@requires_sandbox
+def test_seccomp_profile_conformant():
+    """A non-unconfined seccomp profile should conform."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_seccomp_ok"]
+    g.add((node, RDF.type, SC.SeccompPolicy))
+    g.add((node, SC.seccompProfile, Literal("default", datatype=XSD.string)))
+
+    result = validator.validate(g)
+    assert result.conforms is True, f"Expected conformant, got: {result.violations}"
+
+
+@requires_sandbox
+def test_host_env_inheritance_rejected():
+    """A sandbox inheriting host env vars should fail validation (credential leak)."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_env_inherit"]
+    g.add((node, RDF.type, SC.EnvironmentPolicy))
+    g.add((node, SC.inheritsHostEnv, Literal(True)))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    messages = [v["message"].lower() for v in result.violations]
+    assert any("host environment" in m or "credential" in m for m in messages)
+
+
+@requires_sandbox
+def test_bind_source_unvalidated_rejected():
+    """A bind mount with an unvalidated source should fail validation."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_bind_unvalidated"]
+    g.add((node, RDF.type, SC.BindMount))
+    g.add((node, SC.mountPath, Literal("/workspace", datatype=XSD.string)))
+    g.add((node, SC.mountMode, Literal("read-write")))
+    g.add((node, SC.bindSource, Literal("/host/secrets", datatype=XSD.string)))
+    g.add((node, SC.bindSourceValidated, Literal(False)))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    messages = [v["message"].lower() for v in result.violations]
+    assert any("source" in m and "validat" in m for m in messages)
+
+
+@requires_sandbox
+def test_bind_source_missing_rejected():
+    """A bind mount without a source path should fail validation."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_bind_no_source"]
+    g.add((node, RDF.type, SC.BindMount))
+    g.add((node, SC.mountPath, Literal("/workspace", datatype=XSD.string)))
+    g.add((node, SC.mountMode, Literal("read-write")))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    messages = [v["message"].lower() for v in result.violations]
+    assert any("source" in m for m in messages)
+
+
+@requires_sandbox
+def test_egress_without_allowlist_rejected():
+    """Outbound egress without an allowlist should fail validation."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_egress_open"]
+    g.add((node, RDF.type, SC.EgressPolicy))
+    g.add((node, SC.allowsOutbound, Literal(True)))
+
+    result = validator.validate(g)
+    assert result.conforms is False
+    messages = [v["message"].lower() for v in result.violations]
+    assert any("egress" in m and "allowlist" in m for m in messages)
+
+
+@requires_sandbox
+def test_egress_with_allowlist_conformant():
+    """Outbound egress with an allowlist should conform."""
+    validator = SHACLValidator()
+    validator.load_shapes(_shapes_dir)
+    validator._ont_graph.parse(str(_sandbox_ttl), format="turtle")
+
+    g = Graph()
+    g.bind("sc", SC)
+    node = SC["test_egress_allowlisted"]
+    g.add((node, RDF.type, SC.EgressPolicy))
+    g.add((node, SC.allowsOutbound, Literal(True)))
+    g.add((node, SC.egressAllowlist, Literal("api.example.com", datatype=XSD.string)))
+
+    result = validator.validate(g)
+    assert result.conforms is True, f"Expected conformant, got: {result.violations}"
+
+
 # ── API endpoint tests ──
 
 
@@ -389,3 +555,120 @@ def test_api_sandbox_policy_denied_tool_missing_name(client):
     data = resp.json()
     assert data["conformant"] is False
     assert any("denied" in v["field"] for v in data["violations"])
+
+
+# ── API hardening tests (OpenClaw 2026.6.x dimensions, #323) ──
+
+
+def _base_policy() -> dict:
+    return {
+        "toolPolicy": {"allowed": ["read"]},
+        "filesystemPolicy": {"mounts": [{"path": "/workspace", "mode": "read-write"}]},
+    }
+
+
+def test_api_sandbox_seccomp_unconfined(client):
+    """A seccomp profile of 'unconfined' should be flagged."""
+    policy = _base_policy()
+    policy["seccompPolicy"] = {"profile": "unconfined"}
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is False
+    assert any("seccomp" in v["field"].lower() for v in data["violations"])
+
+
+def test_api_sandbox_seccomp_default_ok(client):
+    """A non-unconfined seccomp profile should not be flagged."""
+    policy = _base_policy()
+    policy["seccompPolicy"] = {"profile": "default"}
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    assert resp.json()["conformant"] is True
+
+
+def test_api_sandbox_host_env_inheritance(client):
+    """Inheriting host env vars should be flagged as a credential leak."""
+    policy = _base_policy()
+    policy["environmentPolicy"] = {"inheritHostEnv": True}
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is False
+    assert any("inheritHostEnv" in v["field"] for v in data["violations"])
+
+
+def test_api_sandbox_bind_source_missing(client):
+    """A bind mount without a host source should be flagged."""
+    policy = _base_policy()
+    policy["filesystemPolicy"]["mounts"] = [
+        {"path": "/workspace", "mode": "read-write", "type": "bind"}
+    ]
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is False
+    assert any("source" in v["field"] for v in data["violations"])
+
+
+def test_api_sandbox_bind_source_unvalidated(client):
+    """A writable bind mount with an unvalidated source should be flagged."""
+    policy = _base_policy()
+    policy["filesystemPolicy"]["mounts"] = [
+        {
+            "path": "/workspace",
+            "mode": "read-write",
+            "type": "bind",
+            "source": "/host/secrets",
+            "sourceValidated": False,
+        }
+    ]
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is False
+    assert any("sourceValidated" in v["field"] for v in data["violations"])
+
+
+def test_api_sandbox_egress_without_allowlist(client):
+    """Outbound egress without an allowlist should be flagged."""
+    policy = _base_policy()
+    policy["networkPolicy"] = {"allowOutbound": True}
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is False
+    assert any("egressAllowlist" in v["field"] for v in data["violations"])
+
+
+def test_api_sandbox_egress_with_allowlist_ok(client):
+    """Outbound egress with an allowlist should pass."""
+    policy = _base_policy()
+    policy["networkPolicy"] = {
+        "allowOutbound": True,
+        "egressAllowlist": ["api.example.com"],
+    }
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    assert resp.json()["conformant"] is True
+
+
+def test_api_sandbox_fully_hardened_ok(client):
+    """A fully hardened sandbox policy should conform."""
+    policy = _base_policy()
+    policy["filesystemPolicy"]["mounts"] = [
+        {
+            "path": "/workspace",
+            "mode": "read-write",
+            "type": "bind",
+            "source": "/srv/workspace",
+            "sourceValidated": True,
+        }
+    ]
+    policy["seccompPolicy"] = {"profile": "default"}
+    policy["environmentPolicy"] = {"inheritHostEnv": False}
+    policy["networkPolicy"] = {"allowOutbound": True, "egressAllowlist": ["api.example.com"]}
+    resp = client.post("/api/v1/evaluate/sandbox-policy", json={"policy": policy})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["conformant"] is True, data["violations"]
