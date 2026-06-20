@@ -273,6 +273,14 @@ export default {
         toolName: event.toolName ?? '',
         params: event.params ?? {},
         runId: ctx.runId ?? '',
+        // v2026.6.8 discriminators so the service can classify code-mode exec,
+        // file-touching envelopes, etc. (#316)
+        toolKind: event.toolKind ?? '',
+        toolInputKind: event.toolInputKind ?? '',
+        derivedPaths: event.derivedPaths ?? [],
+        // Trigger origin (#324): cron-driven runs carry ctx.jobId.
+        triggeredBy: ctx.jobId ? 'cron' : 'interactive',
+        jobId: ctx.jobId ?? '',
       });
 
       if (r === null && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {

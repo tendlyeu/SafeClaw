@@ -160,6 +160,35 @@ def _verify_agent_token(engine, agent_id: str | None, agent_token: str | None):
         raise HTTPException(status_code=403, detail="Invalid agent token")
 
 
+def _require_attributed_auth(engine, req: Request, agent_id: str | None, agent_token: str | None):
+    """Stricter auth for routes that persist raw caller-supplied content.
+
+    Unlike ``_verify_agent_token`` (which allows empty/unregistered agents for
+    backwards compatibility on the governance routes), the durable LLM I/O audit
+    writes record raw prompt/response content to disk. Allowing anonymous callers
+    there — which happens in local mode where the API-key middleware passes
+    through without setting ``org_id`` — leaves audit poisoning and unbounded log
+    growth open. Require *attributable* auth: an API-key org context, or a
+    registered agent presenting a valid token.
+    """
+    if getattr(req.state, "org_id", None):
+        return  # API-key authenticated (org context present)
+    if agent_id:
+        # A claimed agent identity must be registered AND present a valid token.
+        record = engine.agent_registry.get_agent(agent_id)
+        if (
+            record is not None
+            and agent_token
+            and engine.agent_registry.verify_token(agent_id, agent_token)
+        ):
+            return
+        raise HTTPException(status_code=403, detail="Invalid or unregistered agent token")
+    raise HTTPException(
+        status_code=401,
+        detail="LLM audit logging requires API-key or registered-agent authentication",
+    )
+
+
 @router.post("/evaluate/tool-call", response_model=DecisionResponse)
 async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
@@ -179,6 +208,11 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         agent_id=request.agentId,
         agent_token=request.agentToken,
         run_id=request.runId,
+        tool_kind=request.toolKind,
+        tool_input_kind=request.toolInputKind,
+        derived_paths=request.derivedPaths,
+        triggered_by=request.triggeredBy,
+        job_id=request.jobId,
     )
 
     # When dryRun is True, skip the full engine pipeline to avoid side effects
@@ -624,28 +658,38 @@ async def record_subagent_ended(
 
 
 @router.post("/log/llm-input")
-async def log_llm_input(request: LlmIORequest):
+async def log_llm_input(request: LlmIORequest, req: Request):
     engine = _get_engine()
+    _require_attributed_auth(engine, req, request.agentId, request.agentToken)
     event = LlmIOEvent(
         session_id=request.sessionId,
         direction="input",
         content=request.content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        provider=request.provider,
+        model=request.model,
+        run_id=request.runId,
+        usage=request.usage,
     )
     await engine.log_llm_io(event)
     return {"ok": True}
 
 
 @router.post("/log/llm-output")
-async def log_llm_output(request: LlmIORequest):
+async def log_llm_output(request: LlmIORequest, req: Request):
     engine = _get_engine()
+    _require_attributed_auth(engine, req, request.agentId, request.agentToken)
     event = LlmIOEvent(
         session_id=request.sessionId,
         direction="output",
         content=request.content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        provider=request.provider,
+        model=request.model,
+        run_id=request.runId,
+        usage=request.usage,
     )
     await engine.log_llm_io(event)
     return {"ok": True}

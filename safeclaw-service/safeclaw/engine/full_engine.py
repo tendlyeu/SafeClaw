@@ -65,6 +65,7 @@ STEP_TEMPORAL_CHECK = "temporal_check"
 STEP_RATE_LIMIT_CHECK = "rate_limit_check"
 STEP_DERIVED_RULES = "derived_rules"
 STEP_HIERARCHY_RATE_LIMIT = "hierarchy_rate_limit"
+STEP_CRON_NO_APPROVER = "cron_no_approver"
 
 MAX_PENDING_TOOL_RESULT_SESSIONS = 1000
 MAX_PENDING_TOOL_RESULTS_PER_SESSION = 1000
@@ -545,6 +546,26 @@ class FullEngine(SafeClawEngine):
         event.params = sanitize_params(event.params) if event.params else {}
         async with self._session_lock(event.session_id):
             return await self._evaluate_tool_call_locked(event)
+
+    def _apply_trigger_origin_policy(self, event: ToolCallEvent, decision: Decision) -> Decision:
+        """Escalate confirmation-required decisions on autonomous (cron) runs.
+
+        A "needs confirmation" outcome assumes an interactive approver can say
+        yes/no. Scheduled/cron runs have no human in the loop (#324), so we fail
+        safe and block rather than silently allow or hang. The decision is
+        mutated IN PLACE (and returned) so the durable audit record written by
+        ``_log_decision`` — and the decision returned to the caller — both
+        reflect the no-approver block rather than the original confirmation.
+        """
+        if getattr(event, "triggered_by", "") == "cron" and decision.requires_confirmation:
+            decision.block = True
+            decision.requires_confirmation = False
+            decision.reason = (
+                "[SafeClaw] Action requires confirmation but this is a scheduled "
+                "(cron) run with no interactive approver — blocked (fail-safe)"
+            )
+            decision.constraint_step = STEP_CRON_NO_APPROVER
+        return decision
 
     async def _evaluate_tool_call_locked(self, event: ToolCallEvent) -> Decision:
         """Internal: runs the constraint pipeline under the session lock."""
@@ -1199,8 +1220,23 @@ class FullEngine(SafeClawEngine):
         logger.info(f"Session {session_id} cleared")
 
     async def log_llm_io(self, event: LlmIOEvent) -> None:
+        self.audit.log_llm_io(
+            session_id=event.session_id,
+            direction=event.direction,
+            content=event.content,
+            provider=event.provider,
+            model=event.model,
+            run_id=event.run_id,
+            usage=event.usage,
+        )
         logger.debug(
-            f"LLM {event.direction}: {event.content[:100]}{'...' if len(event.content) > 100 else ''}"
+            "LLM %s [provider=%s model=%s run=%s]: %s%s",
+            event.direction,
+            event.provider or "?",
+            event.model or "?",
+            event.run_id or "?",
+            event.content[:100],
+            "..." if len(event.content) > 100 else "",
         )
 
     def _fire_llm_tasks(
@@ -1359,6 +1395,13 @@ class FullEngine(SafeClawEngine):
         start_time: float,
         constraint_step: str = "",
     ) -> None:
+        # Apply the cron no-approver escalation BEFORE building the record so the
+        # durable audit entry reflects the actual block (and its constraint_step)
+        # rather than the superseded confirmation decision (#324).
+        decision = self._apply_trigger_origin_policy(event, decision)
+        if decision.constraint_step == STEP_CRON_NO_APPROVER:
+            constraint_step = STEP_CRON_NO_APPROVER
+
         elapsed_ms = (time.monotonic() - start_time) * 1000
         # BUG-004/035: Use server-side session history for audit records instead
         # of client-supplied event.session_history
