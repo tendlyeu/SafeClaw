@@ -611,10 +611,17 @@ network_policies:
         # Unit: /** matches any command binary.
         any_action = _make_action("ExecuteCommand", tool_name="exec", command="curl x")
         assert PolicyChecker._binary_matches(any_action, {"/**"}, "curl https://github.com") is True
-        # A concrete-path glob still works.
+        # A concrete-path glob matches only paths under that prefix...
         assert (
             PolicyChecker._binary_matches(any_action, {"/usr/bin/*"}, "/usr/bin/curl https://x")
             is True
+        )
+        # ...and must NOT match a bare command that isn't under the prefix.
+        assert (
+            PolicyChecker._binary_matches(
+                any_action, {"/opt/trusted/*"}, "python client.py https://api.example.com/ok"
+            )
+            is False
         )
 
         # Integration: permissive policy (host allowlisted, access:full, /** binary).
@@ -695,6 +702,10 @@ network_policies:
         assert f("curl -Ffile=@a https://x/y") == "POST"
         assert f("curl -Tfile https://x/y") == "PUT"
         assert f("curl -sI https://x/y") == "HEAD"  # bundled boolean flags
+        # Explicit -X clustered with other short flags, method attached or next:
+        assert f("curl -sXPOST https://x/y") == "POST"
+        assert f("curl -sXDELETE https://x/y") == "DELETE"
+        assert f("curl -sX PUT https://x/y") == "PUT"
 
     def test_path_method_allowed_fails_closed_on_unknown_method(self, kg):
         """A method-constrained rule does NOT authorise when the request method

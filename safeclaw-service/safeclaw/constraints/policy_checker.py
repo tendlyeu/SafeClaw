@@ -521,7 +521,7 @@ class PolicyChecker:
         POST. Returns None when no method-affecting flag is present.
         """
         has_get = has_head = has_put = has_post = False
-        for tok in tokens:
+        for i, tok in enumerate(tokens):
             if tok.startswith("--"):
                 name = tok[2:].split("=", 1)[0]
                 if name == "get":
@@ -534,16 +534,26 @@ class PolicyChecker:
                     has_post = True
             elif tok.startswith("-") and len(tok) > 1:
                 # Short cluster: a value-taking flag (d/F/T/X) consumes the rest
-                # of the token as its attached argument.
-                for ch in tok[1:]:
+                # of the token (or the next token) as its argument.
+                cluster = tok[1:]
+                for j, ch in enumerate(cluster):
+                    if ch == "X":
+                        # Explicit method: attached (`-sXPOST`) or next token (`-sX POST`).
+                        rest = cluster[j + 1 :]
+                        if rest:
+                            if rest.upper() in PolicyChecker._HTTP_METHODS:
+                                return rest.upper()
+                        elif i + 1 < len(tokens) and tokens[i + 1].upper() in (
+                            PolicyChecker._HTTP_METHODS
+                        ):
+                            return tokens[i + 1].upper()
+                        break
                     if ch in ("d", "F"):
                         has_post = True
                         break
                     if ch == "T":
                         has_put = True
                         break
-                    if ch == "X":
-                        break  # explicit method already handled by _CMD_METHOD_RE
                     if ch == "I":
                         has_head = True
                     elif ch == "G":
@@ -662,12 +672,11 @@ class PolicyChecker:
             if re.search(rf"(?:^|\s){re.escape(bp)}(?:\s|$)", command):
                 return True
             binary_name = bp.rsplit("/", 1)[-1]
-            # Glob path (e.g. /usr/bin/*): glob-match command tokens + basenames.
+            # Glob path (e.g. /opt/trusted/*): glob-match the FULL command token
+            # against the full pattern only. Matching token basenames against the
+            # pattern's basename glob would let a bare `*` match any command.
             if "*" in bp:
-                if any(
-                    _glob_match(tok, bp) or _glob_match(tok.rsplit("/", 1)[-1], binary_name)
-                    for tok in tokens
-                ):
+                if any(_glob_match(tok, bp) for tok in tokens):
                     return True
                 continue
             if binary_name and re.search(rf"\b{re.escape(binary_name)}\b", command):
