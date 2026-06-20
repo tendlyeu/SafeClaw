@@ -43,6 +43,14 @@ class ToolCallRequest(BaseModel):
     agentToken: str = ""
     runId: str | None = None
     dryRun: bool = False
+    # OpenClaw v2026.6.8 before_tool_call discriminators (#316) — forwarded so
+    # the classifier can distinguish code-mode exec from shell exec, etc.
+    toolKind: str = ""
+    toolInputKind: str = ""
+    derivedPaths: list[str] = []
+    # Trigger origin (#324) — "cron" scheduled runs have no interactive approver.
+    triggeredBy: str = ""
+    jobId: str = ""
 
     @field_validator("params")
     @classmethod
@@ -103,6 +111,9 @@ class LlmIORequest(BaseModel):
     agentToken: str = ""
     provider: str = ""
     model: str = ""
+    # #315: audit-correlation context forwarded by the plugin (v2026.6.8).
+    runId: str = ""
+    usage: dict = {}
 
 
 class SessionEndRequest(BaseModel):
