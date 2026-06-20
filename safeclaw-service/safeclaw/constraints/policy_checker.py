@@ -282,12 +282,18 @@ class PolicyChecker:
     # ------------------------------------------------------------------
 
     def _is_network_action(self, action: ClassifiedAction) -> bool:
-        """Return True if this action involves network access."""
+        """Return True if this action involves network access.
+
+        For exec/network commands we treat the action as network access when it
+        either invokes a known HTTP client (curl/wget/...) OR embeds a URL — so a
+        command reaching a non-allowlisted host via an arbitrary binary (e.g.
+        ``python client.py https://evil.com``) cannot bypass the egress allowlist.
+        """
         if action.ontology_class in self._NETWORK_ACTION_CLASSES:
             return True
         if action.ontology_class in ("ExecuteCommand", "NetworkRequest"):
             command = action.params.get("command", "")
-            if self._NETWORK_COMMAND_RE.search(command):
+            if self._NETWORK_COMMAND_RE.search(command) or self._URL_RE.search(command):
                 return True
         return False
 
@@ -467,6 +473,16 @@ class PolicyChecker:
     _GET_DEFAULT_TOOLS = ("curl", "wget", "fetch")
     # httpie-style clients take the method as a positional verb (`http POST …`).
     _POSITIONAL_VERB_TOOLS = ("http", "https", "xh", "httpie")
+    # curl/wget flags that change the *implicit* method when no explicit -X is
+    # given. Precedence: -G/--get forces GET (even with data); -I/--head -> HEAD;
+    # -T/--upload-file -> PUT; any data/form flag -> POST. Otherwise GET.
+    _IMPLICIT_GET_RE = re.compile(r"(?:^|\s)-{1,2}(?:G|get)(?=[\s=]|$)")
+    _IMPLICIT_HEAD_RE = re.compile(r"(?:^|\s)-{1,2}(?:I|head)(?=[\s=]|$)")
+    _IMPLICIT_PUT_RE = re.compile(r"(?:^|\s)-{1,2}(?:T|upload-file)(?=[\s=]|$)")
+    _IMPLICIT_POST_RE = re.compile(
+        r"(?:^|\s)-{1,2}(?:d|data(?:-raw|-binary|-ascii|-urlencode)?|json|F|"
+        r"form(?:-string)?|post-data|post-file)(?=[\s'\"=]|$)"
+    )
 
     @staticmethod
     def _method_from_command(command: str) -> str | None:
@@ -485,8 +501,18 @@ class PolicyChecker:
                         continue
                     return nxt.upper() if nxt.upper() in PolicyChecker._HTTP_METHODS else "GET"
                 return "GET"
-        # curl/wget/fetch with no explicit method default to GET.
+        # curl/wget/fetch: infer the implicit method from data/form/head flags,
+        # otherwise GET. (Without this, `curl -d …` would read as GET and slip
+        # past a method-scoped allowlist.)
         if any(b in PolicyChecker._GET_DEFAULT_TOOLS for b in bases):
+            if PolicyChecker._IMPLICIT_GET_RE.search(command):
+                return "GET"
+            if PolicyChecker._IMPLICIT_HEAD_RE.search(command):
+                return "HEAD"
+            if PolicyChecker._IMPLICIT_PUT_RE.search(command):
+                return "PUT"
+            if PolicyChecker._IMPLICIT_POST_RE.search(command):
+                return "POST"
             return "GET"
         return None
 

