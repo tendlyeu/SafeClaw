@@ -137,8 +137,16 @@ _SHELL_TOOLS = {"exec", "bash", "shell"}
 # Matched against the RAW source (quotes intact), so embedded command strings
 # like execSync("git push --force") are also visible to SHELL_PATTERNS.
 JS_PATTERNS = [
+    # fs / fs.promises / fsp removal, plus Deno/Bun equivalents.
     (
-        r"\bfs\.(?:rmSync|rm|unlinkSync|unlink|rmdirSync|rmdir)\s*\(",
+        r"\b(?:fs\.promises|fsp|fs)\.(?:rmSync|rm|unlinkSync|unlink|rmdirSync|rmdir)\s*\(",
+        "DeleteFile",
+        "CriticalRisk",
+        False,
+        "LocalOnly",
+    ),
+    (
+        r"\bDeno\.(?:remove|removeSync)\s*\(",
         "DeleteFile",
         "CriticalRisk",
         False,
@@ -151,6 +159,8 @@ JS_PATTERNS = [
         False,
         "LocalOnly",
     ),
+    # JS-native network egress (no curl/wget analogue).
+    (r"\bfetch\s*\(", "NetworkRequest", "MediumRisk", True, "ExternalWorld"),
 ]
 
 # MCP / dynamically-exposed plugin tools use a namespaced name (#325).
@@ -190,29 +200,25 @@ class ActionClassifier:
         # and can perform external writes; default to a conservative HighRisk
         # ExternalWorld class until explicitly classified (#325).
         if tool_name.startswith(_MCP_PREFIX):
-            return self._enrich_from_ontology(
-                ClassifiedAction(
-                    ontology_class="McpToolCall",
-                    risk_level="HighRisk",
-                    is_reversible=False,
-                    affects_scope="ExternalWorld",
-                    tool_name=tool_name,
-                    params=params,
-                )
+            return ClassifiedAction(
+                ontology_class="McpToolCall",
+                risk_level="HighRisk",
+                is_reversible=False,
+                affects_scope="ExternalWorld",
+                tool_name=tool_name,
+                params=params,
             )
 
-        # Direct tool mapping
+        # Direct tool mapping (Python tuple is authoritative — matches the ttl)
         if tool_name in TOOL_MAPPINGS:
             cls, risk, reversible, scope = TOOL_MAPPINGS[tool_name]
-            return self._enrich_from_ontology(
-                ClassifiedAction(
-                    ontology_class=cls,
-                    risk_level=risk,
-                    is_reversible=reversible,
-                    affects_scope=scope,
-                    tool_name=tool_name,
-                    params=params,
-                )
+            return ClassifiedAction(
+                ontology_class=cls,
+                risk_level=risk,
+                is_reversible=reversible,
+                affects_scope=scope,
+                tool_name=tool_name,
+                params=params,
             )
 
         # Unknown tool - conservative default
@@ -240,15 +246,13 @@ class ActionClassifier:
         else:
             cls, risk, scope = "SendMessage", "HighRisk", "ExternalWorld"
 
-        return self._enrich_from_ontology(
-            ClassifiedAction(
-                ontology_class=cls,
-                risk_level=risk,
-                is_reversible=False,
-                affects_scope=scope,
-                tool_name="message",
-                params=params,
-            )
+        return ClassifiedAction(
+            ontology_class=cls,
+            risk_level=risk,
+            is_reversible=False,
+            affects_scope=scope,
+            tool_name="message",
+            params=params,
         )
 
     @staticmethod

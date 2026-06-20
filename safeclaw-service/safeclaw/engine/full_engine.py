@@ -18,7 +18,7 @@ from safeclaw.audit.models import (
     PreferenceApplied,
 )
 from safeclaw.config import SafeClawConfig
-from safeclaw.constraints.action_classifier import ActionClassifier
+from safeclaw.constraints.action_classifier import ActionClassifier, ClassifiedAction
 from safeclaw.constraints.dependency_checker import DependencyChecker
 from safeclaw.constraints.message_gate import MessageGate
 from safeclaw.constraints.policy_checker import PolicyChecker
@@ -82,6 +82,12 @@ class _PendingToolResult:
     params_signature: str
     run_id: str
     action_class: str
+    # Full eval-time classification, reused on the result path so re-classifying
+    # the same call cannot drift (e.g. a code-mode exec body classifies
+    # differently without its tool_kind) and silently break the result binding.
+    risk_level: str = "MediumRisk"
+    is_reversible: bool = True
+    affects_scope: str = "LocalOnly"
 
 
 class FullEngine(SafeClawEngine):
@@ -442,6 +448,9 @@ class FullEngine(SafeClawEngine):
                 params_signature=DelegationDetector.make_signature(event.params),
                 run_id=event.run_id or "",
                 action_class=action.ontology_class,
+                risk_level=action.risk_level,
+                is_reversible=action.is_reversible,
+                affects_scope=action.affects_scope,
             )
         )
         if len(pending) > MAX_PENDING_TOOL_RESULTS_PER_SESSION:
@@ -449,10 +458,19 @@ class FullEngine(SafeClawEngine):
         while len(self._pending_tool_results) > MAX_PENDING_TOOL_RESULT_SESSIONS:
             self._pending_tool_results.popitem(last=False)
 
-    def _consume_pending_tool_result(self, event: ToolResultEvent, action) -> bool:
+    def _consume_pending_tool_result(self, event: ToolResultEvent) -> _PendingToolResult | None:
+        """Find and remove the pending entry for this result.
+
+        Matches on tool_name + params signature + owner + run_id and returns the
+        stored entry (with its eval-time classification). We deliberately do NOT
+        compare the re-classified action class: re-classifying the result event
+        can drift (a code-mode exec body classifies differently without its
+        tool_kind), which would silently break the binding and skip session-risk,
+        dependency, and rate-limit accounting for exactly the highest-risk calls.
+        """
         pending = self._pending_tool_results.get(event.session_id)
         if not pending:
-            return False
+            return None
 
         owner_id = self._tool_result_owner_id(event)
         params_signature = DelegationDetector.make_signature(event.params)
@@ -461,8 +479,6 @@ class FullEngine(SafeClawEngine):
             if candidate.tool_name != event.tool_name:
                 continue
             if candidate.params_signature != params_signature:
-                continue
-            if candidate.action_class != action.ontology_class:
                 continue
             if candidate.owner_id and owner_id and candidate.owner_id != owner_id:
                 continue
@@ -474,9 +490,9 @@ class FullEngine(SafeClawEngine):
                 self._pending_tool_results.move_to_end(event.session_id)
             else:
                 self._pending_tool_results.pop(event.session_id, None)
-            return True
+            return candidate
 
-        return False
+        return None
 
     async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         async with self._meta_lock:
@@ -1170,8 +1186,8 @@ class FullEngine(SafeClawEngine):
                     )
                     return False
 
-            action = self.classifier.classify(event.tool_name, event.params)
-            if not self._consume_pending_tool_result(event, action):
+            matched = self._consume_pending_tool_result(event)
+            if matched is None:
                 logger.warning(
                     "record_action_result rejected: no matching allowed tool call "
                     "for session=%s owner=%s tool=%s run_id=%s",
@@ -1181,6 +1197,16 @@ class FullEngine(SafeClawEngine):
                     event.run_id or "",
                 )
                 return False
+
+            # Reuse the eval-time classification (no re-classification drift).
+            action = ClassifiedAction(
+                ontology_class=matched.action_class,
+                risk_level=matched.risk_level,
+                is_reversible=matched.is_reversible,
+                affects_scope=matched.affects_scope,
+                tool_name=event.tool_name,
+                params=event.params,
+            )
 
             # Record in session tracker (Phase 3: KG feedback loop)
             # BUG-004/035: Include risk_level for server-side cumulative risk tracking

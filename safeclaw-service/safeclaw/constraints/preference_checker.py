@@ -95,8 +95,15 @@ class PreferenceChecker:
                     requires_confirmation=True,
                 )
 
-        # Check send confirmation
-        if action.ontology_class == "SendMessage":
+        # Check send confirmation. Covers the whole outbound message family
+        # (#318) — channel-create / cross-context broadcast / moderation must not
+        # skip the "confirm before send" brake that a plain reply triggers.
+        if action.ontology_class in (
+            "SendMessage",
+            "CreateChannel",
+            "CrossContextMessage",
+            "ModerateChannel",
+        ):
             if prefs.confirm_before_send:
                 return PreferenceCheckResult(
                     violated=True,
