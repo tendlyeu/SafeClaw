@@ -29,6 +29,10 @@ class SafeClawConfig(BaseSettings):
     log_level: str = "INFO"
 
     db_path: str = ""  # Path to shared SQLite DB (SaaS mode)
+    # TTL (seconds) for the per-user LLM-config cache in SaaS mode. Caches the
+    # result of SQLiteAPIKeyManager.get_user_llm_config to avoid a DB round-trip
+    # on every governed tool call. 0 disables caching (always re-read from DB).
+    llm_config_cache_ttl: int = 60
 
     # Admin dashboard
     admin_password: str = ""
