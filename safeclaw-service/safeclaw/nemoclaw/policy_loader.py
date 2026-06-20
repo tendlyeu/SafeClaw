@@ -18,8 +18,18 @@ SP = Namespace("http://safeclaw.uku.ai/ontology/policy#")
 class NemoClawPolicyLoader:
     """Reads NemoClaw YAML policy files and inserts RDF triples into the knowledge graph."""
 
-    def __init__(self, policy_dir: Path):
+    def __init__(self, policy_dir: Path, workdir: str | None = None):
+        """Create a loader.
+
+        ``workdir`` is the resolved NemoClaw sandbox workdir/home path used to
+        materialise the implicit read-write rule when a filesystem policy sets
+        ``include_workdir: true``. The schema only provides the boolean, never
+        the resolved path, so it must be supplied by the caller (runtime config
+        / policy context). When ``None``, ``include_workdir`` cannot be honored
+        safely and is skipped.
+        """
         self.policy_dir = policy_dir
+        self.workdir = workdir
 
     def load(self, kg: KnowledgeGraph) -> None:
         """Load all YAML policy files from the policy directory into the knowledge graph.
@@ -134,6 +144,13 @@ class NemoClawPolicyLoader:
         protocol = endpoint.get("protocol", "")
         enforcement = endpoint.get("enforcement", "")
         tls = endpoint.get("tls", "")
+        # NemoClaw v0.0.65: `access: full` is a separate field (enum ["full"])
+        # meaning "no L7 path filtering", NOT a protocol. It is independent of
+        # the `protocol` field (rest|websocket).
+        access = endpoint.get("access", "")
+        allowed_ips = endpoint.get("allowed_ips")
+        ws_cred_rewrite = endpoint.get("websocket_credential_rewrite")
+        body_cred_rewrite = endpoint.get("request_body_credential_rewrite")
 
         rule_node = SP[f"nemo_net_{uuid4().hex}"]
         kg.add_triple(rule_node, RDF.type, SP.NemoNetworkRule)
@@ -181,12 +198,57 @@ class NemoClawPolicyLoader:
                 Literal(tls, datatype=XSD.string),
             )
 
+        if access:
+            kg.add_triple(
+                rule_node,
+                SP.networkAccessMode,
+                Literal(access, datatype=XSD.string),
+            )
+
+        if isinstance(allowed_ips, list):
+            for ip in allowed_ips:
+                if isinstance(ip, str) and ip:
+                    kg.add_triple(
+                        rule_node,
+                        SP.allowedIp,
+                        Literal(ip, datatype=XSD.string),
+                    )
+
+        if ws_cred_rewrite is not None:
+            kg.add_triple(
+                rule_node,
+                SP.websocketCredentialRewrite,
+                Literal(bool(ws_cred_rewrite), datatype=XSD.boolean),
+            )
+
+        if body_cred_rewrite is not None:
+            kg.add_triple(
+                rule_node,
+                SP.requestBodyCredentialRewrite,
+                Literal(bool(body_cred_rewrite), datatype=XSD.boolean),
+            )
+
+        # `access: full` + `tls: skip` = raw L4 tunnel: no L7 path filtering and
+        # no TLS interception. Flag for elevated scrutiny (#327/#329).
+        if access == "full" and tls == "skip":
+            kg.add_triple(
+                rule_node,
+                SP.rawTunnel,
+                Literal(True, datatype=XSD.boolean),
+            )
+
         for bp in binary_paths:
             kg.add_triple(
                 rule_node,
                 SP.binaryRestriction,
                 Literal(bp, datatype=XSD.string),
             )
+
+        # L7 allow rules (method + path glob). Each endpoint may declare
+        # `rules: [{ allow: { method, path } }]`. Persist each rule as its own
+        # node so method and path stay grouped per rule. `access: full`
+        # endpoints carry no L7 path filtering, so rules are not expected there.
+        self._process_endpoint_allow_rules(kg, rule_node, endpoint.get("rules"))
 
         reason = self._network_reason(host, port, protocol)
         kg.add_triple(
@@ -195,8 +257,65 @@ class NemoClawPolicyLoader:
             Literal(reason, datatype=XSD.string),
         )
 
+    def _process_endpoint_allow_rules(
+        self,
+        kg: KnowledgeGraph,
+        rule_node,
+        rules,
+    ) -> None:
+        """Persist an endpoint's L7 allow rules (method + path glob) as RDF.
+
+        Each entry has the shape ``{ allow: { method, path } }`` per the
+        NemoClaw v0.0.65 schema. Each allow rule becomes its own
+        ``sp:NemoAllowRule`` node linked to the endpoint via ``sp:allowsRule``,
+        so method and path remain grouped per rule. Malformed entries (missing
+        ``allow`` or ``path``) are skipped.
+        """
+        if not isinstance(rules, list):
+            return
+
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            allow = rule.get("allow")
+            if not isinstance(allow, dict):
+                continue
+            path = allow.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+            method = allow.get("method")
+
+            allow_node = SP[f"nemo_allow_{uuid4().hex}"]
+            kg.add_triple(allow_node, RDF.type, SP.NemoAllowRule)
+            kg.add_triple(rule_node, SP.allowsRule, allow_node)
+            kg.add_triple(
+                allow_node,
+                SP.allowsPathGlob,
+                Literal(path, datatype=XSD.string),
+            )
+            if isinstance(method, str) and method:
+                kg.add_triple(
+                    allow_node,
+                    SP.allowsMethod,
+                    Literal(method, datatype=XSD.string),
+                )
+
     def _process_real_filesystem(self, kg: KnowledgeGraph, fs_policy: dict) -> None:
         """Process real NemoClaw filesystem_policy section."""
+        # include_workdir: true makes the sandbox workdir/home writable. The
+        # schema only gives the boolean, not the resolved path, so we emit the
+        # implicit read-write rule only when a workdir was supplied to the
+        # loader. Without one we cannot safely guess a path, so we skip it.
+        if fs_policy.get("include_workdir") is True:
+            if self.workdir:
+                self._process_filesystem_rule(kg, {"path": self.workdir, "mode": "read-write"})
+            else:
+                logger.warning(
+                    "filesystem_policy.include_workdir is true but no NemoClaw "
+                    "workdir is configured; skipping the implicit read-write "
+                    "rule. Set the resolved sandbox workdir to honor it."
+                )
+
         read_only = fs_policy.get("read_only", [])
         if isinstance(read_only, list):
             for path in read_only:
@@ -277,6 +396,8 @@ class NemoClawPolicyLoader:
                 SP.binaryRestriction,
                 Literal(binary, datatype=XSD.string),
             )
+
+        self._process_endpoint_allow_rules(kg, rule_node, rule.get("rules"))
 
         reason = self._network_reason(host, port, protocol)
         kg.add_triple(

@@ -346,6 +346,49 @@ network_policies:
         assert len(results) == 1
         assert str(results[0]["group"]) == "claude_code"
 
+    def test_endpoint_allow_rules_persisted(self, kg, policy_dir):
+        """Endpoint L7 allow rules (method + path) are persisted as RDF.
+
+        Each ``rules[].allow`` entry becomes an sp:NemoAllowRule node linked via
+        sp:allowsRule, carrying sp:allowsMethod and sp:allowsPathGlob.
+        """
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  nvidia:
+    name: nvidia
+    endpoints:
+      - host: integrate.api.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: POST, path: "/v1/chat/completions" }
+          - allow: { method: GET, path: "/v1/models/**" }
+    binaries: []
+""",
+        )
+        loader = NemoClawPolicyLoader(policy_dir)
+        loader.load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?method ?path WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:allowsRule ?allow .
+                ?allow a sp:NemoAllowRule ;
+                       sp:allowsPathGlob ?path .
+                OPTIONAL {{ ?allow sp:allowsMethod ?method }}
+            }}
+        """)
+        pairs = {(str(r["method"]), str(r["path"])) for r in results}
+        assert pairs == {
+            ("POST", "/v1/chat/completions"),
+            ("GET", "/v1/models/**"),
+        }
+
     def test_binary_restrictions_from_group(self, kg, policy_dir):
         _write_yaml(
             policy_dir,
@@ -486,6 +529,247 @@ network_policies:
         assert str(results[0]["host"]) == "example.com"
 
 
+class TestV0065SchemaFields:
+    """Fields introduced/corrected for the NemoClaw v0.0.65 schema (#327/#329)."""
+
+    def test_access_full_stored_as_network_access_mode(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  nvidia:
+    name: nvidia
+    endpoints:
+      - host: integrate.api.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - { path: "/**" }
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?protocol ?mode WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:allowsProtocol ?protocol ;
+                      sp:networkAccessMode ?mode .
+            }}
+        """)
+        assert len(results) == 1
+        # protocol and access are independent fields
+        assert str(results[0]["protocol"]) == "rest"
+        assert str(results[0]["mode"]) == "full"
+
+    def test_access_full_does_not_reuse_filesystem_access_mode(self, kg, policy_dir):
+        """`access: full` must NOT be written via sp:accessMode (filesystem-only)."""
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  g:
+    name: g
+    endpoints:
+      - host: example.com
+        port: 443
+        protocol: rest
+        access: full
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?rule WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:accessMode ?m .
+            }}
+        """)
+        assert len(results) == 0
+
+    def test_tls_skip_stored(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  dialback:
+    name: dialback
+    endpoints:
+      - host: 10.200.0.2
+        port: 18789
+        access: full
+        tls: skip
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?tls WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:tlsMode ?tls .
+            }}
+        """)
+        assert len(results) == 1
+        assert str(results[0]["tls"]) == "skip"
+
+    def test_allowed_ips_stored(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  dialback:
+    name: dialback
+    endpoints:
+      - host: 10.200.0.2
+        port: 18789
+        access: full
+        tls: skip
+        allowed_ips:
+          - 10.200.0.2
+          - 10.200.0.3
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?ip WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:allowedIp ?ip .
+            }}
+        """)
+        ips = {str(r["ip"]) for r in results}
+        assert ips == {"10.200.0.2", "10.200.0.3"}
+
+    def test_websocket_credential_rewrite_stored(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  discord:
+    name: discord
+    endpoints:
+      - host: gateway.discord.gg
+        port: 443
+        protocol: websocket
+        enforcement: enforce
+        websocket_credential_rewrite: true
+        rules:
+          - allow: { method: WEBSOCKET_TEXT, path: "/**" }
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?v WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:websocketCredentialRewrite ?v .
+            }}
+        """)
+        assert len(results) == 1
+        assert bool(results[0]["v"]) is True
+
+    def test_request_body_credential_rewrite_stored(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  slack:
+    name: slack
+    endpoints:
+      - host: api.slack.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        request_body_credential_rewrite: true
+        access: full
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?v WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:requestBodyCredentialRewrite ?v .
+            }}
+        """)
+        assert len(results) == 1
+        assert bool(results[0]["v"]) is True
+
+    def test_raw_tunnel_flagged_when_access_full_and_tls_skip(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  dialback:
+    name: dialback
+    endpoints:
+      - host: 10.200.0.2
+        port: 18789
+        access: full
+        tls: skip
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?v WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:rawTunnel ?v .
+            }}
+        """)
+        assert len(results) == 1
+        assert bool(results[0]["v"]) is True
+
+    def test_raw_tunnel_not_flagged_for_normal_endpoint(self, kg, policy_dir):
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  api:
+    name: api
+    endpoints:
+      - host: example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries: []
+""",
+        )
+        NemoClawPolicyLoader(policy_dir).load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?v WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:rawTunnel ?v .
+            }}
+        """)
+        assert len(results) == 0
+
+
 class TestRealFilesystemPolicy:
     def test_read_only_paths(self, kg, policy_dir):
         _write_yaml(
@@ -572,7 +856,13 @@ filesystem_policy:
         assert rules["/tmp"] == "read-write"
         assert len(rules) == 4
 
-    def test_include_workdir_ignored(self, kg, policy_dir):
+    def test_include_workdir_skipped_without_configured_workdir(self, kg, policy_dir):
+        """Without a resolved workdir, include_workdir cannot be honored safely.
+
+        We must not guess a path, so only the explicit read_only rule is emitted
+        (previously this was the *only* behavior; it now applies just to the
+        no-workdir case). See #328.
+        """
         _write_yaml(
             policy_dir,
             "policy.yaml",
@@ -583,7 +873,7 @@ filesystem_policy:
     - /usr
 """,
         )
-        loader = NemoClawPolicyLoader(policy_dir)
+        loader = NemoClawPolicyLoader(policy_dir)  # no workdir
         loader.load(kg)
 
         results = kg.query(f"""
@@ -591,6 +881,58 @@ filesystem_policy:
             SELECT ?rule WHERE {{ ?rule a sp:NemoFilesystemRule . }}
         """)
         assert len(results) == 1
+
+    def test_include_workdir_emits_read_write_rule_when_workdir_resolved(self, kg, policy_dir):
+        """include_workdir: true + resolved workdir -> implicit read-write rule."""
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+""",
+        )
+        loader = NemoClawPolicyLoader(policy_dir, workdir="/sandbox")
+        loader.load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?path ?mode WHERE {{
+                ?rule a sp:NemoFilesystemRule ;
+                      sp:path ?path ;
+                      sp:accessMode ?mode .
+            }}
+        """)
+        rules = {str(r["path"]): str(r["mode"]) for r in results}
+        assert rules == {"/usr": "read-only", "/sandbox": "read-write"}
+
+    def test_include_workdir_false_emits_no_workdir_rule(self, kg, policy_dir):
+        """include_workdir: false must not emit a workdir rule even with workdir set."""
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+filesystem_policy:
+  include_workdir: false
+  read_only:
+    - /usr
+""",
+        )
+        loader = NemoClawPolicyLoader(policy_dir, workdir="/sandbox")
+        loader.load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?path ?mode WHERE {{
+                ?rule a sp:NemoFilesystemRule ;
+                      sp:path ?path ;
+                      sp:accessMode ?mode .
+            }}
+        """)
+        rules = {str(r["path"]): str(r["mode"]) for r in results}
+        assert rules == {"/usr": "read-only"}
 
     def test_empty_filesystem_policy(self, kg, policy_dir):
         _write_yaml(

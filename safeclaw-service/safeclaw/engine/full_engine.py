@@ -142,7 +142,7 @@ class FullEngine(SafeClawEngine):
 
             nemo_dir = config.get_nemoclaw_policy_dir()
             if nemo_dir:
-                loader = NemoClawPolicyLoader(nemo_dir)
+                loader = NemoClawPolicyLoader(nemo_dir, workdir=config.get_nemoclaw_workdir())
                 loader.load(self.kg)
                 logger.info("NemoClaw policies loaded from %s", nemo_dir)
             else:
@@ -328,7 +328,7 @@ class FullEngine(SafeClawEngine):
 
             nemo_dir = self.config.get_nemoclaw_policy_dir()
             if nemo_dir:
-                loader = NemoClawPolicyLoader(nemo_dir)
+                loader = NemoClawPolicyLoader(nemo_dir, workdir=self.config.get_nemoclaw_workdir())
                 loader.load(new_kg)
                 logger.info("NemoClaw policies reloaded from %s", nemo_dir)
 
