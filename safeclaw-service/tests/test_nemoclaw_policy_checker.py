@@ -405,12 +405,15 @@ network_policies:
         result = checker.check(action)
         assert result.violated is False
 
-    def test_access_full_matches_any_scheme(self, kg, tmp_path):
-        """`access: full` (no L7 filtering) bypasses protocol-scheme matching.
+    def test_access_full_does_not_disable_protocol_match(self, kg, tmp_path):
+        """`access: full` skips L7 PATH filtering only, NOT protocol matching.
 
         Per NemoClaw v0.0.65 the endpoint declares ``protocol: rest`` plus the
-        separate ``access: full`` field; the latter means the whole endpoint is
-        open, so any scheme to that host/port is allowed.
+        separate ``access: full`` field. ``access: full`` means "no L7 path
+        filtering" — it must NOT widen the declared protocol. So ``wss://`` is
+        still blocked (protocol mismatch) while ``https://`` to any path is
+        allowed (access:full skips path filtering, rest still matches https).
+        Reviewer probe #2 for PR #333.
         """
         _load_network_policy(
             kg,
@@ -429,11 +432,103 @@ network_policies:
 """,
         )
         checker = PolicyChecker(kg, nemoclaw_enabled=True)
-        # wss would normally be rejected by `protocol: rest`, but access: full
-        # disables L7 filtering so it is allowed.
-        action = _make_action("WebFetch", url="wss://anything.example.com/path")
-        result = checker.check(action)
-        assert result.violated is False
+        # wss is rejected: protocol: rest only accepts http/https, and
+        # access: full does not nullify that.
+        wss = _make_action("WebFetch", url="wss://anything.example.com/path")
+        assert checker.check(wss).violated is True
+
+        # https to an arbitrary path is allowed: access: full disables path
+        # filtering and rest matches https.
+        https = _make_action("WebFetch", url="https://anything.example.com/anything")
+        assert checker.check(https).violated is False
+
+    def test_path_scoped_rule_enforces_path(self, kg, tmp_path):
+        """A single allow rule (GET /allowed) must path-scope the endpoint.
+
+        Reviewer probe #1 for PR #333: an endpoint that only allows
+        ``GET /allowed`` must ALLOW ``GET https://<host>/allowed`` and BLOCK
+        ``https://<host>/forbidden``.
+        """
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/allowed" }
+    binaries: []
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        allowed = _make_action("WebFetch", url="https://api.example.com/allowed")
+        assert checker.check(allowed).violated is False
+
+        forbidden = _make_action("WebFetch", url="https://api.example.com/forbidden")
+        result = checker.check(forbidden)
+        assert result.violated is True
+        assert "api.example.com" in result.reason
+
+    def test_path_glob_rule_matches_subpaths(self, kg, tmp_path):
+        """A ``/**`` path glob in a rule allows arbitrary subpaths."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/v1/models/**" }
+    binaries: []
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        ok = _make_action("WebFetch", url="https://api.example.com/v1/models/gpt")
+        assert checker.check(ok).violated is False
+
+        nope = _make_action("WebFetch", url="https://api.example.com/v1/keys")
+        assert checker.check(nope).violated is True
+
+    def test_access_full_allows_arbitrary_paths(self, kg, tmp_path):
+        """`access: full` endpoint still allows arbitrary paths over its scheme.
+
+        Reviewer probe #3 for PR #333: keep existing behavior green — an
+        ``access: full`` endpoint applies no path filtering.
+        """
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  full_group:
+    name: full_group
+    endpoints:
+      - host: anything.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries: []
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        for path in ("/", "/a/b/c", "/whatever"):
+            action = _make_action("WebFetch", url=f"https://anything.example.com{path}")
+            assert checker.check(action).violated is False, path
 
     def test_disallowed_host_blocked(self, kg, tmp_path):
         _load_network_policy(

@@ -346,6 +346,49 @@ network_policies:
         assert len(results) == 1
         assert str(results[0]["group"]) == "claude_code"
 
+    def test_endpoint_allow_rules_persisted(self, kg, policy_dir):
+        """Endpoint L7 allow rules (method + path) are persisted as RDF.
+
+        Each ``rules[].allow`` entry becomes an sp:NemoAllowRule node linked via
+        sp:allowsRule, carrying sp:allowsMethod and sp:allowsPathGlob.
+        """
+        _write_yaml(
+            policy_dir,
+            "policy.yaml",
+            """
+network_policies:
+  nvidia:
+    name: nvidia
+    endpoints:
+      - host: integrate.api.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: POST, path: "/v1/chat/completions" }
+          - allow: { method: GET, path: "/v1/models/**" }
+    binaries: []
+""",
+        )
+        loader = NemoClawPolicyLoader(policy_dir)
+        loader.load(kg)
+
+        results = kg.query(f"""
+            PREFIX sp: <{SP}>
+            SELECT ?method ?path WHERE {{
+                ?rule a sp:NemoNetworkRule ;
+                      sp:allowsRule ?allow .
+                ?allow a sp:NemoAllowRule ;
+                       sp:allowsPathGlob ?path .
+                OPTIONAL {{ ?allow sp:allowsMethod ?method }}
+            }}
+        """)
+        pairs = {(str(r["method"]), str(r["path"])) for r in results}
+        assert pairs == {
+            ("POST", "/v1/chat/completions"),
+            ("GET", "/v1/models/**"),
+        }
+
     def test_binary_restrictions_from_group(self, kg, policy_dir):
         _write_yaml(
             policy_dir,

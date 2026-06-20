@@ -244,12 +244,61 @@ class NemoClawPolicyLoader:
                 Literal(bp, datatype=XSD.string),
             )
 
+        # L7 allow rules (method + path glob). Each endpoint may declare
+        # `rules: [{ allow: { method, path } }]`. Persist each rule as its own
+        # node so method and path stay grouped per rule. `access: full`
+        # endpoints carry no L7 path filtering, so rules are not expected there.
+        self._process_endpoint_allow_rules(kg, rule_node, endpoint.get("rules"))
+
         reason = self._network_reason(host, port, protocol)
         kg.add_triple(
             rule_node,
             SP.reason,
             Literal(reason, datatype=XSD.string),
         )
+
+    def _process_endpoint_allow_rules(
+        self,
+        kg: KnowledgeGraph,
+        rule_node,
+        rules,
+    ) -> None:
+        """Persist an endpoint's L7 allow rules (method + path glob) as RDF.
+
+        Each entry has the shape ``{ allow: { method, path } }`` per the
+        NemoClaw v0.0.65 schema. Each allow rule becomes its own
+        ``sp:NemoAllowRule`` node linked to the endpoint via ``sp:allowsRule``,
+        so method and path remain grouped per rule. Malformed entries (missing
+        ``allow`` or ``path``) are skipped.
+        """
+        if not isinstance(rules, list):
+            return
+
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            allow = rule.get("allow")
+            if not isinstance(allow, dict):
+                continue
+            path = allow.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+            method = allow.get("method")
+
+            allow_node = SP[f"nemo_allow_{uuid4().hex}"]
+            kg.add_triple(allow_node, RDF.type, SP.NemoAllowRule)
+            kg.add_triple(rule_node, SP.allowsRule, allow_node)
+            kg.add_triple(
+                allow_node,
+                SP.allowsPathGlob,
+                Literal(path, datatype=XSD.string),
+            )
+            if isinstance(method, str) and method:
+                kg.add_triple(
+                    allow_node,
+                    SP.allowsMethod,
+                    Literal(method, datatype=XSD.string),
+                )
 
     def _process_real_filesystem(self, kg: KnowledgeGraph, fs_policy: dict) -> None:
         """Process real NemoClaw filesystem_policy section."""
@@ -347,6 +396,8 @@ class NemoClawPolicyLoader:
                 SP.binaryRestriction,
                 Literal(binary, datatype=XSD.string),
             )
+
+        self._process_endpoint_allow_rules(kg, rule_node, rule.get("rules"))
 
         reason = self._network_reason(host, port, protocol)
         kg.add_triple(

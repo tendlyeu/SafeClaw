@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from safeclaw.constants import PATH_PARAM_KEYS
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SC, SP
+from safeclaw.engine.roles import _glob_match
 
 if TYPE_CHECKING:
     from safeclaw.engine.class_hierarchy import ClassHierarchy
@@ -242,6 +243,7 @@ class PolicyChecker:
         results = self.kg.query(f"""
             PREFIX sp: <{SP}>
             SELECT ?rule ?host ?port ?protocol ?binary ?enforcement ?accessMode
+                   ?allowMethod ?allowPath
             WHERE {{
                 ?rule a sp:NemoNetworkRule ;
                       sp:allowsHost ?host .
@@ -250,6 +252,11 @@ class PolicyChecker:
                 OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
                 OPTIONAL {{ ?rule sp:enforcement ?enforcement }}
                 OPTIONAL {{ ?rule sp:networkAccessMode ?accessMode }}
+                OPTIONAL {{
+                    ?rule sp:allowsRule ?allowNode .
+                    ?allowNode sp:allowsPathGlob ?allowPath .
+                    OPTIONAL {{ ?allowNode sp:allowsMethod ?allowMethod }}
+                }}
             }}
         """)
         self._nemo_net_rules = list(results)
@@ -353,7 +360,8 @@ class PolicyChecker:
             elif target_scheme in ("http", "ws"):
                 target_port = 80
 
-        # Group rows by rule URI so we can collect all binary restrictions
+        # Group rows by rule URI so we can collect all binary restrictions and
+        # all L7 allow rules (method + path glob) for the endpoint.
         rule_rows: dict[str, dict] = {}
         for row in results:
             uri = str(row["rule"])
@@ -368,10 +376,18 @@ class PolicyChecker:
                     "access_mode": str(access_mode) if access_mode is not None else None,
                     "binaries": set(),
                     "enforcement": enforcement_str,
+                    # Set of (method, path_glob) allow rules; method is None when
+                    # the rule did not declare one.
+                    "allow_rules": set(),
                 }
             binary = row.get("binary")
             if binary is not None:
                 rule_rows[uri]["binaries"].add(str(binary))
+            allow_path = row.get("allowPath")
+            if allow_path is not None:
+                allow_method = row.get("allowMethod")
+                method_str = str(allow_method).upper() if allow_method is not None else None
+                rule_rows[uri]["allow_rules"].add((method_str, str(allow_path)))
 
         command = action.params.get("command", "")
 
@@ -397,19 +413,28 @@ class PolicyChecker:
                 except (ValueError, TypeError):
                     continue
 
-            # `access: full` means no L7 filtering on the endpoint, so the
-            # protocol field (if any) does not constrain which scheme reaches
-            # this host/port. Only enforce protocol matching when access is not
-            # full.
-            if info.get("access_mode") != "full":
-                rule_protocol = info["protocol"]
-                if rule_protocol is not None and str(rule_protocol):
-                    if not self._protocol_matches(str(rule_protocol), target_scheme):
-                        continue
+            # Protocol → scheme matching always applies. `access: full` only
+            # disables L7 *path* filtering on the endpoint; it does NOT widen
+            # the declared protocol. A `protocol: rest, access: full` endpoint
+            # still only accepts http/https, never wss/ws.
+            rule_protocol = info["protocol"]
+            if rule_protocol is not None and str(rule_protocol):
+                if not self._protocol_matches(str(rule_protocol), target_scheme):
+                    continue
 
             binaries = info["binaries"]
             if binaries:
                 if not self._binary_matches(action, binaries, command):
+                    continue
+
+            # L7 path/method allowlist. `access: full` (or an endpoint with no
+            # explicit allow rules) carries no L7 path filtering, so any path on
+            # the matched scheme is permitted (current behavior). Otherwise the
+            # request path must match at least one allow rule's path glob, and
+            # its method must match when both are known.
+            allow_rules = info["allow_rules"]
+            if info.get("access_mode") != "full" and allow_rules:
+                if not self._path_method_allowed(action, target_scheme, url, allow_rules):
                     continue
 
             return None
@@ -420,6 +445,60 @@ class PolicyChecker:
             "policy_type": "NemoNetworkRule",
             "reason": (f"Not in NemoClaw network allowlist: {target_host}{port_str}"),
         }
+
+    @staticmethod
+    def _request_method(action: ClassifiedAction, target_scheme: str) -> str | None:
+        """Best-effort HTTP method for the request, normalised to upper case.
+
+        WebFetch/WebSearch-style tools rarely carry an explicit method, so we
+        default to ``GET`` for http(s) schemes and ``WEBSOCKET_TEXT`` for
+        ws(s) schemes. An explicit ``method`` param (when present) wins.
+        Returns ``None`` only when the method genuinely cannot be inferred
+        (e.g. an opaque exec command), in which case callers treat the method
+        leniently and rely on the path glob alone.
+        """
+        for key in ("method", "httpMethod", "http_method"):
+            val = action.params.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip().upper()
+
+        # Direct URL fetch tools: infer a sensible default from the scheme.
+        if action.ontology_class in PolicyChecker._NETWORK_ACTION_CLASSES:
+            if target_scheme in ("ws", "wss"):
+                return "WEBSOCKET_TEXT"
+            return "GET"
+
+        # Network activity detected inside an exec command — the method is not
+        # reliably recoverable from the command string, so signal "unknown".
+        return None
+
+    def _path_method_allowed(
+        self,
+        action: ClassifiedAction,
+        target_scheme: str,
+        url: str,
+        allow_rules: set[tuple[str | None, str]],
+    ) -> bool:
+        """Return True if the request path/method matches an allow rule.
+
+        The path glob is ALWAYS enforced: the request's URL path must match at
+        least one allow rule's ``path`` glob. The method is enforced only when
+        BOTH the request method (best-effort) and the rule's method are known;
+        if either is unknown the method check is skipped for that rule (path
+        glob still applies). Globs reuse the codebase's ``**``-aware matcher.
+        """
+        request_path = urlparse(url).path or "/"
+        request_method = self._request_method(action, target_scheme)
+
+        for rule_method, path_glob in allow_rules:
+            if not _glob_match(request_path, path_glob):
+                continue
+            # Path matches. Enforce method only when both sides are known.
+            if rule_method is None or request_method is None:
+                return True
+            if rule_method == request_method:
+                return True
+        return False
 
     @classmethod
     def _protocol_matches(cls, rule_protocol: str, target_scheme: str) -> bool:
