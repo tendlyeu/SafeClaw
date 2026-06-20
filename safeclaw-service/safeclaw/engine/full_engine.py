@@ -628,8 +628,13 @@ class FullEngine(SafeClawEngine):
         # audited block instead of an unhandled 500.
         action = None  # may remain None if classification fails
         try:
-            # 1. Classify action
-            action = self.classifier.classify(event.tool_name, event.params)
+            # 1. Classify action (forward code-mode discriminators, #316/#322)
+            action = self.classifier.classify(
+                event.tool_name,
+                event.params,
+                tool_kind=getattr(event, "tool_kind", ""),
+                tool_input_kind=getattr(event, "tool_input_kind", ""),
+            )
 
             # 1b. Role-based action check
             if event.agent_id is not None:
