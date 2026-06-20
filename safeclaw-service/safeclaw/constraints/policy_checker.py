@@ -473,16 +473,19 @@ class PolicyChecker:
     _GET_DEFAULT_TOOLS = ("curl", "wget", "fetch")
     # httpie-style clients take the method as a positional verb (`http POST …`).
     _POSITIONAL_VERB_TOOLS = ("http", "https", "xh", "httpie")
-    # curl/wget flags that change the *implicit* method when no explicit -X is
-    # given. Precedence: -G/--get forces GET (even with data); -I/--head -> HEAD;
-    # -T/--upload-file -> PUT; any data/form flag -> POST. Otherwise GET.
-    _IMPLICIT_GET_RE = re.compile(r"(?:^|\s)-{1,2}(?:G|get)(?=[\s=]|$)")
-    _IMPLICIT_HEAD_RE = re.compile(r"(?:^|\s)-{1,2}(?:I|head)(?=[\s=]|$)")
-    _IMPLICIT_PUT_RE = re.compile(r"(?:^|\s)-{1,2}(?:T|upload-file)(?=[\s=]|$)")
-    _IMPLICIT_POST_RE = re.compile(
-        r"(?:^|\s)-{1,2}(?:d|data(?:-raw|-binary|-ascii|-urlencode)?|json|F|"
-        r"form(?:-string)?|post-data|post-file)(?=[\s'\"=]|$)"
-    )
+    # curl/wget long flags that imply POST when no explicit -X is given.
+    _CURL_POST_LONG = {
+        "data",
+        "data-raw",
+        "data-binary",
+        "data-ascii",
+        "data-urlencode",
+        "json",
+        "form",
+        "form-string",
+        "post-data",
+        "post-file",
+    }
 
     @staticmethod
     def _method_from_command(command: str) -> str | None:
@@ -505,15 +508,54 @@ class PolicyChecker:
         # otherwise GET. (Without this, `curl -d …` would read as GET and slip
         # past a method-scoped allowlist.)
         if any(b in PolicyChecker._GET_DEFAULT_TOOLS for b in bases):
-            if PolicyChecker._IMPLICIT_GET_RE.search(command):
-                return "GET"
-            if PolicyChecker._IMPLICIT_HEAD_RE.search(command):
-                return "HEAD"
-            if PolicyChecker._IMPLICIT_PUT_RE.search(command):
-                return "PUT"
-            if PolicyChecker._IMPLICIT_POST_RE.search(command):
-                return "POST"
+            return PolicyChecker._implicit_curl_method(tokens) or "GET"
+        return None
+
+    @staticmethod
+    def _implicit_curl_method(tokens: list[str]) -> str | None:
+        """Infer the implicit HTTP method from curl/wget flags (no explicit -X).
+
+        Handles both separated (``-d x``) and attached (``-dx``, ``-Tfile``)
+        short options and bundled boolean flags (``-sI``). Precedence mirrors
+        curl: ``-G/--get`` forces GET, then ``-I`` HEAD, ``-T`` PUT, data/form
+        POST. Returns None when no method-affecting flag is present.
+        """
+        has_get = has_head = has_put = has_post = False
+        for tok in tokens:
+            if tok.startswith("--"):
+                name = tok[2:].split("=", 1)[0]
+                if name == "get":
+                    has_get = True
+                elif name == "head":
+                    has_head = True
+                elif name == "upload-file":
+                    has_put = True
+                elif name in PolicyChecker._CURL_POST_LONG:
+                    has_post = True
+            elif tok.startswith("-") and len(tok) > 1:
+                # Short cluster: a value-taking flag (d/F/T/X) consumes the rest
+                # of the token as its attached argument.
+                for ch in tok[1:]:
+                    if ch in ("d", "F"):
+                        has_post = True
+                        break
+                    if ch == "T":
+                        has_put = True
+                        break
+                    if ch == "X":
+                        break  # explicit method already handled by _CMD_METHOD_RE
+                    if ch == "I":
+                        has_head = True
+                    elif ch == "G":
+                        has_get = True
+        if has_get:
             return "GET"
+        if has_head:
+            return "HEAD"
+        if has_put:
+            return "PUT"
+        if has_post:
+            return "POST"
         return None
 
     @staticmethod
@@ -610,12 +652,24 @@ class PolicyChecker:
             return True
         if not command:
             return False
+        tokens = command.split()
         for bp in binaries:
+            # NemoClaw "/**" (and bare globs) mean "any binary".
+            if bp in ("/**", "**", "*", "/*"):
+                return True
             # Full path: match with word boundary to avoid /usr/bin/git matching
             # /usr/bin/github-cli
             if re.search(rf"(?:^|\s){re.escape(bp)}(?:\s|$)", command):
                 return True
             binary_name = bp.rsplit("/", 1)[-1]
+            # Glob path (e.g. /usr/bin/*): glob-match command tokens + basenames.
+            if "*" in bp:
+                if any(
+                    _glob_match(tok, bp) or _glob_match(tok.rsplit("/", 1)[-1], binary_name)
+                    for tok in tokens
+                ):
+                    return True
+                continue
             if binary_name and re.search(rf"\b{re.escape(binary_name)}\b", command):
                 return True
         return False

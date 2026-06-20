@@ -605,6 +605,41 @@ network_policies:
         assert cmd("curl https://api.example.com/allowed") is False  # GET -> allowed
         assert cmd("curl -G -d q=1 https://api.example.com/allowed") is False  # GET
 
+    def test_binary_wildcard_matches_any(self, kg, tmp_path):
+        """A NemoClaw ``/**`` binary entry means 'any binary' — it must not
+        over-block allowed command egress (real permissive policies use it)."""
+        # Unit: /** matches any command binary.
+        any_action = _make_action("ExecuteCommand", tool_name="exec", command="curl x")
+        assert PolicyChecker._binary_matches(any_action, {"/**"}, "curl https://github.com") is True
+        # A concrete-path glob still works.
+        assert (
+            PolicyChecker._binary_matches(any_action, {"/usr/bin/*"}, "/usr/bin/curl https://x")
+            is True
+        )
+
+        # Integration: permissive policy (host allowlisted, access:full, /** binary).
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  permissive:
+    name: permissive
+    endpoints:
+      - host: github.com
+        port: 443
+        protocol: rest
+        access: full
+    binaries:
+      - path: "/**"
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action = _make_action(
+            "ExecuteCommand", tool_name="exec", command="curl https://github.com/tendlyeu/SafeClaw"
+        )
+        assert checker.check(action).violated is False
+
     def test_command_url_triggers_egress_check(self, kg, tmp_path):
         """A command reaching a non-allowlisted host via any binary (not just
         curl/wget) must be blocked, not bypass the egress allowlist."""
@@ -655,6 +690,11 @@ network_policies:
         assert f("curl -T ./a https://x/y") == "PUT"
         assert f("curl -G -d q=1 https://x/y") == "GET"  # -G forces GET query
         assert f("wget --post-data=x https://x/y") == "POST"
+        # Short options with the argument attached (no space):
+        assert f("curl -dfoo=bar https://x/y") == "POST"
+        assert f("curl -Ffile=@a https://x/y") == "POST"
+        assert f("curl -Tfile https://x/y") == "PUT"
+        assert f("curl -sI https://x/y") == "HEAD"  # bundled boolean flags
 
     def test_path_method_allowed_fails_closed_on_unknown_method(self, kg):
         """A method-constrained rule does NOT authorise when the request method
