@@ -58,6 +58,16 @@ class DerivedConstraintChecker:
             triggered_rules.append("CumulativeRiskRule")
             reasons.append("Session risk threshold exceeded (3+ MediumRisk or 2+ HighRisk actions)")
 
+        # Rule 4: Unclassified MCP / dynamic tool → requires confirmation.
+        # An mcp__* tool has no explicit SafeClaw classification and can perform
+        # arbitrary external actions; confirm by default until one is added (#325).
+        if action.ontology_class == "McpToolCall":
+            triggered_rules.append("McpToolCallConfirmRule")
+            reasons.append(
+                "Unclassified MCP/dynamic tool call requires confirmation until "
+                "explicitly classified"
+            )
+
         if triggered_rules:
             return DerivedCheckResult(
                 requires_confirmation=True,

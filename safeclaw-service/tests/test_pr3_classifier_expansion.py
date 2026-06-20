@@ -62,6 +62,18 @@ class TestMessageClassification:
         assert a.ontology_class == "CrossContextMessage"
         assert a.risk_level == "CriticalRisk"
 
+    def test_cross_context_falsey_values_are_not_cross_context(self, clf):
+        # bool("false") is True in Python — the string "false"/0/"" must NOT
+        # escalate a plain send to CrossContextMessage.
+        for falsey in (False, "false", "False", "0", "", "no", None):
+            a = _c(clf, "message", {"action": "send", "crossContext": falsey})
+            assert a.ontology_class == "SendMessage", falsey
+
+    def test_cross_context_truthy_strings(self, clf):
+        for truthy in (True, "true", "True", "1", "yes"):
+            a = _c(clf, "message", {"action": "send", "crossContext": truthy})
+            assert a.ontology_class == "CrossContextMessage", truthy
+
     def test_moderation_actions(self, clf):
         for action in ("ban", "kick", "timeout", "role-add", "channel-delete", "permissions"):
             a = _c(clf, "message", {"action": action})
@@ -129,6 +141,26 @@ class TestMcpClassification:
         a = _c(clf, "some_unknown_tool")
         assert a.ontology_class == "Action"
 
+    def test_mcp_tool_requires_confirmation(self, tmp_path):
+        # An unclassified MCP/dynamic tool must require confirmation by default
+        # (conservative until explicitly classified, #325).
+        from safeclaw.constraints.action_classifier import ClassifiedAction
+        from safeclaw.constraints.preference_checker import UserPreferences
+
+        eng = FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+        action = ClassifiedAction(
+            "McpToolCall", "HighRisk", False, "ExternalWorld", "mcp__x__y", {}
+        )
+        result = eng.derived_checker.check(action, UserPreferences(), [])
+        assert result.requires_confirmation is True
+        assert "McpToolCall" in "".join(result.derived_rules) or "Mcp" in result.reason
+
 
 # --- #322: code-mode / sandbox exec + JS dangerous ops ---
 
@@ -193,6 +225,36 @@ class TestCodeModeClassification:
     def test_extended_js_patterns(self, clf, command, cls):
         a = _c(clf, "exec", {"command": command}, tool_kind="code_mode_exec")
         assert a.ontology_class == cls
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # inline require chain
+            'require("fs").rmSync("/tmp/x")',
+            "require('node:fs').rmSync('/tmp/x')",
+            'require("fs/promises").rm("/tmp/x")',
+            # destructured / aliased imports + bare removal call (import-aware)
+            'import { rmSync } from "fs"; rmSync("/tmp/x")',
+            'const { rm } = require("fs"); rm("/tmp/x")',
+            'import { unlink } from "node:fs/promises"; await unlink("/tmp/x")',
+        ],
+    )
+    def test_fs_import_forms_are_deletes(self, clf, command):
+        # Regression: these import forms used to fall through to ExecuteCommand,
+        # bypassing DeleteFile/CriticalRisk and the delete confirmation/denial.
+        a = _c(clf, "exec", {"command": command}, tool_kind="code_mode_exec")
+        assert a.ontology_class == "DeleteFile", command
+        assert a.risk_level == "CriticalRisk", command
+
+    def test_bare_removal_without_fs_import_not_escalated(self, clf):
+        # No fs import in the body: a user-defined bare rm() must not be a delete.
+        a = _c(
+            clf,
+            "exec",
+            {"command": "function rm(x){return x}; rm('hello')"},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class != "DeleteFile"
 
 
 # --- B1: code-mode classification survives the result-binding round-trip ---

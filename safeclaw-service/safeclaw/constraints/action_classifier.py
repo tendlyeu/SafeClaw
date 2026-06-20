@@ -136,10 +136,21 @@ _SHELL_TOOLS = {"exec", "bash", "shell"}
 # Dangerous JS/TS operations in code-mode bodies that shell patterns miss (#322).
 # Matched against the RAW source (quotes intact), so embedded command strings
 # like execSync("git push --force") are also visible to SHELL_PATTERNS.
+# Node fs removal verbs (the distinctive method names).
+_FS_DELETE_VERBS = r"(?:rmSync|rm|unlinkSync|unlink|rmdirSync|rmdir)"
+
 JS_PATTERNS = [
-    # fs / fs.promises / fsp removal, plus Deno/Bun equivalents.
+    # Member access: fs / fs.promises / fsp .<delete>(
     (
-        r"\b(?:fs\.promises|fsp|fs)\.(?:rmSync|rm|unlinkSync|unlink|rmdirSync|rmdir)\s*\(",
+        rf"\b(?:fs\.promises|fsp|fs)\.{_FS_DELETE_VERBS}\s*\(",
+        "DeleteFile",
+        "CriticalRisk",
+        False,
+        "LocalOnly",
+    ),
+    # Inline require chain: require("fs"|"node:fs"|"fs/promises").<delete>(
+    (
+        rf"""require\(\s*['"](?:node:)?fs(?:/promises)?['"]\s*\)\s*\.\s*{_FS_DELETE_VERBS}\s*\(""",
         "DeleteFile",
         "CriticalRisk",
         False,
@@ -161,6 +172,24 @@ JS_PATTERNS = [
     ),
     # JS-native network egress (no curl/wget analogue).
     (r"\bfetch\s*\(", "NetworkRequest", "MediumRisk", True, "ExternalWorld"),
+]
+
+# Detect a Node fs import in any form (require or ES import, incl. node:/promises),
+# so destructured/aliased removal calls (`const {rm}=require("fs"); rm(...)`) can
+# be treated as deletes even when split from their import by `;` (#322 follow-up).
+_FS_IMPORT_RE = re.compile(
+    r"""(?:require\(\s*['"](?:node:)?fs(?:/promises)?['"]\s*\)"""
+    r"""|(?:from|import)\s+['"](?:node:)?fs(?:/promises)?['"])"""
+)
+# When fs is imported, a bare removal call is a filesystem delete.
+_FS_BARE_DELETE_PATTERNS = [
+    (
+        rf"\b{_FS_DELETE_VERBS}\s*\(",
+        "DeleteFile",
+        "CriticalRisk",
+        False,
+        "LocalOnly",
+    ),
 ]
 
 # MCP / dynamically-exposed plugin tools use a namespaced name (#325).
@@ -232,10 +261,20 @@ class ActionClassifier:
         )
         return self._enrich_from_ontology(action)
 
+    @staticmethod
+    def _as_bool(value: object) -> bool:
+        """Interpret a JSON-ish flag as bool. Crucially, the STRING "false"
+        (and other falsey strings) must be False — `bool("false")` is True."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on")
+        return bool(value)
+
     def _classify_message(self, params: dict) -> ClassifiedAction:
         """Classify a `message` tool call by its action / channel context (#318)."""
         action = str(params.get("action") or "send").strip().lower()
-        cross_context = bool(params.get("crossContext"))
+        cross_context = self._as_bool(params.get("crossContext"))
 
         if action in _MESSAGE_CREATE_ACTIONS:
             cls, risk, scope = "CreateChannel", "HighRisk", "ExternalWorld"
@@ -329,7 +368,15 @@ class ActionClassifier:
         # embedded command string like execSync("git push --force") is visible)
         # and also apply JS/TS dangerous-op patterns. Plain shell strips quoted
         # data first to avoid false positives from quoted arguments. (#322)
-        patterns = (SHELL_PATTERNS + JS_PATTERNS) if code_mode else SHELL_PATTERNS
+        if code_mode:
+            patterns = SHELL_PATTERNS + JS_PATTERNS
+            # If the body imports Node fs in any form, a bare (destructured/
+            # aliased) removal call is a filesystem delete — checked over the
+            # WHOLE command since `;` may split the import from the call.
+            if _FS_IMPORT_RE.search(command):
+                patterns = patterns + _FS_BARE_DELETE_PATTERNS
+        else:
+            patterns = SHELL_PATTERNS
 
         for sub_cmd in sub_commands:
             if code_mode:
