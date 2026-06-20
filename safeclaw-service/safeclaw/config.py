@@ -37,6 +37,9 @@ class SafeClawConfig(BaseSettings):
     # NemoClaw integration
     nemoclaw_enabled: bool = False
     nemoclaw_policy_dir: Path | None = None
+    # Resolved sandbox workdir/home path, used to materialise the implicit
+    # read-write rule when a policy sets ``filesystem_policy.include_workdir``.
+    nemoclaw_workdir: str = ""
 
     # LLM layer (passive observer — all features gated on API key)
     # New multi-provider fields
@@ -94,6 +97,29 @@ class SafeClawConfig(BaseSettings):
             p = Path(sandbox_dir) / "policies"
             if p.exists():
                 return p
+        return None
+
+    def get_nemoclaw_workdir(self) -> str | None:
+        """Resolve the NemoClaw sandbox workdir/home path.
+
+        Used to honor ``filesystem_policy.include_workdir`` by emitting an
+        implicit read-write rule. The schema never provides the resolved path,
+        so it is resolved here rather than guessed at the loader level.
+
+        Resolution order:
+        1. Explicit ``nemoclaw_workdir`` config / ``SAFECLAW_NEMOCLAW_WORKDIR``.
+        2. ``NEMOCLAW_WORKDIR`` env var.
+        3. ``{OPENSHELL_SANDBOX}`` when running inside a NemoClaw sandbox.
+        4. ``None`` — the workdir is unknown and include_workdir is skipped.
+        """
+        if self.nemoclaw_workdir:
+            return self.nemoclaw_workdir
+        env_workdir = os.environ.get("NEMOCLAW_WORKDIR")
+        if env_workdir:
+            return env_workdir
+        sandbox_dir = os.environ.get("OPENSHELL_SANDBOX")
+        if sandbox_dir:
+            return sandbox_dir
         return None
 
     @property

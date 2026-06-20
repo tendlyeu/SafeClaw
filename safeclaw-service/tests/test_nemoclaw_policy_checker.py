@@ -405,7 +405,13 @@ network_policies:
         result = checker.check(action)
         assert result.violated is False
 
-    def test_full_protocol_matches_any_scheme(self, kg, tmp_path):
+    def test_access_full_matches_any_scheme(self, kg, tmp_path):
+        """`access: full` (no L7 filtering) bypasses protocol-scheme matching.
+
+        Per NemoClaw v0.0.65 the endpoint declares ``protocol: rest`` plus the
+        separate ``access: full`` field; the latter means the whole endpoint is
+        open, so any scheme to that host/port is allowed.
+        """
         _load_network_policy(
             kg,
             tmp_path / "policies",
@@ -416,12 +422,16 @@ network_policies:
     endpoints:
       - host: anything.example.com
         port: 443
-        protocol: full
+        protocol: rest
+        enforcement: enforce
+        access: full
     binaries: []
 """,
         )
         checker = PolicyChecker(kg, nemoclaw_enabled=True)
-        action = _make_action("WebFetch", url="https://anything.example.com/path")
+        # wss would normally be rejected by `protocol: rest`, but access: full
+        # disables L7 filtering so it is allowed.
+        action = _make_action("WebFetch", url="wss://anything.example.com/path")
         result = checker.check(action)
         assert result.violated is False
 
@@ -500,12 +510,6 @@ class TestProtocolMapping:
     def test_rest_rejects_wss(self):
         assert PolicyChecker._protocol_matches("rest", "wss") is False
 
-    def test_grpc_matches_https(self):
-        assert PolicyChecker._protocol_matches("grpc", "https") is True
-
-    def test_grpc_matches_http(self):
-        assert PolicyChecker._protocol_matches("grpc", "http") is True
-
     def test_websocket_matches_wss(self):
         assert PolicyChecker._protocol_matches("websocket", "wss") is True
 
@@ -515,11 +519,17 @@ class TestProtocolMapping:
     def test_websocket_rejects_https(self):
         assert PolicyChecker._protocol_matches("websocket", "https") is False
 
-    def test_full_matches_anything(self):
-        assert PolicyChecker._protocol_matches("full", "https") is True
-        assert PolicyChecker._protocol_matches("full", "http") is True
-        assert PolicyChecker._protocol_matches("full", "wss") is True
-        assert PolicyChecker._protocol_matches("full", "ftp") is True
+    def test_grpc_not_a_known_protocol(self):
+        # `grpc` is not in the NemoClaw v0.0.65 enum; it falls back to exact
+        # scheme comparison and therefore does not match http(s).
+        assert PolicyChecker._protocol_matches("grpc", "https") is False
+        assert PolicyChecker._protocol_matches("grpc", "http") is False
+
+    def test_full_not_a_protocol(self):
+        # `full` is the `access` field, not a protocol. As a protocol name it is
+        # unknown and falls back to exact scheme comparison.
+        assert PolicyChecker._protocol_matches("full", "https") is False
+        assert PolicyChecker._protocol_matches("full", "wss") is False
 
     def test_exact_scheme_fallback(self):
         assert PolicyChecker._protocol_matches("https", "https") is True

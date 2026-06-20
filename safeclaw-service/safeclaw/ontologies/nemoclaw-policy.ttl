@@ -22,7 +22,38 @@ sp:allowsPort a owl:DatatypeProperty ;
 sp:allowsProtocol a owl:DatatypeProperty ;
     rdfs:domain sp:NemoNetworkRule ;
     rdfs:range xsd:string ;
-    rdfs:label "allowed protocol" .
+    rdfs:label "allowed protocol" ;
+    rdfs:comment "L7 protocol of the endpoint. Values: rest, websocket (per NemoClaw v0.0.65 schema)" .
+
+sp:networkAccessMode a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "network access mode" ;
+    rdfs:comment "L7 access mode for the endpoint. Value 'full' means no L7 path filtering is applied (the whole endpoint is open). Distinct from sp:accessMode which is for filesystem rules." .
+
+sp:allowedIp a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:string ;
+    rdfs:label "allowed IP" ;
+    rdfs:comment "An IP address explicitly allowlisted past the SSRF guard for a resolved-private endpoint (NemoClaw allowed_ips)." .
+
+sp:websocketCredentialRewrite a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "websocket credential rewrite" ;
+    rdfs:comment "Whether the L7 proxy rewrites credentials on the WebSocket handshake for this endpoint." .
+
+sp:requestBodyCredentialRewrite a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "request body credential rewrite" ;
+    rdfs:comment "Whether the L7 proxy rewrites credentials in the request body for this endpoint." .
+
+sp:rawTunnel a owl:DatatypeProperty ;
+    rdfs:domain sp:NemoNetworkRule ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "raw tunnel posture" ;
+    rdfs:comment "True when the endpoint combines networkAccessMode 'full' with tls 'skip', i.e. an unfiltered raw L4 tunnel with no TLS inspection. Flagged for elevated scrutiny." .
 
 sp:binaryRestriction a owl:DatatypeProperty ;
     rdfs:domain sp:NemoNetworkRule ;
@@ -39,7 +70,7 @@ sp:tlsMode a owl:DatatypeProperty ;
     rdfs:domain sp:NemoNetworkRule ;
     rdfs:range xsd:string ;
     rdfs:label "TLS mode" ;
-    rdfs:comment "Values: terminate, passthrough" .
+    rdfs:comment "Values: terminate, passthrough, skip (per NemoClaw v0.0.65 schema). 'skip' means no TLS interception." .
 
 sp:policyGroup a owl:DatatypeProperty ;
     rdfs:domain sp:NemoNetworkRule ;

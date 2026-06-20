@@ -40,11 +40,13 @@ class PolicyChecker:
                 return val
         return ""
 
-    _PROTOCOL_SCHEME_MAP: dict[str, set[str] | None] = {
+    # NemoClaw v0.0.65 protocol enum is exactly ``rest`` | ``websocket``.
+    # ``access: full`` is a *separate* endpoint field (not a protocol) handled
+    # via the ``networkAccessMode`` rule property, so it is intentionally not
+    # in this map. Unknown protocol names fall back to exact scheme comparison.
+    _PROTOCOL_SCHEME_MAP: dict[str, set[str]] = {
         "rest": {"https", "http"},
-        "grpc": {"https", "http"},
         "websocket": {"wss", "ws"},
-        "full": None,
     }
 
     # Action classes that trigger NemoClaw network checks
@@ -239,7 +241,7 @@ class PolicyChecker:
 
         results = self.kg.query(f"""
             PREFIX sp: <{SP}>
-            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement
+            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement ?accessMode
             WHERE {{
                 ?rule a sp:NemoNetworkRule ;
                       sp:allowsHost ?host .
@@ -247,6 +249,7 @@ class PolicyChecker:
                 OPTIONAL {{ ?rule sp:allowsProtocol ?protocol }}
                 OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
                 OPTIONAL {{ ?rule sp:enforcement ?enforcement }}
+                OPTIONAL {{ ?rule sp:networkAccessMode ?accessMode }}
             }}
         """)
         self._nemo_net_rules = list(results)
@@ -357,10 +360,12 @@ class PolicyChecker:
             if uri not in rule_rows:
                 enforcement = row.get("enforcement")
                 enforcement_str = str(enforcement) if enforcement else "enforce"
+                access_mode = row.get("accessMode")
                 rule_rows[uri] = {
                     "host": row["host"],
                     "port": row.get("port"),
                     "protocol": row.get("protocol"),
+                    "access_mode": str(access_mode) if access_mode is not None else None,
                     "binaries": set(),
                     "enforcement": enforcement_str,
                 }
@@ -392,10 +397,15 @@ class PolicyChecker:
                 except (ValueError, TypeError):
                     continue
 
-            rule_protocol = info["protocol"]
-            if rule_protocol is not None and str(rule_protocol):
-                if not self._protocol_matches(str(rule_protocol), target_scheme):
-                    continue
+            # `access: full` means no L7 filtering on the endpoint, so the
+            # protocol field (if any) does not constrain which scheme reaches
+            # this host/port. Only enforce protocol matching when access is not
+            # full.
+            if info.get("access_mode") != "full":
+                rule_protocol = info["protocol"]
+                if rule_protocol is not None and str(rule_protocol):
+                    if not self._protocol_matches(str(rule_protocol), target_scheme):
+                        continue
 
             binaries = info["binaries"]
             if binaries:
@@ -415,14 +425,12 @@ class PolicyChecker:
     def _protocol_matches(cls, rule_protocol: str, target_scheme: str) -> bool:
         """Check if a rule protocol matches the URL scheme.
 
-        NemoClaw uses protocol names like ``rest``, ``grpc``, ``websocket``
-        which do not correspond directly to URL schemes. This method maps
-        known protocol names to their valid scheme sets. Unknown protocols
-        fall back to exact string comparison (e.g. ``https`` == ``https``).
+        Per the NemoClaw v0.0.65 schema the protocol enum is ``rest`` |
+        ``websocket``; these map to their valid scheme sets. Unknown protocol
+        names (e.g. a literal URL scheme) fall back to exact string comparison
+        (``https`` == ``https``).
         """
         allowed = cls._PROTOCOL_SCHEME_MAP.get(rule_protocol)
-        if allowed is None and rule_protocol in cls._PROTOCOL_SCHEME_MAP:
-            return True
         if allowed is not None:
             return target_scheme in allowed
         return rule_protocol == target_scheme
