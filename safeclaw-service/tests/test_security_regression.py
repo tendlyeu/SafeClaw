@@ -68,6 +68,17 @@ class TestIssue22RecordActionResultAuth:
         eng, token = engine_with_agents
 
         # Record a result before killing — should succeed
+        call_event = ToolCallEvent(
+            session_id="sess-1",
+            user_id="test-user",
+            tool_name="exec",
+            params={"command": "pytest"},
+            agent_id="test-agent",
+            agent_token=token,
+        )
+        decision = await eng.evaluate_tool_call(call_event)
+        assert decision.block is False
+
         event = ToolResultEvent(
             session_id="sess-1",
             tool_name="exec",
@@ -78,7 +89,7 @@ class TestIssue22RecordActionResultAuth:
             agent_id="test-agent",
             agent_token=token,
         )
-        await eng.record_action_result(event)
+        assert await eng.record_action_result(event) is True
         # Verify it was recorded
         state = eng.session_tracker.get_state("sess-1")
         assert state is not None
@@ -98,7 +109,7 @@ class TestIssue22RecordActionResultAuth:
             agent_id="test-agent",
             agent_token=token,
         )
-        await eng.record_action_result(event2)
+        assert await eng.record_action_result(event2) is False
         # Should NOT have a second fact
         state = eng.session_tracker.get_state("sess-1")
         assert len(state.facts) == 1
@@ -118,10 +129,100 @@ class TestIssue22RecordActionResultAuth:
             agent_id="test-agent",
             agent_token="wrong-token",
         )
-        await eng.record_action_result(event)
+        assert await eng.record_action_result(event) is False
         # Should not have recorded
         state = eng.session_tracker.get_state("sess-1")
         assert state is None or len(state.facts) == 0
+
+
+# =========================================================================
+# #303: Tool results must be tied to an allowed tool call
+# =========================================================================
+
+
+class TestIssue303ToolResultBinding:
+    """record_action_result must not accept synthetic results before evaluation."""
+
+    @pytest.mark.asyncio
+    async def test_unmatched_successful_result_does_not_satisfy_dependencies(self, engine):
+        event = ToolResultEvent(
+            session_id="poison-session",
+            tool_name="exec",
+            params={"command": "pytest"},
+            result="passed",
+            success=True,
+            user_id="test-user",
+        )
+
+        assert await engine.record_action_result(event) is False
+
+        # Verify no side effects: an unmatched record must not touch the
+        # session tracker or dependency tracker. Without these explicit
+        # assertions, a regression that reordered side effects before the
+        # consume check would still flip dep_result.unmet to False.
+        assert engine.session_tracker.get_state("poison-session") is None
+
+        action = engine.classifier.classify("exec", {"command": "git push origin main"})
+        dep_result = engine.dependency_checker.check(action, "poison-session")
+        assert dep_result.unmet is True
+        assert dep_result.required_action == "RunTests"
+
+    @pytest.mark.asyncio
+    async def test_pending_entry_is_consumed_once(self, engine):
+        """A successful record_action_result must consume the pending entry
+        (one-shot semantics). A regression that copied instead of deleted
+        would silently let a single eval satisfy multiple result records.
+        """
+        session_id = "consume-once"
+        call_event = ToolCallEvent(
+            session_id=session_id,
+            user_id="test-user",
+            tool_name="exec",
+            params={"command": "pytest"},
+        )
+        decision = await engine.evaluate_tool_call(call_event)
+        assert decision.block is False
+
+        result_event = ToolResultEvent(
+            session_id=session_id,
+            tool_name="exec",
+            params={"command": "pytest"},
+            result="passed",
+            success=True,
+            user_id="test-user",
+        )
+        assert await engine.record_action_result(result_event) is True
+        # Second identical record must not match — pending entry was consumed.
+        assert await engine.record_action_result(result_event) is False
+
+    @pytest.mark.asyncio
+    async def test_blocked_call_does_not_enable_record(self, engine_with_agents):
+        """A blocked tool call must not register a pending entry; otherwise
+        a denied action could later be satisfied by a forged result."""
+        eng, _ = engine_with_agents
+        # An unregistered agent with a bogus token is blocked at step 0
+        # (agent_governance / invalid token), so no pending entry is created.
+        call_event = ToolCallEvent(
+            session_id="blocked-sess",
+            user_id="test-user",
+            tool_name="exec",
+            params={"command": "pytest"},
+            agent_id="unregistered-agent",
+            agent_token="bogus",
+        )
+        decision = await eng.evaluate_tool_call(call_event)
+        assert decision.block is True
+
+        # Now try to record a result for the same call — must be rejected.
+        result_event = ToolResultEvent(
+            session_id="blocked-sess",
+            tool_name="exec",
+            params={"command": "pytest"},
+            result="passed",
+            success=True,
+            user_id="test-user",
+        )
+        assert await eng.record_action_result(result_event) is False
 
 
 # =========================================================================

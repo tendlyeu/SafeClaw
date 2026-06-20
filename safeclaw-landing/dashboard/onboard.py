@@ -37,8 +37,8 @@ def OnboardStep1(csrf_token=""):
         Div(
             H2("Welcome to SafeClaw"),
             P("SafeClaw sits between your AI agent and the tools it uses. "
-              "Every action — file edits, git pushes, shell commands — is checked "
-              "against safety rules before it runs.",
+              "Tool calls, outbound messages, subagent spawns, and sandbox-sensitive "
+              "file or network access are checked against safety rules before they run.",
               cls=TextPresets.muted_sm),
             cls="space-y-2",
         ),
@@ -195,8 +195,8 @@ def OnboardStep3(raw_key: str, csrf_token=""):
         ),
         Divider(),
         Div(
-            P("After connecting, every tool call your AI agent makes will be "
-              "validated by SafeClaw before execution.",
+            P("After connecting, tool calls, governed messages, and subagent spawns "
+              "will be validated by SafeClaw before execution.",
               cls=TextPresets.muted_sm),
             Form(
                 Input(type="hidden", name="_csrf_token", value=csrf_token),

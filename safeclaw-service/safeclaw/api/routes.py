@@ -38,6 +38,7 @@ from safeclaw.api.models import (
     TempGrantResponse,
     ToolCallRequest,
     ToolResultRequest,
+    ToolResultResponse,
 )
 from safeclaw.engine.core import (
     AgentStartEvent,
@@ -159,6 +160,35 @@ def _verify_agent_token(engine, agent_id: str | None, agent_token: str | None):
         raise HTTPException(status_code=403, detail="Invalid agent token")
 
 
+def _require_attributed_auth(engine, req: Request, agent_id: str | None, agent_token: str | None):
+    """Stricter auth for routes that persist raw caller-supplied content.
+
+    Unlike ``_verify_agent_token`` (which allows empty/unregistered agents for
+    backwards compatibility on the governance routes), the durable LLM I/O audit
+    writes record raw prompt/response content to disk. Allowing anonymous callers
+    there — which happens in local mode where the API-key middleware passes
+    through without setting ``org_id`` — leaves audit poisoning and unbounded log
+    growth open. Require *attributable* auth: an API-key org context, or a
+    registered agent presenting a valid token.
+    """
+    if getattr(req.state, "org_id", None):
+        return  # API-key authenticated (org context present)
+    if agent_id:
+        # A claimed agent identity must be registered AND present a valid token.
+        record = engine.agent_registry.get_agent(agent_id)
+        if (
+            record is not None
+            and agent_token
+            and engine.agent_registry.verify_token(agent_id, agent_token)
+        ):
+            return
+        raise HTTPException(status_code=403, detail="Invalid or unregistered agent token")
+    raise HTTPException(
+        status_code=401,
+        detail="LLM audit logging requires API-key or registered-agent authentication",
+    )
+
+
 @router.post("/evaluate/tool-call", response_model=DecisionResponse)
 async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> DecisionResponse:
     engine = _get_engine()
@@ -177,6 +207,12 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         session_history=request.sessionHistory,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        run_id=request.runId,
+        tool_kind=request.toolKind,
+        tool_input_kind=request.toolInputKind,
+        derived_paths=request.derivedPaths,
+        triggered_by=request.triggeredBy,
+        job_id=request.jobId,
     )
 
     # When dryRun is True, skip the full engine pipeline to avoid side effects
@@ -241,7 +277,7 @@ async def evaluate_inbound_message(
     - Sender metadata
     """
     engine = _get_engine()
-    _verify_agent_token(engine, request.userId, getattr(request, "agentToken", None))
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     sanitized_content = _sanitize_string(request.content)
     flags: list[str] = []
     warnings: list[str] = []
@@ -358,6 +394,77 @@ async def evaluate_sandbox_policy(
                     }
                 )
 
+    # --- OpenClaw 2026.6.x sandbox hardening dimensions ---
+
+    # Seccomp profile: when a seccomp policy is declared it must not disable
+    # syscall filtering (unconfined). Absence is handled by other defaults.
+    seccomp = policy.get("seccompPolicy")
+    if isinstance(seccomp, dict):
+        profile = seccomp.get("profile")
+        if not profile:
+            violations.append(
+                {
+                    "field": "seccompPolicy.profile",
+                    "message": "Sandbox must declare a seccomp profile",
+                }
+            )
+        elif str(profile).lower() in ("unconfined", "disabled", "none", "off"):
+            violations.append(
+                {
+                    "field": "seccompPolicy.profile",
+                    "message": "Seccomp profile must not be unconfined or disabled",
+                }
+            )
+
+    # Host environment inheritance leaks host credentials into the sandbox.
+    env_policy = policy.get("environmentPolicy", {})
+    if isinstance(env_policy, dict) and env_policy.get("inheritHostEnv") is True:
+        violations.append(
+            {
+                "field": "environmentPolicy.inheritHostEnv",
+                "message": "Sandbox must not inherit host environment variables (credential leak)",
+            }
+        )
+
+    # Bind mounts must declare a validated host source path, especially when writable.
+    if isinstance(mounts, list):
+        for i, mount in enumerate(mounts):
+            if not isinstance(mount, dict):
+                continue
+            is_bind = mount.get("type") == "bind" or "source" in mount
+            if not is_bind:
+                continue
+            if not mount.get("source"):
+                violations.append(
+                    {
+                        "field": f"filesystemPolicy.mounts[{i}].source",
+                        "message": "Bind mount must specify a host source path",
+                    }
+                )
+            elif mount.get("sourceValidated") is not True:
+                # Fail-closed: a bind mount source is UNVALIDATED unless explicitly
+                # proven validated. Both an omitted flag and an explicit false are flagged.
+                violations.append(
+                    {
+                        "field": f"filesystemPolicy.mounts[{i}].sourceValidated",
+                        "message": (
+                            "Bind mount source must be validated against the allowed source set"
+                        ),
+                    }
+                )
+
+    # Outbound egress requires an explicit allowlist.
+    net_policy = policy.get("networkPolicy", {})
+    if isinstance(net_policy, dict) and net_policy.get("allowOutbound") is True:
+        allowlist = net_policy.get("egressAllowlist")
+        if not allowlist:
+            violations.append(
+                {
+                    "field": "networkPolicy.egressAllowlist",
+                    "message": "Outbound egress requires an explicit egress allowlist",
+                }
+            )
+
     return SandboxPolicyValidationResponse(
         conformant=len(violations) == 0,
         violations=violations,
@@ -432,8 +539,8 @@ async def end_session(request: SessionEndRequest, req: Request):
     return {"ok": True, "sessionId": request.sessionId}
 
 
-@router.post("/record/tool-result")
-async def record_tool_result(request: ToolResultRequest, req: Request):
+@router.post("/record/tool-result", response_model=ToolResultResponse)
+async def record_tool_result(request: ToolResultRequest, req: Request) -> ToolResultResponse:
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
     user_id = getattr(req.state, "org_id", None) or request.userId or f"anon:{request.sessionId}"
@@ -450,9 +557,10 @@ async def record_tool_result(request: ToolResultRequest, req: Request):
         user_id=user_id,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        run_id=request.runId,
     )
-    await engine.record_action_result(event)
-    return {"ok": True}
+    recorded = await engine.record_action_result(event)
+    return ToolResultResponse(ok=recorded)
 
 
 @router.post("/evaluate/subagent-spawn", response_model=SubagentSpawnResponse)
@@ -550,28 +658,38 @@ async def record_subagent_ended(
 
 
 @router.post("/log/llm-input")
-async def log_llm_input(request: LlmIORequest):
+async def log_llm_input(request: LlmIORequest, req: Request):
     engine = _get_engine()
+    _require_attributed_auth(engine, req, request.agentId, request.agentToken)
     event = LlmIOEvent(
         session_id=request.sessionId,
         direction="input",
         content=request.content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        provider=request.provider,
+        model=request.model,
+        run_id=request.runId,
+        usage=request.usage,
     )
     await engine.log_llm_io(event)
     return {"ok": True}
 
 
 @router.post("/log/llm-output")
-async def log_llm_output(request: LlmIORequest):
+async def log_llm_output(request: LlmIORequest, req: Request):
     engine = _get_engine()
+    _require_attributed_auth(engine, req, request.agentId, request.agentToken)
     event = LlmIOEvent(
         session_id=request.sessionId,
         direction="output",
         content=request.content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        provider=request.provider,
+        model=request.model,
+        run_id=request.runId,
+        usage=request.usage,
     )
     await engine.log_llm_io(event)
     return {"ok": True}

@@ -405,7 +405,16 @@ network_policies:
         result = checker.check(action)
         assert result.violated is False
 
-    def test_full_protocol_matches_any_scheme(self, kg, tmp_path):
+    def test_access_full_does_not_disable_protocol_match(self, kg, tmp_path):
+        """`access: full` skips L7 PATH filtering only, NOT protocol matching.
+
+        Per NemoClaw v0.0.65 the endpoint declares ``protocol: rest`` plus the
+        separate ``access: full`` field. ``access: full`` means "no L7 path
+        filtering" — it must NOT widen the declared protocol. So ``wss://`` is
+        still blocked (protocol mismatch) while ``https://`` to any path is
+        allowed (access:full skips path filtering, rest still matches https).
+        Reviewer probe #2 for PR #333.
+        """
         _load_network_policy(
             kg,
             tmp_path / "policies",
@@ -416,14 +425,323 @@ network_policies:
     endpoints:
       - host: anything.example.com
         port: 443
-        protocol: full
+        protocol: rest
+        enforcement: enforce
+        access: full
     binaries: []
 """,
         )
         checker = PolicyChecker(kg, nemoclaw_enabled=True)
-        action = _make_action("WebFetch", url="https://anything.example.com/path")
-        result = checker.check(action)
-        assert result.violated is False
+        # wss is rejected: protocol: rest only accepts http/https, and
+        # access: full does not nullify that.
+        wss = _make_action("WebFetch", url="wss://anything.example.com/path")
+        assert checker.check(wss).violated is True
+
+        # https to an arbitrary path is allowed: access: full disables path
+        # filtering and rest matches https.
+        https = _make_action("WebFetch", url="https://anything.example.com/anything")
+        assert checker.check(https).violated is False
+
+    def test_path_scoped_rule_enforces_path(self, kg, tmp_path):
+        """A single allow rule (GET /allowed) must path-scope the endpoint.
+
+        Reviewer probe #1 for PR #333: an endpoint that only allows
+        ``GET /allowed`` must ALLOW ``GET https://<host>/allowed`` and BLOCK
+        ``https://<host>/forbidden``.
+        """
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/allowed" }
+    binaries: []
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        allowed = _make_action("WebFetch", url="https://api.example.com/allowed")
+        assert checker.check(allowed).violated is False
+
+        forbidden = _make_action("WebFetch", url="https://api.example.com/forbidden")
+        result = checker.check(forbidden)
+        assert result.violated is True
+        assert "api.example.com" in result.reason
+
+    def test_path_glob_rule_matches_subpaths(self, kg, tmp_path):
+        """A ``/**`` path glob in a rule allows arbitrary subpaths."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/v1/models/**" }
+    binaries: []
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        ok = _make_action("WebFetch", url="https://api.example.com/v1/models/gpt")
+        assert checker.check(ok).violated is False
+
+        nope = _make_action("WebFetch", url="https://api.example.com/v1/keys")
+        assert checker.check(nope).violated is True
+
+    def test_access_full_allows_arbitrary_paths(self, kg, tmp_path):
+        """`access: full` endpoint still allows arbitrary paths over its scheme.
+
+        Reviewer probe #3 for PR #333: keep existing behavior green — an
+        ``access: full`` endpoint applies no path filtering.
+        """
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  full_group:
+    name: full_group
+    endpoints:
+      - host: anything.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries: []
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        for path in ("/", "/a/b/c", "/whatever"):
+            action = _make_action("WebFetch", url=f"https://anything.example.com{path}")
+            assert checker.check(action).violated is False, path
+
+    def test_command_method_allowlist_enforced(self, kg, tmp_path):
+        """Method allowlists must hold for shell-command network access.
+
+        Reviewer follow-up for PR #333: a policy allowing only ``GET /allowed``
+        must allow a default ``curl`` (GET) to ``/allowed`` but BLOCK
+        ``curl -X POST`` / ``-X DELETE`` to the same path — the method must be
+        parsed from the command rather than failing open.
+        """
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/allowed" }
+    binaries:
+      - path: /usr/bin/curl
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        def cmd_action(command):
+            return _make_action("ExecuteCommand", tool_name="exec", command=command)
+
+        # default curl is GET -> allowed
+        assert checker.check(cmd_action("curl https://api.example.com/allowed")).violated is False
+        # explicit non-GET methods on the allowed path -> blocked
+        assert checker.check(cmd_action("curl -X POST https://api.example.com/allowed")).violated
+        assert checker.check(
+            cmd_action("curl --request DELETE https://api.example.com/allowed")
+        ).violated
+        # wrong path still blocked
+        assert checker.check(cmd_action("curl https://api.example.com/forbidden")).violated
+
+    def test_command_implicit_method_enforced(self, kg, tmp_path):
+        """Implicit curl method flags (-d/-F/-I/-T) must be honoured against a
+        method-scoped allowlist, not treated as GET."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/allowed" }
+    binaries:
+      - path: /usr/bin/curl
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        def cmd(command):
+            return checker.check(
+                _make_action("ExecuteCommand", tool_name="exec", command=command)
+            ).violated
+
+        assert cmd("curl -d 'x=1' https://api.example.com/allowed")  # POST -> blocked
+        assert cmd("curl -F file=@a https://api.example.com/allowed")  # POST -> blocked
+        assert cmd("curl -I https://api.example.com/allowed")  # HEAD -> blocked
+        assert cmd("curl https://api.example.com/allowed") is False  # GET -> allowed
+        assert cmd("curl -G -d q=1 https://api.example.com/allowed") is False  # GET
+
+    def test_binary_wildcard_matches_any(self, kg, tmp_path):
+        """A NemoClaw ``/**`` binary entry means 'any binary' — it must not
+        over-block allowed command egress (real permissive policies use it)."""
+        # Unit: /** matches any command binary.
+        any_action = _make_action("ExecuteCommand", tool_name="exec", command="curl x")
+        assert PolicyChecker._binary_matches(any_action, {"/**"}, "curl https://github.com") is True
+        # A concrete-path glob matches only paths under that prefix...
+        assert (
+            PolicyChecker._binary_matches(any_action, {"/usr/bin/*"}, "/usr/bin/curl https://x")
+            is True
+        )
+        # ...and must NOT match a bare command that isn't under the prefix.
+        assert (
+            PolicyChecker._binary_matches(
+                any_action, {"/opt/trusted/*"}, "python client.py https://api.example.com/ok"
+            )
+            is False
+        )
+
+        # Integration: permissive policy (host allowlisted, access:full, /** binary).
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  permissive:
+    name: permissive
+    endpoints:
+      - host: github.com
+        port: 443
+        protocol: rest
+        access: full
+    binaries:
+      - path: "/**"
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        action = _make_action(
+            "ExecuteCommand", tool_name="exec", command="curl https://github.com/tendlyeu/SafeClaw"
+        )
+        assert checker.check(action).violated is False
+
+    def test_binary_matches_executable_only(self, kg):
+        """A concrete binary restriction must constrain the actual executable,
+        not merely appear somewhere in the command (e.g. as an argument)."""
+        a = _make_action("ExecuteCommand", tool_name="exec", command="x")
+        bm = PolicyChecker._binary_matches
+        # Executable is the allowed binary -> match (full path and bare name).
+        assert bm(a, {"/usr/bin/curl"}, "/usr/bin/curl https://x") is True
+        assert bm(a, {"/usr/bin/curl"}, "curl https://x") is True
+        assert bm(a, {"/usr/bin/curl"}, "FOO=bar curl https://x") is True  # env prefix
+        # The binary only appears as an ARGUMENT or unrelated token -> no match.
+        assert bm(a, {"/usr/bin/curl"}, "python /usr/bin/curl https://x") is False
+        assert bm(a, {"/usr/bin/curl"}, "python curl https://x") is False
+        assert bm(a, {"/usr/bin/curl"}, "echo curl https://x") is False
+
+    def test_command_url_triggers_egress_check(self, kg, tmp_path):
+        """A command reaching a non-allowlisted host via any binary (not just
+        curl/wget) must be blocked, not bypass the egress allowlist."""
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        access: full
+    binaries:
+      - path: "/**"
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        for command in (
+            "python client.py https://evil.com/data",
+            "node script.js https://evil.com/data",
+        ):
+            action = _make_action("ExecuteCommand", tool_name="exec", command=command)
+            assert checker.check(action).violated is True, command
+
+    def test_method_from_command_parsing(self, kg):
+        """The HTTP method is parsed from common shell client invocations."""
+        f = PolicyChecker._method_from_command
+        assert f("curl -X POST https://x/y") == "POST"
+        assert f("curl -XPOST https://x/y") == "POST"
+        assert f("curl --request delete https://x/y") == "DELETE"
+        assert f("curl --request=PUT https://x/y") == "PUT"
+        assert f("wget --method=PATCH https://x/y") == "PATCH"
+        assert f("curl https://x/y") == "GET"  # curl defaults to GET
+        assert f("http POST https://x/y") == "POST"  # httpie positional verb
+        assert f("xh DELETE :/api") == "DELETE"
+        assert f("http https://x/y") == "GET"  # httpie default
+        assert f("python attack.py --target https://x/y") is None  # undeterminable
+        # Implicit-method flags change curl's effective method (no -X present):
+        assert f("curl -d 'x=1' https://x/y") == "POST"
+        assert f("curl --data-raw '{}' https://x/y") == "POST"
+        assert f("curl -F file=@a https://x/y") == "POST"
+        assert f("curl --json '{}' https://x/y") == "POST"
+        assert f("curl -I https://x/y") == "HEAD"
+        assert f("curl -T ./a https://x/y") == "PUT"
+        assert f("curl -G -d q=1 https://x/y") == "GET"  # -G forces GET query
+        assert f("wget --post-data=x https://x/y") == "POST"
+        # Short options with the argument attached (no space):
+        assert f("curl -dfoo=bar https://x/y") == "POST"
+        assert f("curl -Ffile=@a https://x/y") == "POST"
+        assert f("curl -Tfile https://x/y") == "PUT"
+        assert f("curl -sI https://x/y") == "HEAD"  # bundled boolean flags
+        # Explicit -X clustered with other short flags, method attached or next:
+        assert f("curl -sXPOST https://x/y") == "POST"
+        assert f("curl -sXDELETE https://x/y") == "DELETE"
+        assert f("curl -sX PUT https://x/y") == "PUT"
+        # Explicit but non-standard methods (WebDAV etc.) must NOT degrade to GET:
+        assert f("curl -X PROPFIND https://x/y") == "PROPFIND"
+        assert f("curl -X MKCOL https://x/y") == "MKCOL"
+        assert f("curl -sXPROPFIND https://x/y") == "PROPFIND"
+        assert f("http PROPFIND https://x/y") == "PROPFIND"  # httpie verb
+        assert f("http example.com name=val") == "GET"  # lone URL + data item, not a verb
+
+    def test_path_method_allowed_fails_closed_on_unknown_method(self, kg):
+        """A method-constrained rule does NOT authorise when the request method
+        is unknown — only a method-less rule authorises on path alone."""
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        # Exec action with no recoverable command -> request method is None.
+        action = _make_action("ExecuteCommand", tool_name="exec")
+        url = "https://api.example.com/allowed"
+
+        # Rule constrains method (GET): unknown request method -> NOT allowed.
+        assert checker._path_method_allowed(action, "https", url, {("GET", "/allowed")}) is False
+        # Rule with no method constraint -> allowed on path match alone.
+        assert checker._path_method_allowed(action, "https", url, {(None, "/allowed")}) is True
+        # Known matching method -> allowed.
+        get_action = _make_action("WebFetch", url=url)
+        assert checker._path_method_allowed(get_action, "https", url, {("GET", "/allowed")}) is True
 
     def test_disallowed_host_blocked(self, kg, tmp_path):
         _load_network_policy(
@@ -500,12 +818,6 @@ class TestProtocolMapping:
     def test_rest_rejects_wss(self):
         assert PolicyChecker._protocol_matches("rest", "wss") is False
 
-    def test_grpc_matches_https(self):
-        assert PolicyChecker._protocol_matches("grpc", "https") is True
-
-    def test_grpc_matches_http(self):
-        assert PolicyChecker._protocol_matches("grpc", "http") is True
-
     def test_websocket_matches_wss(self):
         assert PolicyChecker._protocol_matches("websocket", "wss") is True
 
@@ -515,11 +827,17 @@ class TestProtocolMapping:
     def test_websocket_rejects_https(self):
         assert PolicyChecker._protocol_matches("websocket", "https") is False
 
-    def test_full_matches_anything(self):
-        assert PolicyChecker._protocol_matches("full", "https") is True
-        assert PolicyChecker._protocol_matches("full", "http") is True
-        assert PolicyChecker._protocol_matches("full", "wss") is True
-        assert PolicyChecker._protocol_matches("full", "ftp") is True
+    def test_grpc_not_a_known_protocol(self):
+        # `grpc` is not in the NemoClaw v0.0.65 enum; it falls back to exact
+        # scheme comparison and therefore does not match http(s).
+        assert PolicyChecker._protocol_matches("grpc", "https") is False
+        assert PolicyChecker._protocol_matches("grpc", "http") is False
+
+    def test_full_not_a_protocol(self):
+        # `full` is the `access` field, not a protocol. As a protocol name it is
+        # unknown and falls back to exact scheme comparison.
+        assert PolicyChecker._protocol_matches("full", "https") is False
+        assert PolicyChecker._protocol_matches("full", "wss") is False
 
     def test_exact_scheme_fallback(self):
         assert PolicyChecker._protocol_matches("https", "https") is True

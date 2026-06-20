@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from collections import OrderedDict
+from dataclasses import dataclass
 
 from safeclaw.audit.logger import AuditLogger
 from safeclaw.constants import PATH_PARAM_KEYS
@@ -64,10 +65,23 @@ STEP_TEMPORAL_CHECK = "temporal_check"
 STEP_RATE_LIMIT_CHECK = "rate_limit_check"
 STEP_DERIVED_RULES = "derived_rules"
 STEP_HIERARCHY_RATE_LIMIT = "hierarchy_rate_limit"
+STEP_CRON_NO_APPROVER = "cron_no_approver"
+
+MAX_PENDING_TOOL_RESULT_SESSIONS = 1000
+MAX_PENDING_TOOL_RESULTS_PER_SESSION = 1000
 
 logger = logging.getLogger("safeclaw.engine")
 
 _PATH_PARAM_KEYS = PATH_PARAM_KEYS  # backward compat alias
+
+
+@dataclass
+class _PendingToolResult:
+    owner_id: str
+    tool_name: str
+    params_signature: str
+    run_id: str
+    action_class: str
 
 
 class FullEngine(SafeClawEngine):
@@ -102,6 +116,7 @@ class FullEngine(SafeClawEngine):
         self.api_key_manager = api_key_manager
         self.event_bus = EventBus()
         self._bg_tasks: set[asyncio.Task] = set()
+        self._pending_tool_results: OrderedDict[str, list[_PendingToolResult]] = OrderedDict()
         # BUG-001/075/076: Lock to prevent concurrent reloads
         self._reload_lock = asyncio.Lock()
         # Meta-lock to synchronize creation of per-session locks
@@ -128,7 +143,7 @@ class FullEngine(SafeClawEngine):
 
             nemo_dir = config.get_nemoclaw_policy_dir()
             if nemo_dir:
-                loader = NemoClawPolicyLoader(nemo_dir)
+                loader = NemoClawPolicyLoader(nemo_dir, workdir=config.get_nemoclaw_workdir())
                 loader.load(self.kg)
                 logger.info("NemoClaw policies loaded from %s", nemo_dir)
             else:
@@ -314,7 +329,7 @@ class FullEngine(SafeClawEngine):
 
             nemo_dir = self.config.get_nemoclaw_policy_dir()
             if nemo_dir:
-                loader = NemoClawPolicyLoader(nemo_dir)
+                loader = NemoClawPolicyLoader(nemo_dir, workdir=self.config.get_nemoclaw_workdir())
                 loader.load(new_kg)
                 logger.info("NemoClaw policies reloaded from %s", nemo_dir)
 
@@ -412,6 +427,57 @@ class FullEngine(SafeClawEngine):
                 params=event.params,
             )
 
+    @staticmethod
+    def _tool_result_owner_id(event: ToolCallEvent | ToolResultEvent) -> str:
+        return event.agent_id or event.user_id or ""
+
+    def _record_pending_tool_result(self, event: ToolCallEvent, action) -> None:
+        """Remember an allowed tool call so a later result can update session state."""
+        pending = self._pending_tool_results.setdefault(event.session_id, [])
+        self._pending_tool_results.move_to_end(event.session_id)
+        pending.append(
+            _PendingToolResult(
+                owner_id=self._tool_result_owner_id(event),
+                tool_name=event.tool_name,
+                params_signature=DelegationDetector.make_signature(event.params),
+                run_id=event.run_id or "",
+                action_class=action.ontology_class,
+            )
+        )
+        if len(pending) > MAX_PENDING_TOOL_RESULTS_PER_SESSION:
+            del pending[:-MAX_PENDING_TOOL_RESULTS_PER_SESSION]
+        while len(self._pending_tool_results) > MAX_PENDING_TOOL_RESULT_SESSIONS:
+            self._pending_tool_results.popitem(last=False)
+
+    def _consume_pending_tool_result(self, event: ToolResultEvent, action) -> bool:
+        pending = self._pending_tool_results.get(event.session_id)
+        if not pending:
+            return False
+
+        owner_id = self._tool_result_owner_id(event)
+        params_signature = DelegationDetector.make_signature(event.params)
+        run_id = event.run_id or ""
+        for index, candidate in enumerate(pending):
+            if candidate.tool_name != event.tool_name:
+                continue
+            if candidate.params_signature != params_signature:
+                continue
+            if candidate.action_class != action.ontology_class:
+                continue
+            if candidate.owner_id and owner_id and candidate.owner_id != owner_id:
+                continue
+            if (candidate.run_id or run_id) and candidate.run_id != run_id:
+                continue
+
+            del pending[index]
+            if pending:
+                self._pending_tool_results.move_to_end(event.session_id)
+            else:
+                self._pending_tool_results.pop(event.session_id, None)
+            return True
+
+        return False
+
     async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         async with self._meta_lock:
             if session_id not in self._session_locks:
@@ -481,6 +547,26 @@ class FullEngine(SafeClawEngine):
         async with self._session_lock(event.session_id):
             return await self._evaluate_tool_call_locked(event)
 
+    def _apply_trigger_origin_policy(self, event: ToolCallEvent, decision: Decision) -> Decision:
+        """Escalate confirmation-required decisions on autonomous (cron) runs.
+
+        A "needs confirmation" outcome assumes an interactive approver can say
+        yes/no. Scheduled/cron runs have no human in the loop (#324), so we fail
+        safe and block rather than silently allow or hang. The decision is
+        mutated IN PLACE (and returned) so the durable audit record written by
+        ``_log_decision`` — and the decision returned to the caller — both
+        reflect the no-approver block rather than the original confirmation.
+        """
+        if getattr(event, "triggered_by", "") == "cron" and decision.requires_confirmation:
+            decision.block = True
+            decision.requires_confirmation = False
+            decision.reason = (
+                "[SafeClaw] Action requires confirmation but this is a scheduled "
+                "(cron) run with no interactive approver — blocked (fail-safe)"
+            )
+            decision.constraint_step = STEP_CRON_NO_APPROVER
+        return decision
+
     async def _evaluate_tool_call_locked(self, event: ToolCallEvent) -> Decision:
         """Internal: runs the constraint pipeline under the session lock."""
         start = time.monotonic()
@@ -499,18 +585,24 @@ class FullEngine(SafeClawEngine):
                 if not event.agent_token or not self.agent_registry.verify_token(
                     event.agent_id, event.agent_token
                 ):
-                    return Decision(
+                    decision = Decision(
                         block=True,
                         reason="[SafeClaw] Invalid agent token",
                         constraint_step=STEP_AGENT_GOVERNANCE,
                     )
+                    return self._record_agent_governance_violation(
+                        event, decision, checks, prefs_applied, start
+                    )
 
             # 0b. Check kill switch
             if self.agent_registry.is_killed(event.agent_id):
-                return Decision(
+                decision = Decision(
                     block=True,
                     reason=f"[SafeClaw] Agent {event.agent_id} has been killed",
                     constraint_step=STEP_AGENT_GOVERNANCE,
+                )
+                return self._record_agent_governance_violation(
+                    event, decision, checks, prefs_applied, start
                 )
 
             # 0c. Check delegation bypass
@@ -522,10 +614,13 @@ class FullEngine(SafeClawEngine):
                 params=event.params,
             )
             if delegation.is_delegation and self.delegation_detector.mode == "strict":
-                return Decision(
+                decision = Decision(
                     block=True,
                     reason=f"[SafeClaw] Delegation bypass detected: {delegation.reason}",
                     constraint_step=STEP_AGENT_GOVERNANCE,
+                )
+                return self._record_agent_governance_violation(
+                    event, decision, checks, prefs_applied, start
                 )
 
         # Steps 1-10: Classification and constraint checks.
@@ -896,6 +991,7 @@ class FullEngine(SafeClawEngine):
             decision = Decision(block=False)
             decision._risk_level = action.risk_level  # type: ignore[attr-defined]
             self._log_decision(event, action, decision, checks, prefs_applied, start)
+            self._record_pending_tool_result(event, action)
 
             # Fire-and-forget LLM tasks (non-blocking, passive)
             self._fire_llm_tasks(event, action, decision, checks)
@@ -1045,7 +1141,11 @@ class FullEngine(SafeClawEngine):
 
         return ContextResult(prepend_context=context)
 
-    async def record_action_result(self, event: ToolResultEvent) -> None:
+    async def record_action_result(self, event: ToolResultEvent) -> bool:
+        # Sanitize at engine layer for symmetry with evaluate_tool_call so
+        # direct (non-HTTP) callers produce a matching params signature.
+        event.tool_name = sanitize_string(event.tool_name)
+        event.params = sanitize_params(event.params) if event.params else {}
         async with self._session_lock(event.session_id):
             # Agent governance checks (same as evaluate_tool_call/evaluate_message)
             if event.agent_id is not None:
@@ -1057,15 +1157,25 @@ class FullEngine(SafeClawEngine):
                             "record_action_result rejected: invalid token for agent %s",
                             event.agent_id,
                         )
-                        return
+                        return False
                 if self.agent_registry.is_killed(event.agent_id):
                     logger.warning(
                         "record_action_result rejected: agent %s is killed",
                         event.agent_id,
                     )
-                    return
+                    return False
 
             action = self.classifier.classify(event.tool_name, event.params)
+            if not self._consume_pending_tool_result(event, action):
+                logger.warning(
+                    "record_action_result rejected: no matching allowed tool call "
+                    "for session=%s owner=%s tool=%s run_id=%s",
+                    event.session_id,
+                    self._tool_result_owner_id(event),
+                    event.tool_name,
+                    event.run_id or "",
+                )
+                return False
 
             # Record in session tracker (Phase 3: KG feedback loop)
             # BUG-004/035: Include risk_level for server-side cumulative risk tracking
@@ -1086,6 +1196,8 @@ class FullEngine(SafeClawEngine):
                 self.dependency_checker.record_action(event.session_id, action.ontology_class)
                 self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
 
+            return True
+
     async def clear_session(self, session_id: str) -> None:
         """Clean up all per-session state when a session ends.
 
@@ -1099,6 +1211,7 @@ class FullEngine(SafeClawEngine):
             self.dependency_checker.clear_session(session_id)
             self.message_gate.clear_session(session_id)
             self.delegation_detector.clear_session(session_id)
+            self._pending_tool_results.pop(session_id, None)
         # Remove lock after releasing it (outside the async with block)
         # _session_lock's finally already decremented the ref count
         async with self._meta_lock:
@@ -1107,8 +1220,23 @@ class FullEngine(SafeClawEngine):
         logger.info(f"Session {session_id} cleared")
 
     async def log_llm_io(self, event: LlmIOEvent) -> None:
+        self.audit.log_llm_io(
+            session_id=event.session_id,
+            direction=event.direction,
+            content=event.content,
+            provider=event.provider,
+            model=event.model,
+            run_id=event.run_id,
+            usage=event.usage,
+        )
         logger.debug(
-            f"LLM {event.direction}: {event.content[:100]}{'...' if len(event.content) > 100 else ''}"
+            "LLM %s [provider=%s model=%s run=%s]: %s%s",
+            event.direction,
+            event.provider or "?",
+            event.model or "?",
+            event.run_id or "?",
+            event.content[:100],
+            "..." if len(event.content) > 100 else "",
         )
 
     def _fire_llm_tasks(
@@ -1230,6 +1358,33 @@ class FullEngine(SafeClawEngine):
             )
         )
 
+    def _record_agent_governance_violation(
+        self,
+        event: ToolCallEvent,
+        decision: Decision,
+        checks: list[ConstraintCheck],
+        prefs_applied: list[PreferenceApplied],
+        start_time: float,
+    ) -> Decision:
+        self._record_violation_and_log(
+            event,
+            action=None,
+            decision=decision,
+            checks=[
+                *checks,
+                ConstraintCheck(
+                    constraint_uri="safeclaw:agent_governance",
+                    constraint_type=STEP_AGENT_GOVERNANCE,
+                    result="violated",
+                    reason=decision.reason,
+                ),
+            ],
+            prefs_applied=prefs_applied,
+            start_time=start_time,
+            constraint_step=STEP_AGENT_GOVERNANCE,
+        )
+        return decision
+
     def _log_decision(
         self,
         event: ToolCallEvent,
@@ -1240,6 +1395,13 @@ class FullEngine(SafeClawEngine):
         start_time: float,
         constraint_step: str = "",
     ) -> None:
+        # Apply the cron no-approver escalation BEFORE building the record so the
+        # durable audit entry reflects the actual block (and its constraint_step)
+        # rather than the superseded confirmation decision (#324).
+        decision = self._apply_trigger_origin_policy(event, decision)
+        if decision.constraint_step == STEP_CRON_NO_APPROVER:
+            constraint_step = STEP_CRON_NO_APPROVER
+
         elapsed_ms = (time.monotonic() - start_time) * 1000
         # BUG-004/035: Use server-side session history for audit records instead
         # of client-supplied event.session_history

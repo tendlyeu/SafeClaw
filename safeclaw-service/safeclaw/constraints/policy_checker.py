@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from safeclaw.constants import PATH_PARAM_KEYS
 from safeclaw.constraints.action_classifier import ClassifiedAction
 from safeclaw.engine.knowledge_graph import KnowledgeGraph, SC, SP
+from safeclaw.engine.roles import _glob_match
 
 if TYPE_CHECKING:
     from safeclaw.engine.class_hierarchy import ClassHierarchy
@@ -40,11 +41,13 @@ class PolicyChecker:
                 return val
         return ""
 
-    _PROTOCOL_SCHEME_MAP: dict[str, set[str] | None] = {
+    # NemoClaw v0.0.65 protocol enum is exactly ``rest`` | ``websocket``.
+    # ``access: full`` is a *separate* endpoint field (not a protocol) handled
+    # via the ``networkAccessMode`` rule property, so it is intentionally not
+    # in this map. Unknown protocol names fall back to exact scheme comparison.
+    _PROTOCOL_SCHEME_MAP: dict[str, set[str]] = {
         "rest": {"https", "http"},
-        "grpc": {"https", "http"},
         "websocket": {"wss", "ws"},
-        "full": None,
     }
 
     # Action classes that trigger NemoClaw network checks
@@ -239,7 +242,8 @@ class PolicyChecker:
 
         results = self.kg.query(f"""
             PREFIX sp: <{SP}>
-            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement
+            SELECT ?rule ?host ?port ?protocol ?binary ?enforcement ?accessMode
+                   ?allowMethod ?allowPath
             WHERE {{
                 ?rule a sp:NemoNetworkRule ;
                       sp:allowsHost ?host .
@@ -247,6 +251,12 @@ class PolicyChecker:
                 OPTIONAL {{ ?rule sp:allowsProtocol ?protocol }}
                 OPTIONAL {{ ?rule sp:binaryRestriction ?binary }}
                 OPTIONAL {{ ?rule sp:enforcement ?enforcement }}
+                OPTIONAL {{ ?rule sp:networkAccessMode ?accessMode }}
+                OPTIONAL {{
+                    ?rule sp:allowsRule ?allowNode .
+                    ?allowNode sp:allowsPathGlob ?allowPath .
+                    OPTIONAL {{ ?allowNode sp:allowsMethod ?allowMethod }}
+                }}
             }}
         """)
         self._nemo_net_rules = list(results)
@@ -272,12 +282,18 @@ class PolicyChecker:
     # ------------------------------------------------------------------
 
     def _is_network_action(self, action: ClassifiedAction) -> bool:
-        """Return True if this action involves network access."""
+        """Return True if this action involves network access.
+
+        For exec/network commands we treat the action as network access when it
+        either invokes a known HTTP client (curl/wget/...) OR embeds a URL — so a
+        command reaching a non-allowlisted host via an arbitrary binary (e.g.
+        ``python client.py https://evil.com``) cannot bypass the egress allowlist.
+        """
         if action.ontology_class in self._NETWORK_ACTION_CLASSES:
             return True
         if action.ontology_class in ("ExecuteCommand", "NetworkRequest"):
             command = action.params.get("command", "")
-            if self._NETWORK_COMMAND_RE.search(command):
+            if self._NETWORK_COMMAND_RE.search(command) or self._URL_RE.search(command):
                 return True
         return False
 
@@ -350,23 +366,34 @@ class PolicyChecker:
             elif target_scheme in ("http", "ws"):
                 target_port = 80
 
-        # Group rows by rule URI so we can collect all binary restrictions
+        # Group rows by rule URI so we can collect all binary restrictions and
+        # all L7 allow rules (method + path glob) for the endpoint.
         rule_rows: dict[str, dict] = {}
         for row in results:
             uri = str(row["rule"])
             if uri not in rule_rows:
                 enforcement = row.get("enforcement")
                 enforcement_str = str(enforcement) if enforcement else "enforce"
+                access_mode = row.get("accessMode")
                 rule_rows[uri] = {
                     "host": row["host"],
                     "port": row.get("port"),
                     "protocol": row.get("protocol"),
+                    "access_mode": str(access_mode) if access_mode is not None else None,
                     "binaries": set(),
                     "enforcement": enforcement_str,
+                    # Set of (method, path_glob) allow rules; method is None when
+                    # the rule did not declare one.
+                    "allow_rules": set(),
                 }
             binary = row.get("binary")
             if binary is not None:
                 rule_rows[uri]["binaries"].add(str(binary))
+            allow_path = row.get("allowPath")
+            if allow_path is not None:
+                allow_method = row.get("allowMethod")
+                method_str = str(allow_method).upper() if allow_method is not None else None
+                rule_rows[uri]["allow_rules"].add((method_str, str(allow_path)))
 
         command = action.params.get("command", "")
 
@@ -392,6 +419,10 @@ class PolicyChecker:
                 except (ValueError, TypeError):
                     continue
 
+            # Protocol → scheme matching always applies. `access: full` only
+            # disables L7 *path* filtering on the endpoint; it does NOT widen
+            # the declared protocol. A `protocol: rest, access: full` endpoint
+            # still only accepts http/https, never wss/ws.
             rule_protocol = info["protocol"]
             if rule_protocol is not None and str(rule_protocol):
                 if not self._protocol_matches(str(rule_protocol), target_scheme):
@@ -400,6 +431,16 @@ class PolicyChecker:
             binaries = info["binaries"]
             if binaries:
                 if not self._binary_matches(action, binaries, command):
+                    continue
+
+            # L7 path/method allowlist. `access: full` (or an endpoint with no
+            # explicit allow rules) carries no L7 path filtering, so any path on
+            # the matched scheme is permitted (current behavior). Otherwise the
+            # request path must match at least one allow rule's path glob, and
+            # its method must match when both are known.
+            allow_rules = info["allow_rules"]
+            if info.get("access_mode") != "full" and allow_rules:
+                if not self._path_method_allowed(action, target_scheme, url, allow_rules):
                     continue
 
             return None
@@ -411,18 +452,204 @@ class PolicyChecker:
             "reason": (f"Not in NemoClaw network allowlist: {target_host}{port_str}"),
         }
 
+    # HTTP methods we recognise (NemoClaw also models websocket frames).
+    _HTTP_METHODS = {
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "HEAD",
+        "OPTIONS",
+        "CONNECT",
+        "TRACE",
+        "WEBSOCKET_TEXT",
+    }
+    # curl `-X POST` / `-XPOST` / `--request POST` / `--request=POST`;
+    # wget/httpie `--method=POST`.
+    _CMD_METHOD_RE = re.compile(r"(?:^|\s)(?:-X\s*|--request[=\s]+|--method[=\s]+)([A-Za-z]+)")
+    # Commands that perform an HTTP request and default to GET when no method
+    # flag/verb is given (curl, wget, fetch).
+    _GET_DEFAULT_TOOLS = ("curl", "wget", "fetch")
+    # httpie-style clients take the method as a positional verb (`http POST …`).
+    _POSITIONAL_VERB_TOOLS = ("http", "https", "xh", "httpie")
+    # curl/wget long flags that imply POST when no explicit -X is given.
+    _CURL_POST_LONG = {
+        "data",
+        "data-raw",
+        "data-binary",
+        "data-ascii",
+        "data-urlencode",
+        "json",
+        "form",
+        "form-string",
+        "post-data",
+        "post-file",
+    }
+
+    @staticmethod
+    def _looks_like_method(token: str) -> bool:
+        """A positional token is a method if it's an alphabetic verb — either a
+        known method or an all-uppercase word (covers WebDAV/extension verbs like
+        PROPFIND). A URL/hostname/data-item fails this and is treated as the URL."""
+        return token.isalpha() and (token.isupper() or token.upper() in PolicyChecker._HTTP_METHODS)
+
+    @staticmethod
+    def _method_from_command(command: str) -> str | None:
+        """Parse the HTTP method from a shell command, or None if undeterminable."""
+        # An explicit -X/--request/--method wins and is returned verbatim — an
+        # explicit method must never silently degrade to GET, even if it is a
+        # non-standard verb (PROPFIND, MKCOL, ...).
+        m = PolicyChecker._CMD_METHOD_RE.search(command)
+        if m:
+            return m.group(1).upper()
+
+        tokens = command.split()
+        bases = [t.rsplit("/", 1)[-1] for t in tokens]
+        # httpie/xh: the method is an optional leading positional verb, present
+        # only when another positional (the URL) follows. A lone positional is the
+        # URL (method defaults to GET).
+        for i, base in enumerate(bases):
+            if base in PolicyChecker._POSITIONAL_VERB_TOOLS:
+                positionals = [t for t in tokens[i + 1 :] if not t.startswith("-")]
+                if len(positionals) >= 2 and PolicyChecker._looks_like_method(positionals[0]):
+                    return positionals[0].upper()
+                return "GET"
+        # curl/wget/fetch: infer the implicit method from data/form/head flags,
+        # otherwise GET. (Without this, `curl -d …` would read as GET and slip
+        # past a method-scoped allowlist.)
+        if any(b in PolicyChecker._GET_DEFAULT_TOOLS for b in bases):
+            return PolicyChecker._implicit_curl_method(tokens) or "GET"
+        return None
+
+    @staticmethod
+    def _implicit_curl_method(tokens: list[str]) -> str | None:
+        """Infer the implicit HTTP method from curl/wget flags (no explicit -X).
+
+        Handles both separated (``-d x``) and attached (``-dx``, ``-Tfile``)
+        short options and bundled boolean flags (``-sI``). Precedence mirrors
+        curl: ``-G/--get`` forces GET, then ``-I`` HEAD, ``-T`` PUT, data/form
+        POST. Returns None when no method-affecting flag is present.
+        """
+        has_get = has_head = has_put = has_post = False
+        for i, tok in enumerate(tokens):
+            if tok.startswith("--"):
+                name = tok[2:].split("=", 1)[0]
+                if name == "get":
+                    has_get = True
+                elif name == "head":
+                    has_head = True
+                elif name == "upload-file":
+                    has_put = True
+                elif name in PolicyChecker._CURL_POST_LONG:
+                    has_post = True
+            elif tok.startswith("-") and len(tok) > 1:
+                # Short cluster: a value-taking flag (d/F/T/X) consumes the rest
+                # of the token (or the next token) as its argument.
+                cluster = tok[1:]
+                for j, ch in enumerate(cluster):
+                    if ch == "X":
+                        # Explicit method: attached (`-sXPOST`) or next token
+                        # (`-sX POST`). Returned verbatim — never degraded to GET.
+                        rest = cluster[j + 1 :]
+                        if rest and rest.isalpha():
+                            return rest.upper()
+                        if not rest and i + 1 < len(tokens) and tokens[i + 1].isalpha():
+                            return tokens[i + 1].upper()
+                        break
+                    if ch in ("d", "F"):
+                        has_post = True
+                        break
+                    if ch == "T":
+                        has_put = True
+                        break
+                    if ch == "I":
+                        has_head = True
+                    elif ch == "G":
+                        has_get = True
+        if has_get:
+            return "GET"
+        if has_head:
+            return "HEAD"
+        if has_put:
+            return "PUT"
+        if has_post:
+            return "POST"
+        return None
+
+    @staticmethod
+    def _request_method(action: ClassifiedAction, target_scheme: str) -> str | None:
+        """Best-effort HTTP method for the request, normalised to upper case.
+
+        An explicit ``method`` param wins. Direct fetch tools default to ``GET``
+        (or ``WEBSOCKET_TEXT`` for ws(s)). For exec/network commands we parse the
+        command string (``curl -X POST``, ``http PUT …`` etc.). Returns ``None``
+        only when the method genuinely cannot be inferred (e.g. an opaque command
+        that merely references a URL) — callers then FAIL CLOSED against any rule
+        that constrains the method, rather than allowing on the path glob alone.
+        """
+        for key in ("method", "httpMethod", "http_method"):
+            val = action.params.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip().upper()
+
+        if target_scheme in ("ws", "wss"):
+            return "WEBSOCKET_TEXT"
+
+        # Direct URL fetch tools: default to GET.
+        if action.ontology_class in PolicyChecker._NETWORK_ACTION_CLASSES:
+            return "GET"
+
+        # Network activity inside an exec command — parse the method when we can.
+        command = action.params.get("command", "")
+        if command:
+            return PolicyChecker._method_from_command(command)
+        return None
+
+    def _path_method_allowed(
+        self,
+        action: ClassifiedAction,
+        target_scheme: str,
+        url: str,
+        allow_rules: set[tuple[str | None, str]],
+    ) -> bool:
+        """Return True if the request path/method matches an allow rule.
+
+        The path glob is ALWAYS enforced: the request's URL path must match at
+        least one allow rule's ``path`` glob. Method enforcement FAILS CLOSED: a
+        rule that declares a method only authorises the request when the request
+        method is known (parsed best-effort) and equal. If the request method
+        cannot be determined, a method-constrained rule does NOT authorise the
+        request — otherwise a method allowlist could be bypassed by an opaque
+        command (e.g. ``curl -X POST`` to a ``GET``-only path). A rule with no
+        method constraint authorises on path match alone. Globs reuse the
+        codebase's ``**``-aware matcher.
+        """
+        request_path = urlparse(url).path or "/"
+        request_method = self._request_method(action, target_scheme)
+
+        for rule_method, path_glob in allow_rules:
+            if not _glob_match(request_path, path_glob):
+                continue
+            if rule_method is None:
+                # Rule does not constrain the method — path match is enough.
+                return True
+            if request_method is not None and rule_method == request_method:
+                return True
+            # Method-constrained rule with a mismatched/unknown request method:
+            # do not authorise on this rule (fail closed); keep checking others.
+        return False
+
     @classmethod
     def _protocol_matches(cls, rule_protocol: str, target_scheme: str) -> bool:
         """Check if a rule protocol matches the URL scheme.
 
-        NemoClaw uses protocol names like ``rest``, ``grpc``, ``websocket``
-        which do not correspond directly to URL schemes. This method maps
-        known protocol names to their valid scheme sets. Unknown protocols
-        fall back to exact string comparison (e.g. ``https`` == ``https``).
+        Per the NemoClaw v0.0.65 schema the protocol enum is ``rest`` |
+        ``websocket``; these map to their valid scheme sets. Unknown protocol
+        names (e.g. a literal URL scheme) fall back to exact string comparison
+        (``https`` == ``https``).
         """
         allowed = cls._PROTOCOL_SCHEME_MAP.get(rule_protocol)
-        if allowed is None and rule_protocol in cls._PROTOCOL_SCHEME_MAP:
-            return True
         if allowed is not None:
             return target_scheme in allowed
         return rule_protocol == target_scheme
@@ -435,22 +662,41 @@ class PolicyChecker:
     ) -> bool:
         """Check if the action context matches any binary restriction.
 
-        For ``ExecuteCommand`` actions the command string is checked for
-        references to the restricted binaries. For other action types
-        (e.g. ``WebFetch``) binary checking is skipped since we cannot
-        determine the calling binary — the rule still matches.
+        For ``ExecuteCommand`` actions the restriction is matched against the
+        command's *executable* (the first token, skipping leading ``VAR=value``
+        env assignments) — NOT anywhere in the string, so the restricted binary
+        appearing as an argument (``python /usr/bin/curl``) does not match. For
+        other action types (e.g. ``WebFetch``) binary checking is skipped since we
+        cannot determine the calling binary — the rule still matches.
         """
         if action.ontology_class not in ("ExecuteCommand", "NetworkRequest"):
             return True
         if not command:
             return False
+
+        exe = ""
+        for tok in command.split():
+            if re.match(r"^[A-Za-z_]\w*=", tok):
+                continue  # leading environment assignment, e.g. FOO=bar
+            exe = tok
+            break
+        if not exe:
+            return False
+        exe_base = exe.rsplit("/", 1)[-1]
+
         for bp in binaries:
-            # Full path: match with word boundary to avoid /usr/bin/git matching
-            # /usr/bin/github-cli
-            if re.search(rf"(?:^|\s){re.escape(bp)}(?:\s|$)", command):
+            # NemoClaw "/**" (and bare globs) mean "any binary".
+            if bp in ("/**", "**", "*", "/*"):
                 return True
-            binary_name = bp.rsplit("/", 1)[-1]
-            if binary_name and re.search(rf"\b{re.escape(binary_name)}\b", command):
+            # Glob path (e.g. /usr/bin/*): glob-match the full executable token
+            # against the full pattern (no basename-vs-`*` widening).
+            if "*" in bp:
+                if _glob_match(exe, bp):
+                    return True
+                continue
+            # Concrete path: the executable must BE that path, or share its name
+            # (covers a bare `curl` resolved via PATH for an `/usr/bin/curl` rule).
+            if exe == bp or exe_base == bp.rsplit("/", 1)[-1]:
                 return True
         return False
 

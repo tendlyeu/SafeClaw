@@ -130,7 +130,7 @@ The plugin registers 11 hooks on OpenClaw events. Each hook communicates with th
 |------|----------|-------------|
 | `before_tool_call` | 100 | The main gate. Evaluates every tool call against SHACL shapes, policies, preferences, and dependencies. Returns `{ block: true }` if the action violates constraints. |
 | `message_sending` | 100 | Checks outbound messages for sensitive data leaks, contact rule violations, and content policy. Returns `{ cancel: true }` to block. |
-| `subagent_spawning` | 100 | Evaluates child agent spawn requests. Detects delegation bypass attempts where a blocked parent tries to spawn an unrestricted child. |
+| `subagent_spawning` | 100 | Forwards child-spawn requests (parent/child session keys, child agent id) to the service. **Note:** under OpenClaw v2026.6.8 this hook exposes only session keys — no parent agent id — so spawn-time delegation-bypass *enforcement* is deferred to the session-keyed hierarchy work (#321); today this hook is observational. Child tool calls are still gated individually by `before_tool_call`. |
 
 ### Context hooks (modify agent behavior)
 
@@ -149,6 +149,16 @@ The plugin registers 11 hooks on OpenClaw events. Each hook communicates with th
 | `session_start` | Notifies the service when a new session begins. |
 | `session_end` | Notifies the service when a session ends. |
 | `message_received` | Evaluates inbound messages for governance (sender, channel, content). |
+
+> **Required for LLM audit logging.** As of OpenClaw v2026.6.8, raw-conversation
+> hooks (`llm_input`, `llm_output`, and the `before_agent_*` family) only fire for
+> non-bundled plugins when conversation access is explicitly granted. Without it,
+> SafeClaw's LLM I/O audit trail is silently empty. Enable it in your OpenClaw
+> config:
+>
+> ```json
+> { "plugins": { "entries": { "safeclaw": { "hooks": { "allowConversationAccess": true } } } } }
+> ```
 
 ## Agent Tools
 

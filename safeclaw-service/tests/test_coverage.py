@@ -60,6 +60,15 @@ async def test_message_default_user_confirm_preference(engine):
 @pytest.mark.asyncio
 async def test_record_action_result_updates_trackers(engine):
     session_id = "rec-test"
+    call_event = ToolCallEvent(
+        session_id=session_id,
+        user_id="default",
+        tool_name="read",
+        params={"file_path": "/src/main.py"},
+    )
+    decision = await engine.evaluate_tool_call(call_event)
+    assert decision.block is False
+
     event = ToolResultEvent(
         session_id=session_id,
         tool_name="read",
@@ -67,7 +76,7 @@ async def test_record_action_result_updates_trackers(engine):
         result="contents",
         success=True,
     )
-    await engine.record_action_result(event)
+    assert await engine.record_action_result(event) is True
 
     # Session tracker should have recorded this
     state = engine.session_tracker.get_state(session_id)
@@ -129,7 +138,7 @@ async def test_clear_session_removes_state(engine):
         result="contents",
         success=True,
     )
-    await engine.record_action_result(result_event)
+    assert await engine.record_action_result(result_event) is True
 
     # Verify state exists
     assert engine.session_tracker.get_state(session_id) is not None

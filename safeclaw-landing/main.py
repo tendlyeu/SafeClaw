@@ -110,7 +110,13 @@ app, rt = fast_app(
         Link(rel="stylesheet", href="/style.css"),
         Link(rel="icon", href="/favicon.ico", type="image/x-icon"),
         Meta(name="viewport", content="width=device-width, initial-scale=1"),
-        Meta(name="description", content="SafeClaw — Neurosymbolic governance layer for autonomous AI agents"),
+        Meta(
+            name="description",
+            content=(
+                "SafeClaw — Neurosymbolic governance for AI agents with "
+                "11-step validation, NemoClaw sandbox support, and audit trails"
+            ),
+        ),
     ),
 )
 
@@ -150,8 +156,9 @@ def Hero():
     return Section(
         Div(
             H1("Neurosymbolic Governance for AI Agents"),
-            P("Gate every action through formal ontological constraints. "
-              "Audit every decision. Never let your agent go astray."),
+            P("Gate tool calls, messages, subagents, and sandbox access through "
+              "formal ontological constraints. Audit every decision before your "
+              "agent can affect files, networks, code, or people."),
             Div(
                 A("View on GitHub", href=GITHUB_URL, target="_blank",
                   rel="noopener noreferrer", cls="btn btn-primary"),
@@ -169,18 +176,27 @@ def Features():
         ("🧠", "OWL + SHACL Validation",
          "Formal ontology constraints, not just pattern matching. "
          "Your agent's actions are validated against a real knowledge graph."),
-        ("🔗", "9-Step Pipeline",
-         "Every tool call passes through classification, role checks, SHACL, "
-         "policy, preferences, dependencies, and rate limits."),
+        ("🔗", "11-Step Pipeline",
+         "Every tool call passes through agent governance, classification, role checks, "
+         "SHACL, policy, preferences, dependencies, temporal windows, and rate limits."),
+        ("🧱", "NemoClaw Sandbox Support",
+         "NemoClaw YAML policies become RDF constraints for network allowlists and "
+         "filesystem boundary checks inside the same policy engine."),
         ("📋", "Full Audit Trail",
          "Append-only JSONL logs with machine-readable ontological justification "
          "for every allow and block decision."),
         ("👥", "Multi-Agent Governance",
          "Kill switches, delegation detection, role-based access control, "
-         "and temporary scoped permissions."),
+         "subagent spawn checks, hierarchy-wide limits, and temporary scoped permissions."),
+        ("📨", "Message Governance",
+         "Outbound messages are checked for sensitive data and contact rules; inbound "
+         "messages are assessed for prompt-injection risk by channel trust level."),
         ("💉", "Context Injection",
          "The knowledge graph feeds live constraints directly into "
          "the LLM's system prompt for better self-regulation."),
+        ("🗄️", "Persistent Governance State",
+         "SQLite-backed state keeps kill switches, rate-limit counters, and temporary "
+         "permission grants intact across service restarts."),
         ("🔌", "Zero Core Modifications",
          "Pure plugin architecture. OpenClaw updates independently. "
          "No fork drift, no vendor lock-in."),
@@ -213,14 +229,15 @@ def HowItWorks():
                 Div(
                     Div("1", cls="step-number"),
                     H3("Agent Proposes"),
-                    P("The AI agent requests a tool call — file write, shell command, API call."),
+                    P("The AI agent requests a tool call, outbound message, or subagent spawn."),
                     cls="step",
                 ),
                 Div("→", cls="step-arrow"),
                 Div(
                     Div("2", cls="step-number"),
                     H3("SafeClaw Validates"),
-                    P("The request passes through 9 constraint checks against the OWL ontology."),
+                    P("The request passes through 11 constraint checks against the ontology, "
+                      "policy graph, session state, and sandbox rules."),
                     cls="step",
                 ),
                 Div("→", cls="step-arrow"),
@@ -252,7 +269,7 @@ def TerminalDemo():
         ("timestamp", "[14:32:05] ", "label-classify", "EVALUATE ",
          "cmd", 'exec("git status")'),
         ("info", "  → Classified: ShellAction (LowRisk, reversible)"),
-        ("info", "  → All 9 checks passed"),
+        ("info", "  → All 11 checks passed"),
         ("allowed", "  → ALLOWED"),
     ]
 
@@ -307,10 +324,13 @@ def Architecture():
         ("Action\nClassifier", "warn"),
         ("Role\nAccess", ""),
         ("SHACL\nValidation", "warn"),
-        ("Policy\nCheck", ""),
+        ("Policy +\nNemoClaw", ""),
         ("Preference\nCheck", ""),
         ("Dependency\nCheck", ""),
+        ("Temporal\nCheck", ""),
         ("Rate\nLimits", ""),
+        ("Derived\nRules", ""),
+        ("Hierarchy\nLimits", ""),
         ("Allow /\nBlock", "ok"),
     ]
     items = []
@@ -322,7 +342,7 @@ def Architecture():
 
     return Section(
         Div(
-            H2("The 9-Step Pipeline", cls="section-title"),
+            H2("The 11-Step Pipeline", cls="section-title"),
             P("Every tool call passes through these gates in order", cls="section-subtitle"),
             Div(*items, cls="pipeline"),
             cls="container",
@@ -435,12 +455,14 @@ def DocsToc():
         ("overview", "Overview"),
         ("hooks", "How SafeClaw Controls OpenClaw"),
         ("ontology", "The Ontology"),
-        ("pipeline", "The 9-Step Constraint Pipeline"),
+        ("pipeline", "The 11-Step Constraint Pipeline"),
         ("policies", "Built-in Policies"),
+        ("nemoclaw", "NemoClaw Sandbox Support"),
         ("roles", "Roles & Permissions"),
         ("preferences", "User Preferences"),
-        ("mistral", "How Mistral AI Enhances SafeClaw"),
+        ("llm", "Optional LLM Assist"),
         ("context", "Context Injection"),
+        ("state", "State Persistence"),
         ("audit", "Audit Trail"),
         ("messages", "Message Governance"),
         ("errors", "Error Handling"),
@@ -490,14 +512,15 @@ def DocsPage():
                            "constraint pipeline against a knowledge graph of ontologies, policies, "
                            "and user preferences."),
                     ),
-                    P("The plugin is a thin client (~275 lines) with no governance logic of its own. "
+                    P("The plugin is a thin client with no governance logic of its own. "
                       "All validation happens server-side, making it easy to update policies without "
                       "redeploying the agent."),
                 ),
 
                 # ── 2. How SafeClaw Controls OpenClaw ──
                 DocsSection("hooks", "How SafeClaw Controls OpenClaw",
-                    P("The plugin registers 6 event hooks with the OpenClaw runtime. "
+                    P("The plugin registers OpenClaw event hooks and forwards lifecycle events "
+                      "to the SafeClaw service. "
                       "Each hook intercepts a specific lifecycle event:"),
                     Div(
                         Table(
@@ -505,10 +528,20 @@ def DocsPage():
                             Tbody(
                                 Tr(Td(Code("before_tool_call")), Td(Code("/evaluate/tool-call")),
                                    Td("THE GATE — validates every tool call"), Td("Blocks execution on violation")),
-                                Tr(Td(Code("before_agent_start")), Td(Code("/context/build")),
+                                Tr(Td(Code("before_prompt_build")), Td(Code("/context/build")),
                                    Td("Context injection into system prompt"), Td("Prepends governance context")),
                                 Tr(Td(Code("message_sending")), Td(Code("/evaluate/message")),
                                    Td("Outbound message governance"), Td("Cancels message on violation")),
+                                Tr(Td(Code("message_received")), Td(Code("/evaluate/inbound-message")),
+                                   Td("Inbound prompt-injection assessment"), Td("Records risk flags and warnings")),
+                                Tr(Td(Code("subagent_spawning")), Td(Code("/evaluate/subagent-spawn")),
+                                   Td("Subagent spawn governance"), Td("Blocks delegation bypass attempts")),
+                                Tr(Td(Code("subagent_ended")), Td(Code("/record/subagent-ended")),
+                                   Td("Subagent lifecycle tracking"), Td("Records completion for audit context")),
+                                Tr(Td(Code("session_start")), Td(Code("/session/start")),
+                                   Td("Session lifecycle"), Td("Initializes session-scoped governance state")),
+                                Tr(Td(Code("session_end")), Td(Code("/session/end")),
+                                   Td("Session lifecycle"), Td("Cleans up per-session state")),
                                 Tr(Td(Code("after_tool_call")), Td(Code("/record/tool-result")),
                                    Td("Feedback loop for dependency tracking"), Td("Fire-and-forget")),
                                 Tr(Td(Code("llm_input")), Td(Code("/log/llm-input")),
@@ -624,21 +657,21 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 4. The 9-Step Pipeline ──
-                DocsSection("pipeline", "The 9-Step Constraint Pipeline",
+                # ── 4. The 11-Step Pipeline ──
+                DocsSection("pipeline", "The 11-Step Constraint Pipeline",
                     P("Every tool call passes through these gates in order. "
                       "Execution blocks at the first violation."),
                     Div(
-                        _pipeline_step("1", "Agent Governance",
+                        _pipeline_step("0", "Agent Governance",
                             "Token authentication, kill switch check, delegation bypass detection.",
                             "Token invalid", "Agent killed", "Delegation bypass detected"),
-                        _pipeline_step("2", "Action Classification",
+                        _pipeline_step("1", "Action Classification",
                             "Maps tool name + parameters to an ontology class. "
                             "Assigns risk level, reversibility, and scope. "
                             "Covers all common tool variants: read, write, edit, delete, "
                             "remove, unlink, trash, shell, and more.",
                             "Unknown tool type", "Unclassifiable action"),
-                        _pipeline_step("3", "Role-Based Access Control",
+                        _pipeline_step("2", "Role-Based Access Control",
                             "Checks if the agent's role allows the classified action and resource path. "
                             "Resource paths are extracted from multiple param key variants "
                             "(file_path, path, filepath, dest, target, source, and more). "
@@ -646,31 +679,40 @@ def DocsPage():
                             "Temporary permissions are checked first.",
                             "Role 'researcher' does not allow action 'WriteFile'",
                             "Access to /secrets/** denied"),
-                        _pipeline_step("4", "SHACL Validation",
+                        _pipeline_step("3", "SHACL Validation",
                             "Validates the action's RDF graph against shape constraints from the shapes/ directory.",
                             "ForbiddenCommandShape violated",
                             "CriticalPathShape violated"),
-                        _pipeline_step("5", "Policy Check",
+                        _pipeline_step("4", "Policy Check",
                             "Evaluates against policy rules from the knowledge graph (prohibitions, obligations). "
+                            "NemoClaw network and filesystem rules are enforced here when loaded. "
                             "Hierarchy-aware: blocking a parent class blocks all subclasses.",
                             "Environment files may contain secrets",
-                            "Force push can destroy shared history"),
-                        _pipeline_step("6", "Preference Check",
+                            "Force push can destroy shared history",
+                            "Not in NemoClaw network allowlist"),
+                        _pipeline_step("5", "Preference Check",
                             "User-specific preferences like 'confirm before delete' or 'never modify paths'.",
                             "User requires confirmation before delete",
                             "Path matches neverModifyPaths"),
-                        _pipeline_step("7", "Dependency Check",
+                        _pipeline_step("6", "Dependency Check",
                             "Validates prerequisites are met. E.g., tests must pass before git push.",
                             "RunTests must succeed before GitPush"),
-                        _pipeline_step("8", "Temporal + Rate Limits",
-                            "Time-based constraints and per-session rate limiting.",
+                        _pipeline_step("7", "Temporal Check",
+                            "Time-based constraints such as not-before and not-after windows.",
                             "Action not permitted at this time",
+                            "Deploy window has closed"),
+                        _pipeline_step("8", "Rate Limit Check",
+                            "Per-session rate limiting backed by persistent counters.",
                             "Rate limit exceeded: 100 actions/hour"),
                         _pipeline_step("9", "Derived Rules",
                             "Combined rules from multiple constraints. May require user confirmation "
                             "rather than a hard block.",
                             "Cumulative risk threshold exceeded",
                             "Transitive prohibition applies"),
+                        _pipeline_step("10", "Hierarchy Rate Limit",
+                            "Multi-agent hierarchy-wide rate limiting across parent and child agents.",
+                            "Hierarchy rate limit exceeded",
+                            "Child agents exceeded parent budget"),
                     ),
                 ),
 
@@ -715,7 +757,37 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 6. Roles & Permissions ──
+                # ── 6. NemoClaw Sandbox Support ──
+                DocsSection("nemoclaw", "NemoClaw Sandbox Support",
+                    P("SafeClaw can ingest NemoClaw YAML sandbox policies and translate them "
+                      "into RDF triples in the knowledge graph. The policy checker then uses "
+                      "those triples alongside ordinary SafeClaw policies."),
+                    H3("What Gets Enforced", cls="docs-h3"),
+                    Ul(
+                        Li(Strong("Network allowlists"), " — outbound requests are checked against "
+                           "NemoClaw host, port, and protocol rules."),
+                        Li(Strong("Filesystem boundaries"), " — file actions are checked against "
+                           "NemoClaw path prefixes and access modes such as read-only, read-write, "
+                           "and denied."),
+                        Li(Strong("Sandbox policy shape"), " — ", Code("/evaluate/sandbox-policy"),
+                           " validates sandbox configs for required tool and filesystem sections."),
+                        cls="docs-list",
+                    ),
+                    H3("Policy Loading", cls="docs-h3"),
+                    P("NemoClaw activates when ", Code("SAFECLAW_NEMOCLAW_ENABLED=true"),
+                      " is set, when ", Code("SAFECLAW_NEMOCLAW_POLICY_DIR"),
+                      " points to a policy directory, when ", Code("NEMOCLAW_POLICY_PATH"),
+                      " points to a policy file or directory, or when ",
+                      Code("OPENSHELL_SANDBOX"), " exposes a ", Code("policies/"),
+                      " directory. Policies are re-ingested on ", Code("POST /reload"), "."),
+                    H3("Plugin Behavior", cls="docs-h3"),
+                    P("The OpenClaw plugin detects NemoClaw sandboxes with ",
+                      Code("OPENSHELL_SANDBOX"), ", rewrites localhost service URLs to the "
+                      "container-to-host bridge when needed, and ships a bundled egress policy "
+                      "for allowing SafeClaw API traffic."),
+                ),
+
+                # ── 7. Roles & Permissions ──
                 DocsSection("roles", "Roles & Permissions",
                     P("SafeClaw ships with three roles. Custom roles can be defined in Turtle files."),
                     Div(
@@ -739,7 +811,7 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 7. User Preferences ──
+                # ── 8. User Preferences ──
                 DocsSection("preferences", "User Preferences",
                     P("Per-user preferences are stored as RDF triples and loaded from ",
                       Code("~/.safeclaw/"), " or the ontology's ", Code("users/"), " directory."),
@@ -794,12 +866,17 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 8. How Mistral AI Enhances SafeClaw ──
-                DocsSection("mistral", "How Mistral AI Enhances SafeClaw",
-                    P("SafeClaw includes an optional LLM layer powered by Mistral AI. "
-                      "It is activated by setting ", Code("SAFECLAW_MISTRAL_API_KEY"), ". "
-                      "This layer is ", Strong("purely passive and advisory"),
-                      " — it never blocks the constraint pipeline."),
+                # ── 9. Optional LLM Assist ──
+                DocsSection("llm", "Optional LLM Assist",
+                    P("SafeClaw includes an optional OpenAI-compatible LLM layer. "
+                      "Set ", Code("SAFECLAW_LLM_PROVIDER"), " and ",
+                      Code("SAFECLAW_LLM_API_KEY"), " to use providers such as Mistral, "
+                      "OpenAI, Gemini, Groq, xAI, DeepSeek, Kimi, Qwen, Together AI, "
+                      "OpenRouter, or a custom endpoint. Legacy ",
+                      Code("SAFECLAW_MISTRAL_API_KEY"), " still works for backward compatibility."),
+                    P("The LLM layer is ", Strong("purely passive and advisory"),
+                      " — it never makes the allow/block decision. Symbolic constraints remain "
+                      "the enforcement path."),
                     Div(
                         Table(
                             Thead(Tr(Th("Component"), Th("When"), Th("Purpose"))),
@@ -832,11 +909,11 @@ def DocsPage():
                     ),
                 ),
 
-                # ── 9. Context Injection ──
+                # ── 10. Context Injection ──
                 DocsSection("context", "Context Injection",
                     P("Before each agent session starts, SafeClaw injects governance context "
                       "into the agent's system prompt via the ",
-                      Code("before_agent_start"), " hook. This gives the LLM awareness of its "
+                      Code("before_prompt_build"), " hook. This gives the LLM awareness of its "
                       "constraints before it even proposes an action."),
                     H3("Injected Context Includes", cls="docs-h3"),
                     Ul(
@@ -855,7 +932,24 @@ def DocsPage():
                       "the course of a session."),
                 ),
 
-                # ── 10. Audit Trail ──
+                # ── 11. State Persistence ──
+                DocsSection("state", "State Persistence",
+                    P("SafeClaw persists critical governance state in SQLite at ",
+                      Code("~/.safeclaw/governance_state.db"), " through the ",
+                      Code("StateStore"), " class. In-memory structures remain the fast path, "
+                      "but restart-sensitive state is durable."),
+                    Ul(
+                        Li(Strong("Agent kills"), " — killed agents stay killed after service restarts."),
+                        Li(Strong("Rate-limit counters"), " — restart does not reset enforcement budgets."),
+                        Li(Strong("Temporary permission grants"), " — time-limited or task-scoped grants "
+                           "survive restarts until they expire or are revoked."),
+                        cls="docs-list",
+                    ),
+                    P("Session locks, active session context, and delegation history are intentionally "
+                      "ephemeral session state."),
+                ),
+
+                # ── 12. Audit Trail ──
                 DocsSection("audit", "Audit Trail",
                     P("Every decision — allow or block — is recorded as a ", Code("DecisionRecord"),
                       " in append-only JSONL files at ", Code("~/.safeclaw/audit/"), "."),
@@ -903,7 +997,7 @@ def DocsPage():
                     P("Recipients on the never-contact list (configured via ",
                       Code("neverContactList"), " preference) are unconditionally blocked."),
                     H3("2. Sensitive Data Detection", cls="docs-h3"),
-                    P("Message content is scanned against 7 regex patterns:"),
+                    P("Message content is scanned against credential and secret patterns:"),
                     Div(
                         Table(
                             Thead(Tr(Th("Pattern"), Th("Detects"))),
@@ -913,6 +1007,7 @@ def DocsPage():
                                    Td("API keys and tokens")),
                                 Tr(Td(Code("password|passwd|pwd")), Td("Passwords")),
                                 Tr(Td(Code("ghp_|gho_|ghu_|ghs_|ghr_")), Td("GitHub tokens")),
+                                Tr(Td(Code("github_pat_")), Td("GitHub fine-grained personal access tokens")),
                                 Tr(Td(Code("sk-...")), Td("OpenAI / Stripe secret keys")),
                                 Tr(Td(Code("AKIA...")), Td("AWS Access Key IDs")),
                                 Tr(Td(Code("-----BEGIN PRIVATE KEY-----")),
@@ -923,6 +1018,11 @@ def DocsPage():
                     ),
                     H3("3. Rate Limiting", cls="docs-h3"),
                     P("Default: 50 messages per session per hour."),
+                    H3("Inbound Message Risk", cls="docs-h3"),
+                    P("Inbound messages are evaluated by ", Code("/evaluate/inbound-message"),
+                      " for prompt-injection risk. SafeClaw combines channel trust levels "
+                      "from ", Code("safeclaw-channels.ttl"), " with content-pattern detection "
+                      "and sender metadata, returning a risk level plus flags and warnings."),
                 ),
 
                 # ── 12. Error Handling ──
@@ -1059,7 +1159,8 @@ def DocsPage():
                         Li("Config file at ", Code("~/.safeclaw/config.json")),
                         Li("Ontology ", Code(".ttl"), " files present"),
                         Li("Audit directory exists"),
-                        Li("Mistral API key set (optional)"),
+                        Li("LLM provider key set (optional)"),
+                        Li("NemoClaw policy path or sandbox environment detected when present"),
                         cls="docs-list",
                     ),
                     P("Each check prints ", Span("OK", cls="risk-low"), " or ",
@@ -1126,7 +1227,8 @@ def DocsPage():
                     ),
 
                     H3("safeclaw llm", cls="docs-h3"),
-                    P("Manage LLM features (requires Mistral API key):"),
+                    P("View LLM security findings and classification suggestions "
+                      "(requires a configured LLM provider):"),
                     Div(
                         Pre(
                             "$ safeclaw llm suggestions\n"
@@ -1241,7 +1343,7 @@ def DocsPage():
                                 Tr(Td(Strong("Agents")), Td(Code("/dashboard/agents")),
                                    Td("View registered agents, kill/revive via service API")),
                                 Tr(Td(Strong("Preferences")), Td(Code("/dashboard/prefs")),
-                                   Td("Set autonomy level, confirmation rules, file limits, Mistral API key")),
+                                   Td("Set autonomy level, confirmation rules, file limits, and AI provider keys")),
                             ),
                         ),
                         cls="docs-table-wrap",
@@ -1253,7 +1355,7 @@ def DocsPage():
                         Li(Strong("Label"), " — a human-readable name for the key"),
                         Li(Strong("Scope"), " — ", Code("full"), " (all endpoints) or ",
                            Code("evaluate"), " (evaluation endpoints only)"),
-                        Li("Keys are stored as SHA-256 hashes; the raw key cannot be recovered"),
+                        Li("Keys are stored hashed; the raw key cannot be recovered"),
                         Li("Revoked keys are immediately invalidated"),
                         cls="docs-list",
                     ),
@@ -1262,7 +1364,7 @@ def DocsPage():
                         Table(
                             Thead(Tr(Th("Setting"), Th("Options"), Th("Effect"))),
                             Tbody(
-                                Tr(Td(Strong("Autonomy Level")), Td(Code("conservative / moderate / autonomous")),
+                                Tr(Td(Strong("Autonomy Level")), Td(Code("cautious / moderate / autonomous")),
                                    Td("Controls how strictly SafeClaw enforces constraints")),
                                 Tr(Td(Strong("Confirm before delete")), Td("on / off"),
                                    Td("Require user confirmation before file deletions")),
@@ -1272,8 +1374,8 @@ def DocsPage():
                                    Td("Require confirmation before sending messages")),
                                 Tr(Td(Strong("Max files per commit")), Td("number"),
                                    Td("Limit files changed in a single commit")),
-                                Tr(Td(Strong("Mistral API key")), Td("password"),
-                                   Td("Your personal Mistral key for LLM-powered features")),
+                                Tr(Td(Strong("AI provider keys")), Td("password"),
+                                   Td("Provider keys for optional LLM-powered features")),
                             ),
                         ),
                         cls="docs-table-wrap",
@@ -1311,15 +1413,15 @@ def DocsPage():
                       " tool to the ", Code("sc:DeleteFile"), " ontology class."),
                     P(Strong("Decision: "), "The developer role does not include ",
                       Code("DeleteFile"), " in its allowed action classes. "
-                      "Pipeline step 3 (Role-Based Access) blocks the call."),
+                      "Pipeline step 2 (Role-Based Access) blocks the call."),
                     P(Strong("Response:")),
                     Pre(Code(
                         '{\n'
-                        '  "decision": "block",\n'
+                        '  "block": true,\n'
+                        '  "decision": "blocked",\n'
                         '  "reason": "Role developer does not permit DeleteFile actions",\n'
-                        '  "constraintId": "role-access-check",\n'
-                        '  "riskLevel": "critical",\n'
-                        '  "pipelineStep": 3\n'
+                        '  "constraintStep": "role_check",\n'
+                        '  "riskLevel": "CriticalRisk"\n'
                         '}'
                     ), cls="docs-pre"),
 
@@ -1337,15 +1439,15 @@ def DocsPage():
                       " — the shell-command pattern matcher recognises ",
                       Code("git push --force"), " and maps it to ", Code("sc:ForcePush"), "."),
                     P(Strong("Decision: "), "The developer role explicitly denies ",
-                      Code("ForcePush"), ". Pipeline step 3 (Role-Based Access) blocks the call."),
+                      Code("ForcePush"), ". Pipeline step 2 (Role-Based Access) blocks the call."),
                     P(Strong("Response:")),
                     Pre(Code(
                         '{\n'
-                        '  "decision": "block",\n'
+                        '  "block": true,\n'
+                        '  "decision": "blocked",\n'
                         '  "reason": "Role developer does not permit ForcePush actions",\n'
-                        '  "constraintId": "role-access-check",\n'
-                        '  "riskLevel": "critical",\n'
-                        '  "pipelineStep": 3\n'
+                        '  "constraintStep": "role_check",\n'
+                        '  "riskLevel": "CriticalRisk"\n'
                         '}'
                     ), cls="docs-pre"),
 
@@ -1361,16 +1463,17 @@ def DocsPage():
                     P(Strong("Classification: "), Code("ReadFile"), " / ",
                       Code("LowRisk"),
                       " — a simple read operation classified as ", Code("sc:ReadFile"), "."),
-                    P(Strong("Decision: "), "All 9 pipeline steps pass. The developer role "
+                    P(Strong("Decision: "), "All 11 pipeline steps pass. The developer role "
                       "permits ", Code("ReadFile"), ", SHACL shapes validate, no policies "
                       "or preferences restrict reading, and rate limits are within bounds."),
                     P(Strong("Response:")),
                     Pre(Code(
                         '{\n'
-                        '  "decision": "allow",\n'
+                        '  "block": false,\n'
+                        '  "decision": "allowed",\n'
                         '  "reason": "All constraints satisfied",\n'
-                        '  "riskLevel": "low",\n'
-                        '  "pipelineStep": 9\n'
+                        '  "constraintStep": "",\n'
+                        '  "riskLevel": "LowRisk"\n'
                         '}'
                     ), cls="docs-pre"),
                 ),
@@ -1386,11 +1489,19 @@ def DocsPage():
                             Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
                             Tbody(
                                 Tr(Td("POST"), Td(Code("/evaluate/tool-call")),
-                                   Td("Main constraint gate — validates tool calls")),
+                                   Td("Main constraint gate — validates tool calls; supports dryRun")),
                                 Tr(Td("POST"), Td(Code("/evaluate/message")),
                                    Td("Message governance (content, recipients)")),
+                                Tr(Td("POST"), Td(Code("/evaluate/inbound-message")),
+                                   Td("Inbound prompt-injection risk assessment")),
+                                Tr(Td("POST"), Td(Code("/evaluate/subagent-spawn")),
+                                   Td("Subagent spawn governance and delegation bypass detection")),
+                                Tr(Td("POST"), Td(Code("/evaluate/sandbox-policy")),
+                                   Td("Sandbox policy validation for tool and filesystem sections")),
                                 Tr(Td("POST"), Td(Code("/context/build")),
                                    Td("Build governance context for agent system prompt")),
+                                Tr(Td("POST"), Td(Code("/session/start")),
+                                   Td("Initialize session-scoped governance state")),
                                 Tr(Td("POST"), Td(Code("/session/end")),
                                    Td("Clean up per-session state")),
                             ),
@@ -1404,6 +1515,8 @@ def DocsPage():
                             Tbody(
                                 Tr(Td("POST"), Td(Code("/record/tool-result")),
                                    Td("Record action outcomes for dependency tracking")),
+                                Tr(Td("POST"), Td(Code("/record/subagent-ended")),
+                                   Td("Record subagent completion for audit context")),
                                 Tr(Td("POST"), Td(Code("/log/llm-input")),
                                    Td("Audit log LLM input")),
                                 Tr(Td("POST"), Td(Code("/log/llm-output")),
@@ -1426,7 +1539,7 @@ def DocsPage():
                                 Tr(Td("GET"), Td(Code("/audit/compliance")),
                                    Td("Generate compliance report")),
                                 Tr(Td("GET"), Td(Code("/audit/{audit_id}/explain")),
-                                   Td("LLM-powered decision explanation (requires Mistral)")),
+                                   Td("LLM-powered decision explanation (requires configured provider)")),
                             ),
                         ),
                         cls="docs-table-wrap",
@@ -1490,7 +1603,7 @@ def DocsPage():
                                 Tr(Td("GET"), Td(Code("/health")),
                                    Td("Service health (version, uptime, component status)")),
                                 Tr(Td("POST"), Td(Code("/heartbeat")),
-                                   Td("Plugin heartbeat with config drift detection")),
+                                   Td("Plugin heartbeat with agent-token verification and config drift detection")),
                                 Tr(Td("POST"), Td(Code("/handshake")),
                                    Td("Validate API key and log connection event")),
                             ),
@@ -1503,7 +1616,7 @@ def DocsPage():
                             Thead(Tr(Th("Method"), Th("Path"), Th("Purpose"))),
                             Tbody(
                                 Tr(Td("POST"), Td(Code("/policies/compile")),
-                                   Td("Compile natural language policy to Turtle (admin, requires Mistral)")),
+                                   Td("Compile natural language policy to Turtle (admin, requires configured provider)")),
                                 Tr(Td("GET"), Td(Code("/llm/findings")),
                                    Td("Query LLM security findings")),
                                 Tr(Td("GET"), Td(Code("/llm/suggestions")),
@@ -1572,14 +1685,30 @@ def DocsPage():
                                    Td("Log level")),
                                 Tr(Td(Code("SAFECLAW_ADMIN_PASSWORD")), Td("(none)"),
                                    Td("Dashboard admin password")),
-                                Tr(Td(Code("SAFECLAW_MISTRAL_API_KEY")), Td("(none)"),
-                                   Td("Enable LLM layer (Mistral)")),
-                                Tr(Td(Code("SAFECLAW_MISTRAL_MODEL")), Td(Code("mistral-small-latest")),
-                                   Td("Mistral model for fast tasks")),
-                                Tr(Td(Code("SAFECLAW_MISTRAL_MODEL_LARGE")), Td(Code("mistral-large-latest")),
-                                   Td("Mistral model for complex tasks")),
-                                Tr(Td(Code("SAFECLAW_MISTRAL_TIMEOUT_MS")), Td(Code("3000")),
+                                Tr(Td(Code("SAFECLAW_NEMOCLAW_ENABLED")), Td(Code("false")),
+                                   Td("Explicitly enable NemoClaw policy loading")),
+                                Tr(Td(Code("SAFECLAW_NEMOCLAW_POLICY_DIR")), Td("(none)"),
+                                   Td("Directory containing NemoClaw YAML policy files")),
+                                Tr(Td(Code("SAFECLAW_LLM_PROVIDER")), Td("(none)"),
+                                   Td("OpenAI-compatible provider ID, e.g. mistral, openai, gemini, groq, qwen, custom")),
+                                Tr(Td(Code("SAFECLAW_LLM_API_KEY")), Td("(none)"),
+                                   Td("API key for the selected provider")),
+                                Tr(Td(Code("SAFECLAW_LLM_MODEL")), Td("(provider default)"),
+                                   Td("Optional model override for lightweight LLM tasks")),
+                                Tr(Td(Code("SAFECLAW_LLM_MODEL_LARGE")), Td("(provider default)"),
+                                   Td("Optional model override for complex LLM tasks")),
+                                Tr(Td(Code("SAFECLAW_LLM_BASE_URL")), Td("(provider default)"),
+                                   Td("Custom OpenAI-compatible base URL when provider is custom")),
+                                Tr(Td(Code("SAFECLAW_LLM_TIMEOUT_MS")), Td(Code("3000")),
                                    Td("LLM call timeout")),
+                                Tr(Td(Code("SAFECLAW_MISTRAL_API_KEY")), Td("(none)"),
+                                   Td("Legacy Mistral key fallback")),
+                                Tr(Td(Code("SAFECLAW_MISTRAL_MODEL")), Td(Code("mistral-small-latest")),
+                                   Td("Legacy Mistral model for fast tasks")),
+                                Tr(Td(Code("SAFECLAW_MISTRAL_MODEL_LARGE")), Td(Code("mistral-large-latest")),
+                                   Td("Legacy Mistral model for complex tasks")),
+                                Tr(Td(Code("SAFECLAW_MISTRAL_TIMEOUT_MS")), Td(Code("3000")),
+                                   Td("Legacy Mistral timeout")),
                                 Tr(Td(Code("SAFECLAW_CORS_ORIGIN_REGEX")),
                                    Td(Code(r"https?://localhost:\d+$")),
                                    Td("CORS allowed origin regex")),
@@ -1638,6 +1767,15 @@ def DocsPage():
                             '  },\n'
                             '  "roles": {\n'
                             '    "defaultRole": "developer"\n'
+                            '  },\n'
+                            '  "agents": {\n'
+                            '    "delegationPolicy": "configurable",\n'
+                            '    "requireTokenAuth": true\n'
+                            '  },\n'
+                            '  "llm": {\n'
+                            '    "provider": "",\n'
+                            '    "model": "",\n'
+                            '    "timeoutMs": 3000\n'
                             '  }\n'
                             '}'
                         ), cls="docs-pre"),
@@ -1659,10 +1797,10 @@ def DocsPage():
                     Ul(
                         Li(Strong("Step 1 — Autonomy level"), " — choose how much control "
                            "SafeClaw has (cautious, moderate, or autonomous)"),
-                        Li(Strong("Step 2 — Mistral API key"), " (optional) — provide your own "
-                           "Mistral API key to enable LLM-powered features such as semantic "
-                           "action classification. You can skip this step and add it later from "
-                           "the dashboard."),
+                        Li(Strong("Step 2 — AI provider key"), " (optional) — provide a key for "
+                           "Mistral, Gemini, Groq, Qwen, or another supported OpenAI-compatible "
+                           "provider to enable LLM-powered features such as semantic action "
+                           "classification. You can skip this step and add it later from the dashboard."),
                         Li(Strong("Step 3 — API key & connection"), " — a SafeClaw API key is "
                            "generated automatically. The wizard shows the ",
                            Code("safeclaw connect"), " command to run in your terminal."),
@@ -1688,7 +1826,7 @@ def DocsPage():
                         Li("Create and revoke API keys"),
                         Li("Set preferences (confirm before delete, max files per commit)"),
                         Li("View connected agents"),
-                        Li("Add or update your Mistral API key"),
+                        Li("Add or update AI provider keys"),
                         cls="docs-list",
                     ),
                 ),

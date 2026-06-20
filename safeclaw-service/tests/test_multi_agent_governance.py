@@ -409,6 +409,20 @@ class TestHierarchyRateLimiting:
 
 
 class TestEngineMultiAgentIntegration:
+    @staticmethod
+    def _audit_record(engine, session_id: str, audit_id: str):
+        records = engine.audit.get_session_records(session_id)
+        matches = [record for record in records if record.id == audit_id]
+        assert matches, f"no audit record found for id={audit_id} in session={session_id}"
+        return matches[0]
+
+    @staticmethod
+    def _has_agent_governance_check(record) -> bool:
+        return any(
+            check.constraint_type == "agent_governance"
+            for check in record.justification.constraints_checked
+        )
+
     @pytest.fixture
     def engine(self, tmp_path):
         from safeclaw.config import SafeClawConfig
@@ -444,6 +458,11 @@ class TestEngineMultiAgentIntegration:
         # token verification failing (defense-in-depth: verify_token returns
         # False for killed agents).
         assert "killed" in decision.reason.lower() or "token" in decision.reason.lower()
+        assert decision.audit_id
+        record = self._audit_record(engine, "sess-1", decision.audit_id)
+        assert record.decision == "blocked"
+        assert record.constraint_step == "agent_governance"
+        assert self._has_agent_governance_check(record)
 
     @pytest.mark.asyncio
     async def test_invalid_token_blocked(self, engine):
@@ -461,6 +480,36 @@ class TestEngineMultiAgentIntegration:
         decision = await engine.evaluate_tool_call(event)
         assert decision.block is True
         assert "token" in decision.reason.lower()
+        assert decision.audit_id
+        record = self._audit_record(engine, "sess-1", decision.audit_id)
+        assert record.decision == "blocked"
+        assert record.constraint_step == "agent_governance"
+        assert self._has_agent_governance_check(record)
+
+    @pytest.mark.asyncio
+    async def test_kill_switch_block_is_audited_when_token_auth_disabled(self, engine):
+        from safeclaw.engine.core import ToolCallEvent
+
+        engine._require_token_auth = False
+        token = engine.agent_registry.register_agent("agent-kill-audit", "developer", "sess-1")
+        engine.agent_registry.kill_agent("agent-kill-audit")
+        event = ToolCallEvent(
+            session_id="sess-1",
+            user_id="user-1",
+            tool_name="read",
+            params={"file_path": "/src/main.py"},
+            agent_id="agent-kill-audit",
+            agent_token=token,
+        )
+
+        decision = await engine.evaluate_tool_call(event)
+
+        assert decision.block is True
+        assert "killed" in decision.reason.lower()
+        assert decision.audit_id
+        record = self._audit_record(engine, "sess-1", decision.audit_id)
+        assert record.decision == "blocked"
+        assert record.constraint_step == "agent_governance"
 
     @pytest.mark.asyncio
     async def test_role_blocks_denied_action(self, engine):
@@ -505,7 +554,7 @@ class TestEngineMultiAgentIntegration:
 
         engine.delegation_detector.mode = "strict"
         token_r = engine.agent_registry.register_agent("agent-d1", "researcher", "sess-d")
-        engine.agent_registry.register_agent("agent-d2", "developer", "sess-d")
+        token_d = engine.agent_registry.register_agent("agent-d2", "developer", "sess-d")
 
         # Agent d1 (researcher) tries to write -> blocked by role
         event1 = ToolCallEvent(
@@ -524,6 +573,22 @@ class TestEngineMultiAgentIntegration:
         delegation = engine.delegation_detector.check_delegation("sess-d", "agent-d2", "write", sig)
         assert delegation.is_delegation is True
         assert delegation.original_agent_id == "agent-d1"
+
+        event2 = ToolCallEvent(
+            session_id="sess-d",
+            user_id="user-1",
+            tool_name="write",
+            params={"file_path": "/src/test.py", "content": "x"},
+            agent_id="agent-d2",
+            agent_token=token_d,
+        )
+        decision2 = await engine.evaluate_tool_call(event2)
+        assert decision2.block is True
+        assert "delegation" in decision2.reason.lower()
+        assert decision2.audit_id
+        record = self._audit_record(engine, "sess-d", decision2.audit_id)
+        assert record.decision == "blocked"
+        assert record.constraint_step == "agent_governance"
 
     @pytest.mark.asyncio
     async def test_agent_id_in_audit_record(self, engine):

@@ -43,6 +43,14 @@ class ToolCallRequest(BaseModel):
     agentToken: str = ""
     runId: str | None = None
     dryRun: bool = False
+    # OpenClaw v2026.6.8 before_tool_call discriminators (#316) — forwarded so
+    # the classifier can distinguish code-mode exec from shell exec, etc.
+    toolKind: str = ""
+    toolInputKind: str = ""
+    derivedPaths: list[str] = []
+    # Trigger origin (#324) — "cron" scheduled runs have no interactive approver.
+    triggeredBy: str = ""
+    jobId: str = ""
 
     @field_validator("params")
     @classmethod
@@ -74,8 +82,9 @@ class ToolResultRequest(BaseModel):
     params: dict = {}
     result: str = ""
     success: bool = True
-    agentId: str = ""
+    agentId: str | None = None
     agentToken: str = ""
+    runId: str | None = None
     error: str | None = None
     durationMs: float | None = None
 
@@ -85,6 +94,16 @@ class ToolResultRequest(BaseModel):
         return _validate_params(v)
 
 
+class ToolResultResponse(BaseModel):
+    """Response from /record/tool-result. `ok=False` is HTTP 200 by design:
+    the most common cause is that the result didn't match a previously allowed
+    tool call (e.g., the eval was blocked, never sent, or already consumed),
+    which plugins should not treat as a transient error and retry.
+    """
+
+    ok: bool
+
+
 class LlmIORequest(BaseModel):
     sessionId: str = ""
     content: str = Field("", max_length=1_000_000)
@@ -92,6 +111,16 @@ class LlmIORequest(BaseModel):
     agentToken: str = ""
     provider: str = ""
     model: str = ""
+    # #315: audit-correlation context forwarded by the plugin (v2026.6.8).
+    runId: str = ""
+    usage: dict = {}
+
+    @field_validator("usage")
+    @classmethod
+    def check_usage(cls, v: dict) -> dict:
+        # usage is written verbatim into the audit JSONL under the audit lock;
+        # bound its depth/size like params so a caller cannot bloat audit files.
+        return _validate_params(v)
 
 
 class SessionEndRequest(BaseModel):
