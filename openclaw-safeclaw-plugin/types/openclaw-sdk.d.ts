@@ -244,10 +244,19 @@ declare module 'openclaw/plugin-sdk/core' {
     cancelReason?: string;
   }
 
-  export interface SubagentSpawningResult {
-    status?: 'ok' | 'error';
-    error?: string;
-  }
+  /** v2026.6.8 discriminated union — the error variant requires `error: string`. */
+  export type SubagentSpawningResult =
+    | {
+        status: 'ok';
+        threadBindingReady?: boolean;
+        deliveryOrigin?: {
+          channel?: string;
+          accountId?: string;
+          to?: string;
+          threadId?: string | number;
+        };
+      }
+    | { status: 'error'; error: string };
 
   export interface PluginHookResultMap {
     before_tool_call: BeforeToolCallResult;
