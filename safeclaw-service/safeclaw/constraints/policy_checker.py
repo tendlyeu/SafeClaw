@@ -488,21 +488,32 @@ class PolicyChecker:
     }
 
     @staticmethod
+    def _looks_like_method(token: str) -> bool:
+        """A positional token is a method if it's an alphabetic verb — either a
+        known method or an all-uppercase word (covers WebDAV/extension verbs like
+        PROPFIND). A URL/hostname/data-item fails this and is treated as the URL."""
+        return token.isalpha() and (token.isupper() or token.upper() in PolicyChecker._HTTP_METHODS)
+
+    @staticmethod
     def _method_from_command(command: str) -> str | None:
         """Parse the HTTP method from a shell command, or None if undeterminable."""
+        # An explicit -X/--request/--method wins and is returned verbatim — an
+        # explicit method must never silently degrade to GET, even if it is a
+        # non-standard verb (PROPFIND, MKCOL, ...).
         m = PolicyChecker._CMD_METHOD_RE.search(command)
-        if m and m.group(1).upper() in PolicyChecker._HTTP_METHODS:
+        if m:
             return m.group(1).upper()
 
         tokens = command.split()
         bases = [t.rsplit("/", 1)[-1] for t in tokens]
-        # httpie/xh: method is the first non-flag positional after the client.
+        # httpie/xh: the method is an optional leading positional verb, present
+        # only when another positional (the URL) follows. A lone positional is the
+        # URL (method defaults to GET).
         for i, base in enumerate(bases):
             if base in PolicyChecker._POSITIONAL_VERB_TOOLS:
-                for nxt in tokens[i + 1 :]:
-                    if nxt.startswith("-"):
-                        continue
-                    return nxt.upper() if nxt.upper() in PolicyChecker._HTTP_METHODS else "GET"
+                positionals = [t for t in tokens[i + 1 :] if not t.startswith("-")]
+                if len(positionals) >= 2 and PolicyChecker._looks_like_method(positionals[0]):
+                    return positionals[0].upper()
                 return "GET"
         # curl/wget/fetch: infer the implicit method from data/form/head flags,
         # otherwise GET. (Without this, `curl -d …` would read as GET and slip
@@ -538,14 +549,12 @@ class PolicyChecker:
                 cluster = tok[1:]
                 for j, ch in enumerate(cluster):
                     if ch == "X":
-                        # Explicit method: attached (`-sXPOST`) or next token (`-sX POST`).
+                        # Explicit method: attached (`-sXPOST`) or next token
+                        # (`-sX POST`). Returned verbatim — never degraded to GET.
                         rest = cluster[j + 1 :]
-                        if rest:
-                            if rest.upper() in PolicyChecker._HTTP_METHODS:
-                                return rest.upper()
-                        elif i + 1 < len(tokens) and tokens[i + 1].upper() in (
-                            PolicyChecker._HTTP_METHODS
-                        ):
+                        if rest and rest.isalpha():
+                            return rest.upper()
+                        if not rest and i + 1 < len(tokens) and tokens[i + 1].isalpha():
                             return tokens[i + 1].upper()
                         break
                     if ch in ("d", "F"):
@@ -653,33 +662,41 @@ class PolicyChecker:
     ) -> bool:
         """Check if the action context matches any binary restriction.
 
-        For ``ExecuteCommand`` actions the command string is checked for
-        references to the restricted binaries. For other action types
-        (e.g. ``WebFetch``) binary checking is skipped since we cannot
-        determine the calling binary — the rule still matches.
+        For ``ExecuteCommand`` actions the restriction is matched against the
+        command's *executable* (the first token, skipping leading ``VAR=value``
+        env assignments) — NOT anywhere in the string, so the restricted binary
+        appearing as an argument (``python /usr/bin/curl``) does not match. For
+        other action types (e.g. ``WebFetch``) binary checking is skipped since we
+        cannot determine the calling binary — the rule still matches.
         """
         if action.ontology_class not in ("ExecuteCommand", "NetworkRequest"):
             return True
         if not command:
             return False
-        tokens = command.split()
+
+        exe = ""
+        for tok in command.split():
+            if re.match(r"^[A-Za-z_]\w*=", tok):
+                continue  # leading environment assignment, e.g. FOO=bar
+            exe = tok
+            break
+        if not exe:
+            return False
+        exe_base = exe.rsplit("/", 1)[-1]
+
         for bp in binaries:
             # NemoClaw "/**" (and bare globs) mean "any binary".
             if bp in ("/**", "**", "*", "/*"):
                 return True
-            # Full path: match with word boundary to avoid /usr/bin/git matching
-            # /usr/bin/github-cli
-            if re.search(rf"(?:^|\s){re.escape(bp)}(?:\s|$)", command):
-                return True
-            binary_name = bp.rsplit("/", 1)[-1]
-            # Glob path (e.g. /opt/trusted/*): glob-match the FULL command token
-            # against the full pattern only. Matching token basenames against the
-            # pattern's basename glob would let a bare `*` match any command.
+            # Glob path (e.g. /usr/bin/*): glob-match the full executable token
+            # against the full pattern (no basename-vs-`*` widening).
             if "*" in bp:
-                if any(_glob_match(tok, bp) for tok in tokens):
+                if _glob_match(exe, bp):
                     return True
                 continue
-            if binary_name and re.search(rf"\b{re.escape(binary_name)}\b", command):
+            # Concrete path: the executable must BE that path, or share its name
+            # (covers a bare `curl` resolved via PATH for an `/usr/bin/curl` rule).
+            if exe == bp or exe_base == bp.rsplit("/", 1)[-1]:
                 return True
         return False
 

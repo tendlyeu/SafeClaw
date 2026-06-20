@@ -647,6 +647,20 @@ network_policies:
         )
         assert checker.check(action).violated is False
 
+    def test_binary_matches_executable_only(self, kg):
+        """A concrete binary restriction must constrain the actual executable,
+        not merely appear somewhere in the command (e.g. as an argument)."""
+        a = _make_action("ExecuteCommand", tool_name="exec", command="x")
+        bm = PolicyChecker._binary_matches
+        # Executable is the allowed binary -> match (full path and bare name).
+        assert bm(a, {"/usr/bin/curl"}, "/usr/bin/curl https://x") is True
+        assert bm(a, {"/usr/bin/curl"}, "curl https://x") is True
+        assert bm(a, {"/usr/bin/curl"}, "FOO=bar curl https://x") is True  # env prefix
+        # The binary only appears as an ARGUMENT or unrelated token -> no match.
+        assert bm(a, {"/usr/bin/curl"}, "python /usr/bin/curl https://x") is False
+        assert bm(a, {"/usr/bin/curl"}, "python curl https://x") is False
+        assert bm(a, {"/usr/bin/curl"}, "echo curl https://x") is False
+
     def test_command_url_triggers_egress_check(self, kg, tmp_path):
         """A command reaching a non-allowlisted host via any binary (not just
         curl/wget) must be blocked, not bypass the egress allowlist."""
@@ -706,6 +720,12 @@ network_policies:
         assert f("curl -sXPOST https://x/y") == "POST"
         assert f("curl -sXDELETE https://x/y") == "DELETE"
         assert f("curl -sX PUT https://x/y") == "PUT"
+        # Explicit but non-standard methods (WebDAV etc.) must NOT degrade to GET:
+        assert f("curl -X PROPFIND https://x/y") == "PROPFIND"
+        assert f("curl -X MKCOL https://x/y") == "MKCOL"
+        assert f("curl -sXPROPFIND https://x/y") == "PROPFIND"
+        assert f("http PROPFIND https://x/y") == "PROPFIND"  # httpie verb
+        assert f("http example.com name=val") == "GET"  # lone URL + data item, not a verb
 
     def test_path_method_allowed_fails_closed_on_unknown_method(self, kg):
         """A method-constrained rule does NOT authorise when the request method
