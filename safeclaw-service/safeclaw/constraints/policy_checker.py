@@ -446,30 +446,77 @@ class PolicyChecker:
             "reason": (f"Not in NemoClaw network allowlist: {target_host}{port_str}"),
         }
 
+    # HTTP methods we recognise (NemoClaw also models websocket frames).
+    _HTTP_METHODS = {
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "HEAD",
+        "OPTIONS",
+        "CONNECT",
+        "TRACE",
+        "WEBSOCKET_TEXT",
+    }
+    # curl `-X POST` / `-XPOST` / `--request POST` / `--request=POST`;
+    # wget/httpie `--method=POST`.
+    _CMD_METHOD_RE = re.compile(r"(?:^|\s)(?:-X\s*|--request[=\s]+|--method[=\s]+)([A-Za-z]+)")
+    # Commands that perform an HTTP request and default to GET when no method
+    # flag/verb is given (curl, wget, fetch).
+    _GET_DEFAULT_TOOLS = ("curl", "wget", "fetch")
+    # httpie-style clients take the method as a positional verb (`http POST …`).
+    _POSITIONAL_VERB_TOOLS = ("http", "https", "xh", "httpie")
+
+    @staticmethod
+    def _method_from_command(command: str) -> str | None:
+        """Parse the HTTP method from a shell command, or None if undeterminable."""
+        m = PolicyChecker._CMD_METHOD_RE.search(command)
+        if m and m.group(1).upper() in PolicyChecker._HTTP_METHODS:
+            return m.group(1).upper()
+
+        tokens = command.split()
+        bases = [t.rsplit("/", 1)[-1] for t in tokens]
+        # httpie/xh: method is the first non-flag positional after the client.
+        for i, base in enumerate(bases):
+            if base in PolicyChecker._POSITIONAL_VERB_TOOLS:
+                for nxt in tokens[i + 1 :]:
+                    if nxt.startswith("-"):
+                        continue
+                    return nxt.upper() if nxt.upper() in PolicyChecker._HTTP_METHODS else "GET"
+                return "GET"
+        # curl/wget/fetch with no explicit method default to GET.
+        if any(b in PolicyChecker._GET_DEFAULT_TOOLS for b in bases):
+            return "GET"
+        return None
+
     @staticmethod
     def _request_method(action: ClassifiedAction, target_scheme: str) -> str | None:
         """Best-effort HTTP method for the request, normalised to upper case.
 
-        WebFetch/WebSearch-style tools rarely carry an explicit method, so we
-        default to ``GET`` for http(s) schemes and ``WEBSOCKET_TEXT`` for
-        ws(s) schemes. An explicit ``method`` param (when present) wins.
-        Returns ``None`` only when the method genuinely cannot be inferred
-        (e.g. an opaque exec command), in which case callers treat the method
-        leniently and rely on the path glob alone.
+        An explicit ``method`` param wins. Direct fetch tools default to ``GET``
+        (or ``WEBSOCKET_TEXT`` for ws(s)). For exec/network commands we parse the
+        command string (``curl -X POST``, ``http PUT …`` etc.). Returns ``None``
+        only when the method genuinely cannot be inferred (e.g. an opaque command
+        that merely references a URL) — callers then FAIL CLOSED against any rule
+        that constrains the method, rather than allowing on the path glob alone.
         """
         for key in ("method", "httpMethod", "http_method"):
             val = action.params.get(key)
             if isinstance(val, str) and val.strip():
                 return val.strip().upper()
 
-        # Direct URL fetch tools: infer a sensible default from the scheme.
+        if target_scheme in ("ws", "wss"):
+            return "WEBSOCKET_TEXT"
+
+        # Direct URL fetch tools: default to GET.
         if action.ontology_class in PolicyChecker._NETWORK_ACTION_CLASSES:
-            if target_scheme in ("ws", "wss"):
-                return "WEBSOCKET_TEXT"
             return "GET"
 
-        # Network activity detected inside an exec command — the method is not
-        # reliably recoverable from the command string, so signal "unknown".
+        # Network activity inside an exec command — parse the method when we can.
+        command = action.params.get("command", "")
+        if command:
+            return PolicyChecker._method_from_command(command)
         return None
 
     def _path_method_allowed(
@@ -482,10 +529,14 @@ class PolicyChecker:
         """Return True if the request path/method matches an allow rule.
 
         The path glob is ALWAYS enforced: the request's URL path must match at
-        least one allow rule's ``path`` glob. The method is enforced only when
-        BOTH the request method (best-effort) and the rule's method are known;
-        if either is unknown the method check is skipped for that rule (path
-        glob still applies). Globs reuse the codebase's ``**``-aware matcher.
+        least one allow rule's ``path`` glob. Method enforcement FAILS CLOSED: a
+        rule that declares a method only authorises the request when the request
+        method is known (parsed best-effort) and equal. If the request method
+        cannot be determined, a method-constrained rule does NOT authorise the
+        request — otherwise a method allowlist could be bypassed by an opaque
+        command (e.g. ``curl -X POST`` to a ``GET``-only path). A rule with no
+        method constraint authorises on path match alone. Globs reuse the
+        codebase's ``**``-aware matcher.
         """
         request_path = urlparse(url).path or "/"
         request_method = self._request_method(action, target_scheme)
@@ -493,11 +544,13 @@ class PolicyChecker:
         for rule_method, path_glob in allow_rules:
             if not _glob_match(request_path, path_glob):
                 continue
-            # Path matches. Enforce method only when both sides are known.
-            if rule_method is None or request_method is None:
+            if rule_method is None:
+                # Rule does not constrain the method — path match is enough.
                 return True
-            if rule_method == request_method:
+            if request_method is not None and rule_method == request_method:
                 return True
+            # Method-constrained rule with a mismatched/unknown request method:
+            # do not authorise on this rule (fail closed); keep checking others.
         return False
 
     @classmethod

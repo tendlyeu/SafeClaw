@@ -530,6 +530,77 @@ network_policies:
             action = _make_action("WebFetch", url=f"https://anything.example.com{path}")
             assert checker.check(action).violated is False, path
 
+    def test_command_method_allowlist_enforced(self, kg, tmp_path):
+        """Method allowlists must hold for shell-command network access.
+
+        Reviewer follow-up for PR #333: a policy allowing only ``GET /allowed``
+        must allow a default ``curl`` (GET) to ``/allowed`` but BLOCK
+        ``curl -X POST`` / ``-X DELETE`` to the same path — the method must be
+        parsed from the command rather than failing open.
+        """
+        _load_network_policy(
+            kg,
+            tmp_path / "policies",
+            """
+network_policies:
+  scoped:
+    name: scoped
+    endpoints:
+      - host: api.example.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/allowed" }
+    binaries:
+      - path: /usr/bin/curl
+""",
+        )
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+
+        def cmd_action(command):
+            return _make_action("ExecuteCommand", tool_name="exec", command=command)
+
+        # default curl is GET -> allowed
+        assert checker.check(cmd_action("curl https://api.example.com/allowed")).violated is False
+        # explicit non-GET methods on the allowed path -> blocked
+        assert checker.check(cmd_action("curl -X POST https://api.example.com/allowed")).violated
+        assert checker.check(
+            cmd_action("curl --request DELETE https://api.example.com/allowed")
+        ).violated
+        # wrong path still blocked
+        assert checker.check(cmd_action("curl https://api.example.com/forbidden")).violated
+
+    def test_method_from_command_parsing(self, kg):
+        """The HTTP method is parsed from common shell client invocations."""
+        f = PolicyChecker._method_from_command
+        assert f("curl -X POST https://x/y") == "POST"
+        assert f("curl -XPOST https://x/y") == "POST"
+        assert f("curl --request delete https://x/y") == "DELETE"
+        assert f("curl --request=PUT https://x/y") == "PUT"
+        assert f("wget --method=PATCH https://x/y") == "PATCH"
+        assert f("curl https://x/y") == "GET"  # curl defaults to GET
+        assert f("http POST https://x/y") == "POST"  # httpie positional verb
+        assert f("xh DELETE :/api") == "DELETE"
+        assert f("http https://x/y") == "GET"  # httpie default
+        assert f("python attack.py --target https://x/y") is None  # undeterminable
+
+    def test_path_method_allowed_fails_closed_on_unknown_method(self, kg):
+        """A method-constrained rule does NOT authorise when the request method
+        is unknown — only a method-less rule authorises on path alone."""
+        checker = PolicyChecker(kg, nemoclaw_enabled=True)
+        # Exec action with no recoverable command -> request method is None.
+        action = _make_action("ExecuteCommand", tool_name="exec")
+        url = "https://api.example.com/allowed"
+
+        # Rule constrains method (GET): unknown request method -> NOT allowed.
+        assert checker._path_method_allowed(action, "https", url, {("GET", "/allowed")}) is False
+        # Rule with no method constraint -> allowed on path match alone.
+        assert checker._path_method_allowed(action, "https", url, {(None, "/allowed")}) is True
+        # Known matching method -> allowed.
+        get_action = _make_action("WebFetch", url=url)
+        assert checker._path_method_allowed(get_action, "https", url, {("GET", "/allowed")}) is True
+
     def test_disallowed_host_blocked(self, kg, tmp_path):
         _load_network_policy(
             kg,
