@@ -115,6 +115,13 @@ class LlmIORequest(BaseModel):
     runId: str = ""
     usage: dict = {}
 
+    @field_validator("usage")
+    @classmethod
+    def check_usage(cls, v: dict) -> dict:
+        # usage is written verbatim into the audit JSONL under the audit lock;
+        # bound its depth/size like params so a caller cannot bloat audit files.
+        return _validate_params(v)
+
 
 class SessionEndRequest(BaseModel):
     sessionId: str

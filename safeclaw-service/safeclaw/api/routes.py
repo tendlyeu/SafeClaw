@@ -631,6 +631,7 @@ async def record_subagent_ended(
 @router.post("/log/llm-input")
 async def log_llm_input(request: LlmIORequest):
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     event = LlmIOEvent(
         session_id=request.sessionId,
         direction="input",
@@ -649,6 +650,7 @@ async def log_llm_input(request: LlmIORequest):
 @router.post("/log/llm-output")
 async def log_llm_output(request: LlmIORequest):
     engine = _get_engine()
+    _verify_agent_token(engine, request.agentId, request.agentToken)
     event = LlmIOEvent(
         session_id=request.sessionId,
         direction="output",

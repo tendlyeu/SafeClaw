@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import pytest
+from starlette.testclient import TestClient
 
 from safeclaw.config import SafeClawConfig
 from safeclaw.engine.core import Decision, LlmIOEvent, ToolCallEvent
@@ -71,6 +72,15 @@ class TestCronNoApprover:
         assert "no interactive approver" in dec.reason
         # risk level is carried onto the escalated block for the API response
         assert getattr(dec, "_risk_level", None)
+
+        # The DURABLE audit record must reflect the escalation, not the
+        # superseded confirmation decision, and audit_id must point to it (#324).
+        records = engine.audit.get_session_records("s-cron")
+        assert records, "expected an audit record for the cron run"
+        rec = next((r for r in records if r.id == dec.audit_id), None)
+        assert rec is not None, "returned audit_id must point to a real record"
+        assert rec.constraint_step == STEP_CRON_NO_APPROVER
+        assert rec.decision == "blocked"
 
     def test_policy_unit_only_touches_confirmation_decisions(self, engine):
         """A plain allow/block decision is never altered by the cron policy."""
@@ -176,3 +186,59 @@ class TestLlmIOAudit:
         rec = json.loads(next((tmp_path / "audit").rglob("llm-sess-big.jsonl")).read_text().strip())
         assert rec["truncated"] is True
         assert len(rec["content"]) == 10_000
+
+
+# --- #315 review follow-ups: auth + input bounds on the durable LLM audit ---
+
+
+@pytest.fixture
+def client(tmp_path):
+    import safeclaw.main as main_module
+
+    config = SafeClawConfig(
+        data_dir=tmp_path,
+        ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+        audit_dir=tmp_path / "audit",
+        dev_mode=True,
+    )
+    main_module.engine = FullEngine(config)
+    yield TestClient(main_module.app), main_module.engine
+    main_module.engine = None
+
+
+class TestLlmLogAuth:
+    def test_llm_log_rejects_bad_token_for_registered_agent(self, client):
+        c, engine = client
+        token = engine.agent_registry.register_agent("agent-llm", "developer", "sess-1")
+        for path in ("/api/v1/log/llm-input", "/api/v1/log/llm-output"):
+            # Wrong token for a registered agent -> 403, no record written.
+            bad = c.post(
+                path,
+                json={
+                    "sessionId": "s",
+                    "content": "x",
+                    "agentId": "agent-llm",
+                    "agentToken": "nope",
+                },
+            )
+            assert bad.status_code == 403, path
+            # Correct token -> accepted.
+            ok = c.post(
+                path,
+                json={
+                    "sessionId": "s",
+                    "content": "x",
+                    "agentId": "agent-llm",
+                    "agentToken": token,
+                },
+            )
+            assert ok.status_code == 200, path
+
+    def test_llm_log_rejects_oversized_usage(self, client):
+        c, _ = client
+        huge_usage = {f"k{i}": "v" * 1000 for i in range(200)}  # > params size bound
+        resp = c.post(
+            "/api/v1/log/llm-output",
+            json={"sessionId": "s", "content": "x", "usage": huge_usage},
+        )
+        assert resp.status_code == 422  # pydantic validation rejects before any write
