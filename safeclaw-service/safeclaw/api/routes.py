@@ -179,6 +179,11 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         agent_id=request.agentId,
         agent_token=request.agentToken,
         run_id=request.runId,
+        tool_kind=request.toolKind,
+        tool_input_kind=request.toolInputKind,
+        derived_paths=request.derivedPaths,
+        triggered_by=request.triggeredBy,
+        job_id=request.jobId,
     )
 
     # When dryRun is True, skip the full engine pipeline to avoid side effects
@@ -561,6 +566,10 @@ async def log_llm_input(request: LlmIORequest):
         content=request.content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        provider=request.provider,
+        model=request.model,
+        run_id=request.runId,
+        usage=request.usage,
     )
     await engine.log_llm_io(event)
     return {"ok": True}
@@ -575,6 +584,10 @@ async def log_llm_output(request: LlmIORequest):
         content=request.content,
         agent_id=request.agentId,
         agent_token=request.agentToken,
+        provider=request.provider,
+        model=request.model,
+        run_id=request.runId,
+        usage=request.usage,
     )
     await engine.log_llm_io(event)
     return {"ok": True}

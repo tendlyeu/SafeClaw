@@ -14,6 +14,18 @@ class ToolCallEvent:
     agent_id: str | None = None
     agent_token: str = ""
     run_id: str | None = None
+    # OpenClaw v2026.6.8 before_tool_call discriminators (consumed by the
+    # action classifier — see #316). tool_kind e.g. "code_mode_exec";
+    # tool_input_kind e.g. "javascript"/"typescript"; derived_paths are
+    # host-resolved target paths for file-touching envelopes (apply_patch).
+    tool_kind: str = ""
+    tool_input_kind: str = ""
+    derived_paths: list[str] = field(default_factory=list)
+    # Trigger origin (#324): "cron" for scheduled/autonomous runs (no
+    # interactive approver present), "interactive" otherwise. job_id is the
+    # OpenClaw cron job id when triggered_by == "cron".
+    triggered_by: str = ""
+    job_id: str = ""
 
 
 @dataclass
@@ -54,6 +66,13 @@ class LlmIOEvent:
     content: str
     agent_id: str | None = None
     agent_token: str = ""
+    # #315: provider/model/run_id/usage carry the audit context that the
+    # plugin now forwards (v2026.6.8). Without these the LLM I/O audit trail
+    # could not attribute a prompt/response to a model or correlate by run.
+    provider: str = ""
+    model: str = ""
+    run_id: str = ""
+    usage: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -7,7 +7,7 @@ import os
 import re
 import stat
 import threading
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from safeclaw.audit.models import DecisionRecord
@@ -179,6 +179,54 @@ class AuditLogger:
             logger.warning(log_msg)
         else:
             logger.info(log_msg)
+
+    def _get_llm_session_file(self, session_id: str) -> Path:
+        today = date.today().isoformat()
+        day_dir = self.audit_dir / today
+        self._ensure_dir(self.audit_dir)
+        self._ensure_dir(day_dir)
+        safe_id = self._safe_id(session_id)
+        return day_dir / f"llm-{safe_id}.jsonl"
+
+    def log_llm_io(
+        self,
+        session_id: str,
+        direction: str,
+        content: str,
+        *,
+        provider: str = "",
+        model: str = "",
+        run_id: str = "",
+        usage: dict | None = None,
+        max_content: int = 10_000,
+    ) -> None:
+        """Append an LLM input/output record to a per-session JSONL audit file.
+
+        This is a content/usage observability trail (not a governance
+        DecisionRecord), so it is written to a separate `llm-<session>.jsonl`
+        file without the decision hash chain. Content is truncated to bound
+        file growth; provider/model/run_id give attribution and correlation
+        that the prior debug-only log lacked (#315).
+        """
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "sessionId": session_id,
+            "direction": direction,
+            "provider": provider,
+            "model": model,
+            "runId": run_id,
+            "usage": usage or {},
+            "content": content[:max_content],
+            "truncated": len(content) > max_content,
+        }
+        line = json.dumps(record, separators=(",", ":")) + "\n"
+        filepath = self._get_llm_session_file(session_id)
+        with self._lock:
+            fd = os.open(str(filepath), os.O_WRONLY | os.O_CREAT | os.O_APPEND, _FILE_MODE)
+            try:
+                os.write(fd, line.encode("utf-8"))
+            finally:
+                os.close(fd)
 
     def get_session_records(
         self,
