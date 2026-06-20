@@ -7,7 +7,7 @@
  * to the SafeClaw service and acts on the responses.
  */
 
-import type { OpenClawPluginApi, OpenClawPluginEvent, OpenClawPluginContext, BeforeToolCallResult } from 'openclaw/plugin-sdk/core';
+import type { OpenClawPluginApi, BeforeToolCallResult } from 'openclaw/plugin-sdk/core';
 import { loadConfig, configHash } from './tui/config.js';
 import crypto from 'crypto';
 import { createRequire } from 'module';
@@ -112,6 +112,16 @@ function approvalSeverityForRisk(riskLevel: string): 'info' | 'warning' | 'criti
 
 function approvalTimeoutBehaviorForRisk(riskLevel: string): 'allow' | 'deny' {
   return riskLevel === 'CriticalRisk' || riskLevel === 'HighRisk' ? 'deny' : 'allow';
+}
+
+// For high-risk actions, forbid durable "allow-always" trust — the user may only
+// approve this one occurrence or deny (#314). Lower-risk actions keep all options.
+function approvalAllowedDecisionsForRisk(
+  riskLevel: string,
+): Array<'allow-once' | 'allow-always' | 'deny'> {
+  return riskLevel === 'CriticalRisk' || riskLevel === 'HighRisk'
+    ? ['allow-once', 'deny']
+    : ['allow-once', 'allow-always', 'deny'];
 }
 
 // --- Plugin Definition ---
@@ -251,7 +261,7 @@ export default {
     }
 
     // THE GATE — constraint checking on every tool call (#195: use correct OpenClaw field names)
-    api.on('before_tool_call', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('before_tool_call', async (event, ctx) => {
       const cfg = getConfig();
       if (!handshakeCompleted && cfg.failMode === 'closed' && cfg.enforcement === 'enforce') {
         return { block: true, blockReason: 'SafeClaw handshake not completed (fail-closed)' };
@@ -283,6 +293,7 @@ export default {
             severity: approvalSeverityForRisk(riskLevel),
             timeoutMs: 30_000,
             timeoutBehavior: approvalTimeoutBehaviorForRisk(riskLevel),
+            allowedDecisions: approvalAllowedDecisionsForRisk(riskLevel),
           },
         } satisfies BeforeToolCallResult;
       }
@@ -301,7 +312,7 @@ export default {
 
     // Context injection — prepend governance context to agent system prompt
     // (#195: before_agent_start is deprecated; use before_prompt_build + prependSystemContext)
-    api.on('before_prompt_build', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('before_prompt_build', async (event, ctx) => {
       const r = await post('/context/build', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
@@ -314,7 +325,7 @@ export default {
 
     // Message governance — check outbound messages
     // (#195: use ctx.conversationId/sessionId, ctx.accountId; return only { cancel: true })
-    api.on('message_sending', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('message_sending', async (event, ctx) => {
       const cfg = getConfig();
       const r = await post('/evaluate/message', {
         sessionId: ctx.conversationId ?? ctx.sessionId ?? event.sessionId ?? '',
@@ -345,29 +356,39 @@ export default {
       }
     }, { priority: 100 });
 
-    // Async logging — fire-and-forget, no return value needed
-    // (#195: use event.prompt for input, event.lastAssistant for output; add provider/model)
-    api.on('llm_input', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    // Async logging — fire-and-forget, no return value needed.
+    // (#315: v2026.6.8 raw-conversation hooks require
+    // `plugins.entries.safeclaw.hooks.allowConversationAccess: true` to fire at
+    // all — see README. Output text is `assistantTexts: string[]`, not the
+    // untyped `lastAssistant`. `runId` is forwarded for audit correlation.)
+    api.on('llm_input', (event, ctx) => {
       post('/log/llm-input', {
         sessionId: event.sessionId ?? ctx.sessionId ?? '',
         content: event.prompt ?? '',
         provider: event.provider ?? '',
         model: event.model ?? '',
+        runId: event.runId ?? ctx.runId ?? '',
       }).catch((e) => log.warn('[SafeClaw] Failed to log LLM input:', e));
     });
 
-    api.on('llm_output', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('llm_output', (event, ctx) => {
+      const assistantText = Array.isArray(event.assistantTexts)
+        ? event.assistantTexts.join('')
+        : typeof event.lastAssistant === 'string'
+          ? event.lastAssistant
+          : '';
       post('/log/llm-output', {
         sessionId: event.sessionId ?? ctx.sessionId ?? '',
-        content: event.lastAssistant ?? '',
+        content: assistantText,
         provider: event.provider ?? '',
         model: event.model ?? '',
         usage: event.usage ?? {},
+        runId: event.runId ?? ctx.runId ?? '',
       }).catch((e) => log.warn('[SafeClaw] Failed to log LLM output:', e));
     });
 
     // (#195: use event.toolName, !event.error for success, add durationMs and error)
-    api.on('after_tool_call', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('after_tool_call', (event, ctx) => {
       post('/record/tool-result', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
@@ -381,15 +402,25 @@ export default {
       }).catch((e) => log.warn('[SafeClaw] Failed to record tool result:', e));
     });
 
-    // Subagent governance — block delegation bypass attempts (#188)
-    api.on('subagent_spawning', async (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    // Subagent governance — block delegation bypass attempts (#188).
+    // NOTE: `subagent_spawning` is a deprecated OpenClaw compatibility hook
+    // (removal scheduled after 2026-08-16). v2026.6.8 exposes
+    // `childSessionKey`/`agentId`/`requester`/`mode`/`threadRequested` — there is
+    // no `parentAgentId`/`childConfig`/`reason`. The spawning agent is the parent,
+    // so we source it from `ctx.agentId`. Migrating delegation governance onto the
+    // child's own `before_tool_call`/hierarchy is tracked in #321. (#312)
+    api.on('subagent_spawning', async (event, ctx) => {
       const cfg = getConfig();
       const r = await post('/evaluate/subagent-spawn', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
-        parentAgentId: event.parentAgentId,
-        childConfig: event.childConfig ?? {},
-        reason: event.reason ?? '',
+        parentAgentId: ctx.agentId ?? '',
+        childSessionKey: event.childSessionKey ?? '',
+        childAgentId: event.agentId ?? '',
+        requester: event.requester ?? '',
+        mode: event.mode ?? '',
+        threadRequested: event.threadRequested ?? false,
+        reason: event.label ?? '',
       });
 
       // Fail-closed handling (matches before_tool_call / message_sending pattern)
@@ -409,17 +440,25 @@ export default {
       }
     }, { priority: 100 });
 
-    // Subagent ended — record child agent lifecycle (#188)
-    api.on('subagent_ended', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    // Subagent ended — record child agent lifecycle (#188).
+    // v2026.6.8 reports `targetSessionKey`/`targetKind`/`outcome`/`error`/`runId`,
+    // not parent/child agent IDs. The ended child is `targetSessionKey`; the
+    // recording agent (parent) is `ctx.agentId`. (#312)
+    api.on('subagent_ended', (event, ctx) => {
       post('/record/subagent-ended', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
-        parentAgentId: event.parentAgentId,
-        childAgentId: event.childAgentId,
+        parentAgentId: ctx.agentId ?? '',
+        childAgentId: event.targetSessionKey ?? '',
+        targetKind: event.targetKind ?? '',
+        outcome: event.outcome ?? '',
+        success: event.outcome ? event.outcome === 'ok' : !event.error,
+        error: event.error ?? '',
+        runId: event.runId ?? ctx.runId ?? '',
       }).catch((e) => log.warn('[SafeClaw] Failed to record subagent ended:', e));
     });
 
     // Session lifecycle — notify service of session start (#189)
-    api.on('session_start', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('session_start', (event, ctx) => {
       post('/session/start', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
@@ -429,7 +468,7 @@ export default {
     });
 
     // Session lifecycle — notify service of session end (#189)
-    api.on('session_end', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    api.on('session_end', (event, ctx) => {
       post('/session/end', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
@@ -437,13 +476,18 @@ export default {
       }).catch((e) => log.warn('[SafeClaw] Failed to record session end:', e));
     });
 
-    // Inbound message governance — evaluate received messages (#190)
-    api.on('message_received', (event: OpenClawPluginEvent, ctx: OpenClawPluginContext) => {
+    // Inbound message governance — evaluate received messages (#190).
+    // v2026.6.8: sender identity is `event.from` (+ stable `event.senderId`); the
+    // channel id lives on the context, not the event. We forward the delivery
+    // provider + channel id so the service can map a compound channel context to a
+    // trust tier rather than guessing from a bare id (#313, feeds #320).
+    api.on('message_received', (event, ctx) => {
       post('/evaluate/inbound-message', {
         sessionId: ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
-        channel: event.channel ?? (ctx as any).channelId ?? '',
-        sender: event.sender ?? '',
+        channel: ctx.channelId ?? '',
+        channelProvider: ctx.messageProvider ?? '',
+        sender: event.senderId ?? ctx.senderId ?? event.from ?? '',
         content: event.content ?? '',
         metadata: event.metadata ?? {},
       }).catch((e) => log.warn('[SafeClaw] Failed to evaluate inbound message:', e));

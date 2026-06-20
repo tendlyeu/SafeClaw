@@ -150,6 +150,16 @@ The plugin registers 11 hooks on OpenClaw events. Each hook communicates with th
 | `session_end` | Notifies the service when a session ends. |
 | `message_received` | Evaluates inbound messages for governance (sender, channel, content). |
 
+> **Required for LLM audit logging.** As of OpenClaw v2026.6.8, raw-conversation
+> hooks (`llm_input`, `llm_output`, and the `before_agent_*` family) only fire for
+> non-bundled plugins when conversation access is explicitly granted. Without it,
+> SafeClaw's LLM I/O audit trail is silently empty. Enable it in your OpenClaw
+> config:
+>
+> ```json
+> { "plugins": { "entries": { "safeclaw": { "hooks": { "allowConversationAccess": true } } } } }
+> ```
+
 ## Agent Tools
 
 The plugin registers two tools that agents can call to introspect governance state.
