@@ -268,7 +268,7 @@ export default {
       }
 
       const r = await post('/evaluate/tool-call', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
         toolName: event.toolName ?? '',
         params: event.params ?? {},
@@ -314,7 +314,7 @@ export default {
     // (#195: before_agent_start is deprecated; use before_prompt_build + prependSystemContext)
     api.on('before_prompt_build', async (event, ctx) => {
       const r = await post('/context/build', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
       });
 
@@ -323,12 +323,13 @@ export default {
       }
     }, { priority: 100 });
 
-    // Message governance — check outbound messages
-    // (#195: use ctx.conversationId/sessionId, ctx.accountId; return only { cancel: true })
+    // Message governance — check outbound messages.
+    // (v2026.6.8 message context exposes sessionKey/accountId/channelId — there is
+    // no sessionId; the event has no session field. Return only { cancel: true }.)
     api.on('message_sending', async (event, ctx) => {
       const cfg = getConfig();
       const r = await post('/evaluate/message', {
-        sessionId: ctx.conversationId ?? ctx.sessionId ?? event.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? ctx.conversationId ?? '',
         userId: ctx.accountId ?? '',
         to: event.to,
         content: event.content,
@@ -363,7 +364,7 @@ export default {
     // untyped `lastAssistant`. `runId` is forwarded for audit correlation.)
     api.on('llm_input', (event, ctx) => {
       post('/log/llm-input', {
-        sessionId: event.sessionId ?? ctx.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? event.sessionId ?? ctx.sessionId ?? '',
         content: event.prompt ?? '',
         provider: event.provider ?? '',
         model: event.model ?? '',
@@ -372,13 +373,16 @@ export default {
     });
 
     api.on('llm_output', (event, ctx) => {
+      // Join assistant segments with a blank line, matching how OpenClaw v2026.6.8
+      // itself joins `assistantTexts`, so message boundaries are preserved in the
+      // audit content (joining with '' would fuse "first"+"second" into one blob).
       const assistantText = Array.isArray(event.assistantTexts)
-        ? event.assistantTexts.join('')
+        ? event.assistantTexts.join('\n\n')
         : typeof event.lastAssistant === 'string'
           ? event.lastAssistant
           : '';
       post('/log/llm-output', {
-        sessionId: event.sessionId ?? ctx.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? event.sessionId ?? ctx.sessionId ?? '',
         content: assistantText,
         provider: event.provider ?? '',
         model: event.model ?? '',
@@ -390,7 +394,7 @@ export default {
     // (#195: use event.toolName, !event.error for success, add durationMs and error)
     api.on('after_tool_call', (event, ctx) => {
       post('/record/tool-result', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
         toolName: event.toolName ?? '',
         params: event.params ?? {},
@@ -404,22 +408,24 @@ export default {
 
     // Subagent governance — block delegation bypass attempts (#188).
     // NOTE: `subagent_spawning` is a deprecated OpenClaw compatibility hook
-    // (removal scheduled after 2026-08-16). v2026.6.8 exposes
-    // `childSessionKey`/`agentId`/`requester`/`mode`/`threadRequested` — there is
-    // no `parentAgentId`/`childConfig`/`reason`. The spawning agent is the parent,
-    // so we source it from `ctx.agentId`. Migrating delegation governance onto the
-    // child's own `before_tool_call`/hierarchy is tracked in #321. (#312)
+    // (removal scheduled after 2026-08-16). In v2026.6.8 the context exposes only
+    // session keys (`requesterSessionKey`/`childSessionKey`/`runId`) — there is NO
+    // parent agentId at this hook. The event carries the *child's* `agentId`. So
+    // we forward the parent/child session keys and the child agent id; the service
+    // cannot do the killed-PARENT lookup from a session key alone, so spawn-time
+    // delegation enforcement is reworked onto a session-keyed hierarchy in #321.
+    // `requester` is an object (channel/account/to/threadId), not a string. (#312)
     api.on('subagent_spawning', async (event, ctx) => {
       const cfg = getConfig();
       const r = await post('/evaluate/subagent-spawn', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
-        userId: ctx.agentId ?? '',
-        parentAgentId: ctx.agentId ?? '',
-        childSessionKey: event.childSessionKey ?? '',
+        sessionId: ctx.requesterSessionKey ?? ctx.childSessionKey ?? '',
+        parentSessionKey: ctx.requesterSessionKey ?? '',
+        childSessionKey: ctx.childSessionKey ?? event.childSessionKey ?? '',
         childAgentId: event.agentId ?? '',
-        requester: event.requester ?? '',
         mode: event.mode ?? '',
         threadRequested: event.threadRequested ?? false,
+        requester: event.requester ?? {},
+        runId: ctx.runId ?? '',
         reason: event.label ?? '',
       });
 
@@ -443,12 +449,12 @@ export default {
     // Subagent ended — record child agent lifecycle (#188).
     // v2026.6.8 reports `targetSessionKey`/`targetKind`/`outcome`/`error`/`runId`,
     // not parent/child agent IDs. The ended child is `targetSessionKey`; the
-    // recording agent (parent) is `ctx.agentId`. (#312)
+    // parent is the requester session key from the subagent context. (#312)
     api.on('subagent_ended', (event, ctx) => {
       post('/record/subagent-ended', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
-        parentAgentId: ctx.agentId ?? '',
-        childAgentId: event.targetSessionKey ?? '',
+        sessionId: ctx.requesterSessionKey ?? event.targetSessionKey ?? '',
+        parentSessionKey: ctx.requesterSessionKey ?? '',
+        childSessionKey: event.targetSessionKey ?? '',
         targetKind: event.targetKind ?? '',
         outcome: event.outcome ?? '',
         success: event.outcome ? event.outcome === 'ok' : !event.error,
@@ -460,7 +466,7 @@ export default {
     // Session lifecycle — notify service of session start (#189)
     api.on('session_start', (event, ctx) => {
       post('/session/start', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
         agentId: instanceId,
         metadata: event.metadata ?? {},
@@ -470,23 +476,23 @@ export default {
     // Session lifecycle — notify service of session end (#189)
     api.on('session_end', (event, ctx) => {
       post('/session/end', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
+        sessionId: ctx.sessionKey ?? ctx.sessionId ?? event.sessionId ?? '',
         userId: ctx.agentId ?? '',
         agentId: instanceId,
       }).catch((e) => log.warn('[SafeClaw] Failed to record session end:', e));
     });
 
     // Inbound message governance — evaluate received messages (#190).
-    // v2026.6.8: sender identity is `event.from` (+ stable `event.senderId`); the
-    // channel id lives on the context, not the event. We forward the delivery
-    // provider + channel id so the service can map a compound channel context to a
-    // trust tier rather than guessing from a bare id (#313, feeds #320).
+    // v2026.6.8 message context: sender is `event.from` (+ stable `event.senderId`),
+    // the session is `ctx.sessionKey`, and the channel id is on the context. The
+    // message context has no agentId (use accountId) and no provider field, so the
+    // service maps channel trust from `channelId`/`conversationId` (#313, feeds #320).
     api.on('message_received', (event, ctx) => {
       post('/evaluate/inbound-message', {
-        sessionId: ctx.sessionId ?? event.sessionId ?? '',
-        userId: ctx.agentId ?? '',
+        sessionId: ctx.sessionKey ?? event.sessionKey ?? '',
+        userId: ctx.accountId ?? '',
         channel: ctx.channelId ?? '',
-        channelProvider: ctx.messageProvider ?? '',
+        conversationId: ctx.conversationId ?? '',
         sender: event.senderId ?? ctx.senderId ?? event.from ?? '',
         content: event.content ?? '',
         metadata: event.metadata ?? {},

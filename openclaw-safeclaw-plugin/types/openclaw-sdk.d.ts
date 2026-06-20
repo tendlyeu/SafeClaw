@@ -1,32 +1,67 @@
 /**
  * Ambient type declarations for the OpenClaw Plugin SDK.
- * These mirror the types exported by `openclaw/plugin-sdk` as of OpenClaw v2026.6.8.
- * When installed inside OpenClaw, the real SDK types take precedence.
+ * Transcribed from the published `openclaw@2026.6.8` source
+ * (`src/plugins/hook-types.ts`, `hook-message.types.ts`,
+ * `hook-before-tool-call-result.ts`). When installed inside OpenClaw the real
+ * SDK types take precedence.
  *
- * Design note (#317): each hook has a *precise* event payload (no catch-all
- * index signature) and `on()` is typed via per-hook overloads, so stale field
- * reads (e.g. the removed `event.parentAgentId` / `event.sender` /
- * `event.lastAssistant`-as-string) fail `tsc` instead of silently reading
- * `undefined`. We only model the hooks SafeClaw actually registers; everything
- * else falls through to the generic string overload.
+ * Design note (#317): each registered hook has BOTH a precise event payload and
+ * a precise *context* type — the contexts genuinely differ (agent runs expose
+ * `agentId`/`sessionId`; message hooks expose neither, only `sessionKey`;
+ * subagent hooks expose only `requesterSessionKey`/`childSessionKey`/`runId`).
+ * `on()` is typed via per-hook overloads keyed off `PluginHookEventMap` /
+ * `PluginHookContextMap`, so reading a field that does not exist on that hook's
+ * real payload/context (e.g. `ctx.agentId` on a subagent hook, `ctx.sessionId`
+ * on a message hook) fails `tsc` instead of silently reading `undefined`.
  */
 
 declare module 'openclaw/plugin-sdk/core' {
-  // ---- Shared context (PluginHookAgentContext / PluginHookMessageContext) ----
-  export interface OpenClawPluginContext {
-    sessionId?: string;
-    agentId?: string;
+  // ---- Per-hook contexts (v2026.6.8) ----
+
+  /** PluginHookAgentContext — agent-runtime hooks (tool calls, prompts, llm, session). */
+  export interface PluginHookAgentContext {
     runId?: string;
-    conversationId?: string;
-    accountId?: string;
-    channelId?: string;
-    /** Stable per-account sender identity on message hooks. */
-    senderId?: string;
-    /** Delivery platform on message hooks (e.g. "discord", "telegram", "line"). */
-    messageProvider?: string;
-    /** Present on cron/scheduled-triggered runs; absent on interactive runs. */
     jobId?: string;
+    agentId?: string;
+    /** Canonical conversation key — present on agent-runtime hooks. */
+    sessionKey?: string;
+    sessionId?: string;
     workspaceDir?: string;
+    modelProviderId?: string;
+    modelId?: string;
+    messageProvider?: string;
+    /** Channel/plugin id for channel-originated runs, e.g. "discord". */
+    channel?: string;
+    chatId?: string;
+    senderId?: string;
+    trigger?: string;
+    channelId?: string;
+  }
+
+  /** PluginHookMessageContext — inbound/outbound message hooks. No agentId / sessionId. */
+  export interface PluginHookMessageContext {
+    channelId: string;
+    accountId?: string;
+    conversationId?: string;
+    /** Canonical conversation key; the message-hook equivalent of sessionId. */
+    sessionKey?: string;
+    runId?: string;
+    messageId?: string;
+    senderId?: string;
+    replyToId?: string;
+  }
+
+  /** PluginHookSubagentContext — subagent_spawning / subagent_ended. Session keys only. */
+  export interface PluginHookSubagentContext {
+    runId?: string;
+    childSessionKey?: string;
+    /** The requesting (parent) session key. There is no parent agentId here. */
+    requesterSessionKey?: string;
+  }
+
+  /** Loose fallback context for hooks SafeClaw does not strongly type. */
+  export interface OpenClawPluginContext {
+    [key: string]: unknown;
   }
 
   // ---- Per-hook event payloads (v2026.6.8) ----
@@ -59,22 +94,27 @@ declare module 'openclaw/plugin-sdk/core' {
     sessionId?: string;
   }
 
+  /** v2026.6.8 PluginHookMessageSendingEvent — no sessionId on the event. */
   export interface MessageSendingEvent {
-    to?: string;
-    content?: string;
-    sessionId?: string;
+    to: string;
+    content: string;
+    replyToId?: string | number;
+    threadId?: string | number;
+    metadata?: Record<string, unknown>;
   }
 
-  /** v2026.6.8: sender is `from` (+ optional `senderId`); there is no `channel`. */
+  /** v2026.6.8 PluginHookMessageReceivedEvent — sender is `from`; key is `sessionKey`. */
   export interface MessageReceivedEvent {
-    from?: string;
-    senderId?: string;
-    content?: string;
-    timestamp?: string;
-    threadId?: string;
+    from: string;
+    content: string;
+    timestamp?: number;
+    threadId?: string | number;
     messageId?: string;
+    senderId?: string;
     replyToId?: string;
-    sessionId?: string;
+    replyToSender?: string;
+    sessionKey?: string;
+    runId?: string;
     metadata?: Record<string, unknown>;
   }
 
@@ -85,9 +125,6 @@ declare module 'openclaw/plugin-sdk/core' {
     model?: string;
     systemPrompt?: string;
     prompt?: string;
-    historyMessages?: unknown[];
-    imagesCount?: number;
-    tools?: unknown[];
   }
 
   /** v2026.6.8: reliable text is `assistantTexts: string[]`; `lastAssistant` is untyped. */
@@ -96,37 +133,45 @@ declare module 'openclaw/plugin-sdk/core' {
     sessionId?: string;
     provider?: string;
     model?: string;
+    prompt?: string;
     assistantTexts?: string[];
     lastAssistant?: unknown;
     usage?: Record<string, unknown>;
   }
 
   /**
-   * Deprecated compatibility hook (scheduled for removal after 2026-08-16).
-   * v2026.6.8 payload — note there is no `parentAgentId` / `childConfig` / `reason`.
+   * Deprecated compatibility hook (removal scheduled after 2026-08-16).
+   * v2026.6.8 PluginHookSubagentSpawnBase — `requester` is an object, not a string.
    */
   export interface SubagentSpawningEvent {
-    childSessionKey?: string;
-    agentId?: string;
+    childSessionKey: string;
+    agentId: string;
     label?: string;
-    mode?: string;
-    requester?: string;
-    threadRequested?: boolean;
-    sessionId?: string;
+    mode: 'run' | 'session';
+    requester?: {
+      channel?: string;
+      accountId?: string;
+      to?: string;
+      threadId?: string | number;
+    };
+    threadRequested: boolean;
   }
 
   export interface SubagentEndedEvent {
-    targetSessionKey?: string;
-    targetKind?: string;
-    reason?: string;
+    targetSessionKey: string;
+    targetKind: 'subagent' | 'acp';
+    reason: string;
+    sendFarewell?: boolean;
+    accountId?: string;
     runId?: string;
+    endedAt?: number;
     outcome?: 'ok' | 'error' | 'timeout' | 'killed' | 'reset' | 'deleted';
     error?: string;
-    sessionId?: string;
   }
 
   export interface SessionLifecycleEvent {
     sessionId?: string;
+    sessionKey?: string;
     metadata?: Record<string, unknown>;
   }
 
@@ -147,6 +192,20 @@ declare module 'openclaw/plugin-sdk/core' {
     subagent_ended: SubagentEndedEvent;
     session_start: SessionLifecycleEvent;
     session_end: SessionLifecycleEvent;
+  }
+
+  export interface PluginHookContextMap {
+    before_tool_call: PluginHookAgentContext;
+    after_tool_call: PluginHookAgentContext;
+    before_prompt_build: PluginHookAgentContext;
+    message_sending: PluginHookMessageContext;
+    message_received: PluginHookMessageContext;
+    llm_input: PluginHookAgentContext;
+    llm_output: PluginHookAgentContext;
+    subagent_spawning: PluginHookSubagentContext;
+    subagent_ended: PluginHookSubagentContext;
+    session_start: PluginHookAgentContext;
+    session_end: PluginHookAgentContext;
   }
 
   // ---- Hook results ----
@@ -180,7 +239,9 @@ declare module 'openclaw/plugin-sdk/core' {
   }
 
   export interface MessageSendingResult {
+    content?: string;
     cancel?: boolean;
+    cancelReason?: string;
   }
 
   export interface SubagentSpawningResult {
@@ -203,14 +264,14 @@ declare module 'openclaw/plugin-sdk/core' {
   }
 
   export interface OpenClawPluginApi {
-    /** Typed overload for the hooks SafeClaw registers. */
+    /** Typed overload for the hooks SafeClaw registers (precise event + context). */
     on<K extends keyof PluginHookEventMap>(
       hookName: K,
       handler: (
         event: PluginHookEventMap[K],
-        ctx: OpenClawPluginContext,
+        ctx: PluginHookContextMap[K],
       ) => PluginHookResultMap[K] | void | Promise<PluginHookResultMap[K] | void>,
-      options?: { priority?: number },
+      options?: { priority?: number; timeoutMs?: number },
     ): void;
     /** Generic fallback for any other hook. */
     on(
@@ -219,7 +280,7 @@ declare module 'openclaw/plugin-sdk/core' {
         event: OpenClawPluginEvent,
         ctx: OpenClawPluginContext,
       ) => Promise<Record<string, unknown> | void> | void,
-      options?: { priority?: number },
+      options?: { priority?: number; timeoutMs?: number },
     ): void;
 
     registerService?(service: OpenClawPluginService): void;
