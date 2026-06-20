@@ -234,6 +234,24 @@ class TestLlmLogAuth:
             )
             assert ok.status_code == 200, path
 
+    def test_llm_log_rejects_anonymous_and_unregistered(self, client):
+        c, _ = client
+        for path in ("/api/v1/log/llm-input", "/api/v1/log/llm-output"):
+            # No org auth and no agent context -> 401 (no anonymous durable writes).
+            anon = c.post(path, json={"sessionId": "s", "content": "x"})
+            assert anon.status_code == 401, path
+            # An unregistered agentId is not attribution either -> 403.
+            unreg = c.post(
+                path,
+                json={
+                    "sessionId": "s",
+                    "content": "x",
+                    "agentId": "ghost",
+                    "agentToken": "whatever",
+                },
+            )
+            assert unreg.status_code == 403, path
+
     def test_llm_log_rejects_oversized_usage(self, client):
         c, _ = client
         huge_usage = {f"k{i}": "v" * 1000 for i in range(200)}  # > params size bound
