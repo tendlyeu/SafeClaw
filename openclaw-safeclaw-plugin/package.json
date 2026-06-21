@@ -1,6 +1,6 @@
 {
   "name": "openclaw-safeclaw-plugin",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "SafeClaw Neurosymbolic Governance plugin for OpenClaw — validates AI agent actions against OWL ontologies and SHACL constraints",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +16,15 @@
   "openclaw": {
     "extensions": [
       "dist/index.js"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.6.8",
+      "minGatewayVersion": "2026.6.8"
+    },
+    "build": {
+      "openclawVersion": "2026.6.8",
+      "pluginSdkVersion": "2026.6.8"
+    }
   },
   "files": [
     "dist/",
