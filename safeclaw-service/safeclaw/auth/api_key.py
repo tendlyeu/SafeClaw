@@ -1,5 +1,6 @@
 """API key authentication for the remote SafeClaw service."""
 
+import copy
 import hashlib
 import secrets
 import threading
@@ -279,21 +280,25 @@ class SQLiteAPIKeyManager:
         round-trip and JSON parse on every governed tool call. Cache access is
         guarded by ``_llm_config_cache_lock``; the DB fetch itself runs outside
         the lock so concurrent lookups for *different* users are not serialized.
+        ``time.monotonic()`` is read inside the lock, so a TTL of ``0`` reliably
+        re-reads even under concurrency (a clock value captured before acquiring
+        the lock could otherwise predate another thread's store and make a stale
+        entry look fresh). A fresh deep copy is returned on every call, so
+        callers may mutate the result without poisoning the cache.
 
         Note: the cache introduces a staleness window of up to the TTL — a config
         change made on the landing site (e.g. a rotated key) is only picked up
         after the cached entry expires. The TTL is deliberately short, and the
         cached value is never used for an authorization decision, only to select
-        which LLM client to call. The returned dict is shared with the cache and
-        must not be mutated by callers.
+        which LLM client to call.
         """
-        now = time.monotonic()
+        ttl = self._llm_config_cache_ttl
         with self._llm_config_cache_lock:
             cached = self._llm_config_cache.get(user_id)
             if cached is not None:
                 value, cached_at = cached
-                if now - cached_at < self._llm_config_cache_ttl:
-                    return value
+                if time.monotonic() - cached_at < ttl:
+                    return copy.deepcopy(value)
                 # Expired — drop the stale entry. Safe here: we hold the lock and
                 # just read it, so no other thread can have removed it meanwhile.
                 del self._llm_config_cache[user_id]
@@ -309,9 +314,11 @@ class SQLiteAPIKeyManager:
             return None
 
         with self._llm_config_cache_lock:
-            self._prune_llm_config_cache_locked(time.monotonic())
-            self._llm_config_cache[user_id] = (result, time.monotonic())
-        return result
+            now = time.monotonic()
+            self._prune_llm_config_cache_locked(now)
+            self._llm_config_cache[user_id] = (result, now)
+        # Return a copy so the cached object is never handed out to a caller.
+        return copy.deepcopy(result)
 
     def _fetch_user_llm_config(self, user_id: str) -> tuple[dict | None, bool]:
         """Read and parse a user's LLM config from the DB (uncached).

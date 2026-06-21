@@ -468,6 +468,23 @@ class TestSQLiteAPIKeyManager:
 
         assert len(mgr._llm_config_cache) <= 3
 
+    def test_llm_config_cache_returns_copy_not_shared_reference(self, tmp_path):
+        """Mutating a returned config must not poison the cached entry (deep copy)."""
+        from safeclaw.auth.api_key import SQLiteAPIKeyManager
+
+        db_path = tmp_path / "safeclaw.db"
+        _seed_user_db(db_path, 42, mistral_key="key_v1")
+
+        mgr = SQLiteAPIKeyManager(str(db_path), llm_config_cache_ttl=60)
+
+        first = mgr.get_user_llm_config("42")
+        first["active_provider"] = "evil"
+        first["keys"]["mistral"] = "TAMPERED"  # mutate the nested dict too
+
+        second = mgr.get_user_llm_config("42")  # served from cache
+        assert second == {"active_provider": "mistral", "keys": {"mistral": "key_v1"}}
+        assert second is not first
+
     def test_llm_config_cache_ttl_is_config_driven(self, monkeypatch):
         """The cache TTL is wired through SafeClawConfig (deployment-tunable)."""
         from safeclaw.config import SafeClawConfig
