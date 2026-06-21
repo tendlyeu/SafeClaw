@@ -2,6 +2,9 @@
 
 SafeClaw validates every tool call, message, and agent action against OWL ontologies and SHACL constraints before execution. It acts as a governance gate between your AI agent and the tools it uses.
 
+> **Requires OpenClaw v2026.6.8 or newer.** The plugin reads v2026.6.8 hook
+> payloads; on older hosts governance data is incomplete.
+
 ## What it does
 
 - **Blocks dangerous actions** -- force push, deleting root, exposing secrets
@@ -23,6 +26,11 @@ SafeClaw validates every tool call, message, and agent action against OWL ontolo
 - `after_tool_call` -- records outcomes for dependency tracking
 - `subagent_spawning` / `subagent_ended` -- multi-agent governance
 - `session_start` / `session_end` -- session lifecycle tracking
+
+> The `llm_input`/`llm_output` audit hooks only fire when you grant raw
+> conversation access:
+> `plugins.entries.safeclaw.hooks.allowConversationAccess: true`. Without it the
+> LLM audit trail is silently empty.
 
 ## Agent tools
 
