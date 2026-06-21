@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from safeclaw.constraints.injection import INJECTION_PATTERNS
 from safeclaw.utils.sanitize import sanitize_string as _sanitize_string
 from safeclaw.utils.sanitize import sanitize_params as _sanitize_params
 
@@ -65,38 +66,9 @@ _CHANNEL_TRUST: dict[str, str] = {
     "api": "untrusted",
 }
 
-_INJECTION_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (
-        re.compile(
-            r"(?i)ignore\s+(all\s+)?(previous|prior|above)" r"\s+(instructions?|prompts?|rules?)",
-        ),
-        "prompt_injection_ignore_instructions",
-    ),
-    (
-        re.compile(r"(?i)you\s+are\s+now\s+(a|an|in)\s+"),
-        "prompt_injection_role_override",
-    ),
-    (
-        re.compile(r"(?i)system\s*prompt\s*[:=]"),
-        "prompt_injection_system_prompt",
-    ),
-    (
-        re.compile(
-            r"(?i)(do\s+not|don'?t)\s+follow\s+(your|the)" r"\s+(rules|guidelines|instructions)",
-        ),
-        "prompt_injection_rule_override",
-    ),
-    (
-        re.compile(
-            r"(?i)\[/?INST\]|\[/?SYS\]|<\|im_start\|>|<\|im_end\|>",
-        ),
-        "prompt_injection_special_tokens",
-    ),
-    (
-        re.compile(r"(?i)pretend\s+(you\s+)?(are|to\s+be)\s+"),
-        "prompt_injection_pretend",
-    ),
-]
+# Prompt-injection patterns live in safeclaw.constraints.injection so the
+# inbound-message gate and the tool-result path score with the same set (#326).
+_INJECTION_PATTERNS = INJECTION_PATTERNS
 
 router = APIRouter()
 
