@@ -134,6 +134,11 @@ class DecisionResponse(BaseModel):
     confirmationRequired: bool = False
     constraintStep: str = ""
     riskLevel: str = ""
+    # Rewritten tool params to execute instead of the caller's (#316). Set only
+    # when the service sanitized something and the call is not blocked, so the
+    # tool runs the same params the service governed (e.g. stripped control
+    # characters) rather than the raw input. `None` means "use the original".
+    params: dict | None = None
 
     @computed_field
     @property

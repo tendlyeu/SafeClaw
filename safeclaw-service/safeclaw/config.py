@@ -49,6 +49,11 @@ class SafeClawConfig(BaseSettings):
     max_subagent_spawn_depth: int = 5
     max_subagent_fanout: int = 10
 
+    # When True, the tool-call response returns control-char-sanitized params so
+    # the tool executes the same params the service governed, not the raw input
+    # (#316). Set False to disable param rewriting.
+    tool_param_rewrite_enabled: bool = True
+
     # LLM layer (passive observer — all features gated on API key)
     # New multi-provider fields
     llm_provider: str = ""  # Provider ID from PROVIDERS registry
