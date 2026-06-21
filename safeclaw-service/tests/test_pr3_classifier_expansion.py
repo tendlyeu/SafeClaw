@@ -161,6 +161,23 @@ class TestMcpClassification:
         assert result.requires_confirmation is True
         assert "McpToolCall" in "".join(result.derived_rules) or "Mcp" in result.reason
 
+    def test_explicit_mcp_mapping_overrides_prefix_default(self, clf):
+        # An explicit TOOL_MAPPINGS entry for a trusted mcp__* tool must win over
+        # the generic prefix default (#325: "until explicitly classified").
+        from unittest.mock import patch
+
+        import safeclaw.constraints.action_classifier as ac
+
+        with patch.dict(
+            ac.TOOL_MAPPINGS,
+            {"mcp__trusted__read": ("ReadFile", "LowRisk", True, "LocalOnly")},
+        ):
+            a = clf.classify("mcp__trusted__read", {})
+            assert a.ontology_class == "ReadFile"
+            assert a.risk_level == "LowRisk"
+        # Other mcp__* tools still hit the conservative default.
+        assert clf.classify("mcp__other__write", {}).ontology_class == "McpToolCall"
+
 
 # --- #322: code-mode / sandbox exec + JS dangerous ops ---
 
@@ -252,6 +269,37 @@ class TestCodeModeClassification:
             clf,
             "exec",
             {"command": "function rm(x){return x}; rm('hello')"},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class != "DeleteFile"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # renamed destructuring -> the local name is not a known verb
+            'const { rmSync: del } = require("fs"); del("/tmp/x")',
+            'import { rmSync as del } from "fs"; del("/tmp/x")',
+            'const { unlink: nuke } = require("node:fs/promises"); await nuke("/tmp/x")',
+            # dynamic import + namespace alias member access
+            'const m = await import("node:fs"); m.rmSync("/tmp/x")',
+            'import * as fsmod from "fs"; fsmod.unlinkSync("/tmp/x")',
+            'const fs2 = require("fs"); fs2.rmdirSync("/tmp/x")',
+            # destructure from a namespace alias (two-step)
+            'const fs3 = require("fs"); const { rmSync } = fs3; rmSync("/tmp/x")',
+        ],
+    )
+    def test_fs_aliased_and_dynamic_import_deletes(self, clf, command):
+        # Renamed/namespace/dynamic-import aliases must still be DeleteFile.
+        a = _c(clf, "exec", {"command": command}, tool_kind="code_mode_exec")
+        assert a.ontology_class == "DeleteFile", command
+        assert a.risk_level == "CriticalRisk", command
+
+    def test_aliased_non_delete_verb_not_escalated(self, clf):
+        # Renaming a NON-delete fs function must not be flagged as a delete.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'const { readFileSync: rd } = require("fs"); rd("/tmp/x")'},
             tool_kind="code_mode_exec",
         )
         assert a.ontology_class != "DeleteFile"

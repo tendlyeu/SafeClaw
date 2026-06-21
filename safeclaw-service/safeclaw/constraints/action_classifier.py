@@ -174,23 +174,27 @@ JS_PATTERNS = [
     (r"\bfetch\s*\(", "NetworkRequest", "MediumRisk", True, "ExternalWorld"),
 ]
 
-# Detect a Node fs import in any form (require or ES import, incl. node:/promises),
-# so destructured/aliased removal calls (`const {rm}=require("fs"); rm(...)`) can
-# be treated as deletes even when split from their import by `;` (#322 follow-up).
-_FS_IMPORT_RE = re.compile(
-    r"""(?:require\(\s*['"](?:node:)?fs(?:/promises)?['"]\s*\)"""
-    r"""|(?:from|import)\s+['"](?:node:)?fs(?:/promises)?['"])"""
+# --- Lightweight fs alias/binding tracker (#322 follow-up) ---
+# Regex JS analysis can't catch every obfuscation, but renamed destructuring and
+# dynamic-import namespace aliases are common, non-adversarial forms that must
+# not bypass DeleteFile. We track three binding shapes over the whole command.
+_FS_MOD = r"""['"](?:node:)?fs(?:/promises)?['"]"""
+_FS_VERB_SET = ("rmSync", "rm", "unlinkSync", "unlink", "rmdirSync", "rmdir")
+_ID = r"[A-Za-z_$][\w$]*"
+
+# Namespace binding: `const X = require("fs")` / `= await import("fs")`,
+# `import X from "fs"`, `import * as X from "fs"`.
+_FS_NS_BINDING_RE = re.compile(
+    rf"""(?:const|let|var)\s+({_ID})\s*=\s*(?:await\s+)?(?:require|import)\(\s*{_FS_MOD}\s*\)"""
+    rf"""|import\s+(?:\*\s+as\s+)?({_ID})\s+from\s*{_FS_MOD}"""
 )
-# When fs is imported, a bare removal call is a filesystem delete.
-_FS_BARE_DELETE_PATTERNS = [
-    (
-        rf"\b{_FS_DELETE_VERBS}\s*\(",
-        "DeleteFile",
-        "CriticalRisk",
-        False,
-        "LocalOnly",
-    ),
-]
+# Destructured/named-import block from fs (require/import), OR from a known
+# namespace alias (filled in at match time). Capture the `{...}` body.
+_FS_DESTRUCT_FROM_MODULE_RE = re.compile(
+    rf"""(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*(?:await\s+)?(?:require|import)\(\s*{_FS_MOD}\s*\)"""
+    rf"""|import\s*\{{([^}}]*)\}}\s*from\s*{_FS_MOD}"""
+)
+_DESTRUCT_RENAME_RE = re.compile(r"\s*(?::|\bas\b)\s*")
 
 # MCP / dynamically-exposed plugin tools use a namespaced name (#325).
 _MCP_PREFIX = "mcp__"
@@ -225,6 +229,20 @@ class ActionClassifier:
         if tool_name == "message":
             return self._classify_message(params)
 
+        # Direct tool mapping (Python tuple is authoritative — matches the ttl).
+        # Checked BEFORE the mcp__ prefix default so an explicit classification
+        # for a trusted `mcp__*` tool wins over the conservative default (#325).
+        if tool_name in TOOL_MAPPINGS:
+            cls, risk, reversible, scope = TOOL_MAPPINGS[tool_name]
+            return ClassifiedAction(
+                ontology_class=cls,
+                risk_level=risk,
+                is_reversible=reversible,
+                affects_scope=scope,
+                tool_name=tool_name,
+                params=params,
+            )
+
         # MCP / dynamically-exposed plugin tools have arbitrary namespaced names
         # and can perform external writes; default to a conservative HighRisk
         # ExternalWorld class until explicitly classified (#325).
@@ -234,18 +252,6 @@ class ActionClassifier:
                 risk_level="HighRisk",
                 is_reversible=False,
                 affects_scope="ExternalWorld",
-                tool_name=tool_name,
-                params=params,
-            )
-
-        # Direct tool mapping (Python tuple is authoritative — matches the ttl)
-        if tool_name in TOOL_MAPPINGS:
-            cls, risk, reversible, scope = TOOL_MAPPINGS[tool_name]
-            return ClassifiedAction(
-                ontology_class=cls,
-                risk_level=risk,
-                is_reversible=reversible,
-                affects_scope=scope,
                 tool_name=tool_name,
                 params=params,
             )
@@ -354,6 +360,63 @@ class ActionClassifier:
         parts.append("".join(current))
         return [p.strip() for p in parts if p.strip()]
 
+    @staticmethod
+    def _fs_alias_delete_patterns(command: str) -> list[tuple]:
+        """Build DeleteFile patterns for fs removal calls reached via aliases.
+
+        Covers: namespace bindings (`const m = require("fs")` / `await import`,
+        `import * as m`/default) → `m.<verb>(`; and renamed/destructured bindings
+        (`const {rmSync: del} = require("fs")`, `import {rm as nuke} from "fs"`,
+        and destructuring from a namespace alias) → bare `del(`/`nuke(`.
+
+        Deliberately heuristic: deeper indirection (computed property access like
+        `fs["rm"+"Sync"]`, passing the function as a value) is not tracked and
+        falls back to the code-mode ExecuteCommand floor. Renames of NON-delete
+        verbs are not flagged.
+        """
+        ns_aliases: set[str] = set()
+        for m in _FS_NS_BINDING_RE.finditer(command):
+            ns_aliases.add(m.group(1) or m.group(2))
+
+        verb_aliases: set[str] = set()
+
+        def _collect(block: str) -> None:
+            for entry in block.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                halves = _DESTRUCT_RENAME_RE.split(entry, maxsplit=1)
+                orig = halves[0].strip()
+                local = halves[-1].strip() if len(halves) > 1 else orig
+                if orig in _FS_VERB_SET and re.fullmatch(_ID, local):
+                    verb_aliases.add(local)
+
+        for m in _FS_DESTRUCT_FROM_MODULE_RE.finditer(command):
+            _collect(m.group(1) or m.group(2) or "")
+        # Destructure from a known namespace alias: `const {rmSync} = m`.
+        for alias in ns_aliases:
+            for m in re.finditer(
+                rf"(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*{re.escape(alias)}\b", command
+            ):
+                _collect(m.group(1))
+
+        verbs = "|".join(_FS_VERB_SET)
+        extra: list[tuple] = []
+        for alias in ns_aliases:
+            extra.append(
+                (
+                    rf"\b{re.escape(alias)}\.(?:{verbs})\s*\(",
+                    "DeleteFile",
+                    "CriticalRisk",
+                    False,
+                    "LocalOnly",
+                )
+            )
+        if verb_aliases:
+            alt = "|".join(re.escape(a) for a in verb_aliases)
+            extra.append((rf"\b(?:{alt})\s*\(", "DeleteFile", "CriticalRisk", False, "LocalOnly"))
+        return extra
+
     def _classify_shell(
         self, params: dict, tool_name: str = "exec", code_mode: bool = False
     ) -> ClassifiedAction:
@@ -369,12 +432,11 @@ class ActionClassifier:
         # and also apply JS/TS dangerous-op patterns. Plain shell strips quoted
         # data first to avoid false positives from quoted arguments. (#322)
         if code_mode:
-            patterns = SHELL_PATTERNS + JS_PATTERNS
-            # If the body imports Node fs in any form, a bare (destructured/
-            # aliased) removal call is a filesystem delete — checked over the
-            # WHOLE command since `;` may split the import from the call.
-            if _FS_IMPORT_RE.search(command):
-                patterns = patterns + _FS_BARE_DELETE_PATTERNS
+            # Add patterns derived from fs bindings in this body (namespace and
+            # renamed/destructured aliases), so deletes via aliased names are
+            # caught — checked over the WHOLE command since `;` may split a
+            # binding from its later use. (#322 follow-up)
+            patterns = SHELL_PATTERNS + JS_PATTERNS + self._fs_alias_delete_patterns(command)
         else:
             patterns = SHELL_PATTERNS
 
