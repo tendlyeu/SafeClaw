@@ -219,7 +219,12 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
     # (audit logging, session tracking, rate limit counting, etc.). Return a
     # classification-only response instead.
     if request.dryRun:
-        classified = engine.action_classifier.classify(request.toolName, sanitized_params)
+        classified = engine.classifier.classify(
+            request.toolName,
+            sanitized_params,
+            tool_kind=request.toolKind,
+            tool_input_kind=request.toolInputKind,
+        )
         return DecisionResponse(
             block=False,
             reason=f"dry-run: classified as {classified.ontology_class} ({classified.risk_level})",

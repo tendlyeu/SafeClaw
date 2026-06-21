@@ -125,6 +125,61 @@ sc:SendMessage a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:MessageAction ;
     rdfs:label "Send Message" .
 
+# Creating a new delivery surface (channel/category/topic/thread/event). (#318)
+sc:CreateChannel a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:MessageAction ;
+    rdfs:label "Create Channel" .
+
+# Broadcasting / posting to a different conversation than the current one —
+# the highest-blast-radius outbound message action. (#318)
+sc:CrossContextMessage a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:MessageAction ;
+    rdfs:label "Cross-Context Message" .
+
+# Membership / permission / destructive channel moderation (kick, ban, role
+# changes, channel delete, etc.). (#318)
+sc:ModerateChannel a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:MessageAction ;
+    rdfs:label "Moderate Channel" .
+
+# --- Memory Action Subclasses (#319) ---
+sc:MemoryAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Memory Action" .
+
+# Writing attacker-influenceable text into persistent agent memory/embeddings.
+sc:MemoryWrite a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:MemoryAction ;
+    rdfs:label "Memory Write" .
+
+sc:MemoryRead a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:MemoryAction ;
+    rdfs:label "Memory Read" .
+
+# --- Skill Action Subclasses (#319) ---
+sc:SkillAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Skill Action" .
+
+# Authoring/modifying executable agent skills.
+sc:SkillAuthor a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:SkillAction ;
+    rdfs:label "Skill Author" .
+
+# --- Media Action Subclasses (#319) ---
+sc:MediaAction a owl:Class ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "Media Action" .
+
+sc:GenerateMedia a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:MediaAction ;
+    rdfs:label "Generate Media" .
+
+# --- Dynamic / MCP tool calls (#325) ---
+sc:McpToolCall a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:Action ;
+    rdfs:label "MCP Tool Call" .
+
 # --- Risk Classification ---
 sc:RiskLevel a owl:Class ;
     rdfs:label "Risk Level" .
@@ -267,4 +322,37 @@ sc:SendMessage sc:hasRiskLevel sc:HighRisk ;
 
 sc:BrowserAction sc:hasRiskLevel sc:MediumRisk ;
     sc:isReversible true ;
+    sc:affectsScope sc:ExternalWorld .
+
+# --- Defaults for v2026.6.8 classifier expansion (#318/#319/#325) ---
+sc:CreateChannel sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:CrossContextMessage sc:hasRiskLevel sc:CriticalRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:ModerateChannel sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:MemoryWrite sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:SharedState .
+
+sc:MemoryRead sc:hasRiskLevel sc:LowRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:SkillAuthor sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:SharedState .
+
+sc:GenerateMedia sc:hasRiskLevel sc:MediumRisk ;
+    sc:isReversible true ;
+    sc:affectsScope sc:ExternalWorld .
+
+sc:McpToolCall sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
     sc:affectsScope sc:ExternalWorld .

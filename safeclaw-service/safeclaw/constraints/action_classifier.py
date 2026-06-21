@@ -74,8 +74,16 @@ TOOL_MAPPINGS = {
     "apply_patch": ("EditFile", "MediumRisk", True, "LocalOnly"),
     "web_fetch": ("WebFetch", "MediumRisk", True, "ExternalWorld"),
     "web_search": ("WebSearch", "LowRisk", True, "ExternalWorld"),
-    "message": ("SendMessage", "HighRisk", False, "ExternalWorld"),
+    # `message` is handled by _classify_message (action/channel-aware, #318).
     "browser": ("BrowserAction", "MediumRisk", True, "ExternalWorld"),
+    # Memory / skill / media tools (v2026.6.8, #319)
+    "memory_store": ("MemoryWrite", "HighRisk", False, "SharedState"),
+    "memory_recall": ("MemoryRead", "LowRisk", True, "LocalOnly"),
+    "skill_workshop": ("SkillAuthor", "HighRisk", False, "SharedState"),
+    "image": ("GenerateMedia", "MediumRisk", True, "ExternalWorld"),
+    "image_generate": ("GenerateMedia", "MediumRisk", True, "ExternalWorld"),
+    "music_generate": ("GenerateMedia", "MediumRisk", True, "ExternalWorld"),
+    "tts": ("GenerateMedia", "MediumRisk", True, "ExternalWorld"),
     "glob": ("ListFiles", "LowRisk", True, "LocalOnly"),
     "grep": ("SearchFiles", "LowRisk", True, "LocalOnly"),
     "find": ("ListFiles", "LowRisk", True, "LocalOnly"),
@@ -88,6 +96,109 @@ TOOL_MAPPINGS = {
     "trash": ("DeleteFile", "HighRisk", False, "LocalOnly"),
 }
 
+# --- message tool action classification (#318) ---
+# Real OpenClaw v2026.6.8 `message` action names (CHANNEL_MESSAGE_ACTION_NAMES).
+# Creating a new delivery surface.
+_MESSAGE_CREATE_ACTIONS = {
+    "channel-create",
+    "category-create",
+    "topic-create",
+    "thread-create",
+    "event-create",
+}
+# Broadcasting to an explicit/other target — cross-context blast radius.
+_MESSAGE_BROADCAST_ACTIONS = {"broadcast"}
+# Membership / permission / destructive channel moderation.
+_MESSAGE_MODERATE_ACTIONS = {
+    "kick",
+    "ban",
+    "timeout",
+    "addparticipant",
+    "removeparticipant",
+    "leavegroup",
+    "renamegroup",
+    "setgroupicon",
+    "role-add",
+    "role-remove",
+    "permissions",
+    "channel-edit",
+    "channel-delete",
+    "channel-move",
+    "category-edit",
+    "category-delete",
+    "topic-edit",
+}
+
+# Tools whose body is code-mode source rather than a shell command line (#322).
+_CODE_MODE_TOOLS = {"sandbox_exec", "sandbox_process"}
+_SHELL_TOOLS = {"exec", "bash", "shell"}
+
+# Dangerous JS/TS operations in code-mode bodies that shell patterns miss (#322).
+# Matched against the RAW source (quotes intact), so embedded command strings
+# like execSync("git push --force") are also visible to SHELL_PATTERNS.
+# Node fs removal verbs (the distinctive method names).
+_FS_DELETE_VERBS = r"(?:rmSync|rm|unlinkSync|unlink|rmdirSync|rmdir)"
+
+JS_PATTERNS = [
+    # Member access: fs / fs.promises / fsp .<delete>(
+    (
+        rf"\b(?:fs\.promises|fsp|fs)\.{_FS_DELETE_VERBS}\s*\(",
+        "DeleteFile",
+        "CriticalRisk",
+        False,
+        "LocalOnly",
+    ),
+    # Inline require chain: require("fs"|"node:fs"|"fs/promises").<delete>(
+    (
+        rf"""require\(\s*['"](?:node:)?fs(?:/promises)?['"]\s*\)\s*\.\s*{_FS_DELETE_VERBS}\s*\(""",
+        "DeleteFile",
+        "CriticalRisk",
+        False,
+        "LocalOnly",
+    ),
+    (
+        r"\bDeno\.(?:remove|removeSync)\s*\(",
+        "DeleteFile",
+        "CriticalRisk",
+        False,
+        "LocalOnly",
+    ),
+    (
+        r"\b(?:child_process|execSync|spawnSync|execFileSync)\b",
+        "ExecuteCommand",
+        "HighRisk",
+        False,
+        "LocalOnly",
+    ),
+    # JS-native network egress (no curl/wget analogue).
+    (r"\bfetch\s*\(", "NetworkRequest", "MediumRisk", True, "ExternalWorld"),
+]
+
+# --- Lightweight fs alias/binding tracker (#322 follow-up) ---
+# Regex JS analysis can't catch every obfuscation, but renamed destructuring and
+# dynamic-import namespace aliases are common, non-adversarial forms that must
+# not bypass DeleteFile. We track three binding shapes over the whole command.
+_FS_MOD = r"""['"](?:node:)?fs(?:/promises)?['"]"""
+_FS_VERB_SET = ("rmSync", "rm", "unlinkSync", "unlink", "rmdirSync", "rmdir")
+_ID = r"[A-Za-z_$][\w$]*"
+
+# Namespace binding: `const X = require("fs")` / `= await import("fs")`,
+# `import X from "fs"`, `import * as X from "fs"`.
+_FS_NS_BINDING_RE = re.compile(
+    rf"""(?:const|let|var)\s+({_ID})\s*=\s*(?:await\s+)?(?:require|import)\(\s*{_FS_MOD}\s*\)"""
+    rf"""|import\s+(?:\*\s+as\s+)?({_ID})\s+from\s*{_FS_MOD}"""
+)
+# Destructured/named-import block from fs (require/import), OR from a known
+# namespace alias (filled in at match time). Capture the `{...}` body.
+_FS_DESTRUCT_FROM_MODULE_RE = re.compile(
+    rf"""(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*(?:await\s+)?(?:require|import)\(\s*{_FS_MOD}\s*\)"""
+    rf"""|import\s*\{{([^}}]*)\}}\s*from\s*{_FS_MOD}"""
+)
+_DESTRUCT_RENAME_RE = re.compile(r"\s*(?::|\bas\b)\s*")
+
+# MCP / dynamically-exposed plugin tools use a namespaced name (#325).
+_MCP_PREFIX = "mcp__"
+
 
 class ActionClassifier:
     """Maps tool calls to ontology action classes."""
@@ -95,12 +206,32 @@ class ActionClassifier:
     def __init__(self, hierarchy: ClassHierarchy | None = None):
         self._hierarchy = hierarchy
 
-    def classify(self, tool_name: str, params: dict) -> ClassifiedAction:
-        # Shell commands need deeper inspection
-        if tool_name in ("exec", "bash", "shell"):
-            return self._classify_shell(params)
+    def classify(
+        self,
+        tool_name: str,
+        params: dict,
+        tool_kind: str = "",
+        tool_input_kind: str = "",
+    ) -> ClassifiedAction:
+        # Code-mode exec (JS/TS) and sandbox exec/process are still command
+        # execution — route them through the shell classifier (#322).
+        if (
+            tool_name in _SHELL_TOOLS
+            or tool_name in _CODE_MODE_TOOLS
+            or tool_kind == "code_mode_exec"
+        ):
+            code_mode = tool_name in _CODE_MODE_TOOLS or tool_kind == "code_mode_exec"
+            return self._classify_shell(params, tool_name=tool_name, code_mode=code_mode)
 
-        # Direct tool mapping
+        # The `message` tool is multi-action: branch on the action/channel params
+        # so channel-create and cross-context broadcasts are not seen as a plain
+        # reply (#318).
+        if tool_name == "message":
+            return self._classify_message(params)
+
+        # Direct tool mapping (Python tuple is authoritative — matches the ttl).
+        # Checked BEFORE the mcp__ prefix default so an explicit classification
+        # for a trusted `mcp__*` tool wins over the conservative default (#325).
         if tool_name in TOOL_MAPPINGS:
             cls, risk, reversible, scope = TOOL_MAPPINGS[tool_name]
             return ClassifiedAction(
@@ -108,6 +239,19 @@ class ActionClassifier:
                 risk_level=risk,
                 is_reversible=reversible,
                 affects_scope=scope,
+                tool_name=tool_name,
+                params=params,
+            )
+
+        # MCP / dynamically-exposed plugin tools have arbitrary namespaced names
+        # and can perform external writes; default to a conservative HighRisk
+        # ExternalWorld class until explicitly classified (#325).
+        if tool_name.startswith(_MCP_PREFIX):
+            return ClassifiedAction(
+                ontology_class="McpToolCall",
+                risk_level="HighRisk",
+                is_reversible=False,
+                affects_scope="ExternalWorld",
                 tool_name=tool_name,
                 params=params,
             )
@@ -122,6 +266,39 @@ class ActionClassifier:
             params=params,
         )
         return self._enrich_from_ontology(action)
+
+    @staticmethod
+    def _as_bool(value: object) -> bool:
+        """Interpret a JSON-ish flag as bool. Crucially, the STRING "false"
+        (and other falsey strings) must be False — `bool("false")` is True."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on")
+        return bool(value)
+
+    def _classify_message(self, params: dict) -> ClassifiedAction:
+        """Classify a `message` tool call by its action / channel context (#318)."""
+        action = str(params.get("action") or "send").strip().lower()
+        cross_context = self._as_bool(params.get("crossContext"))
+
+        if action in _MESSAGE_CREATE_ACTIONS:
+            cls, risk, scope = "CreateChannel", "HighRisk", "ExternalWorld"
+        elif cross_context or action in _MESSAGE_BROADCAST_ACTIONS:
+            cls, risk, scope = "CrossContextMessage", "CriticalRisk", "ExternalWorld"
+        elif action in _MESSAGE_MODERATE_ACTIONS:
+            cls, risk, scope = "ModerateChannel", "HighRisk", "ExternalWorld"
+        else:
+            cls, risk, scope = "SendMessage", "HighRisk", "ExternalWorld"
+
+        return ClassifiedAction(
+            ontology_class=cls,
+            risk_level=risk,
+            is_reversible=False,
+            affects_scope=scope,
+            tool_name="message",
+            params=params,
+        )
 
     @staticmethod
     def _split_chain(command: str) -> list[str]:
@@ -183,7 +360,94 @@ class ActionClassifier:
         parts.append("".join(current))
         return [p.strip() for p in parts if p.strip()]
 
-    def _classify_shell(self, params: dict) -> ClassifiedAction:
+    @staticmethod
+    def _fs_alias_delete_patterns(command: str) -> list[tuple]:
+        """Build DeleteFile patterns for fs removal calls reached via aliases.
+
+        Covers: namespace bindings (`const m = require("fs")` / `await import`,
+        `import * as m`/default) → `m.<verb>(` and `m.promises.<verb>(`; a
+        destructured `promises` namespace (`const {promises} = require("fs")`,
+        `import {promises as p} from "node:fs"`) → `promises.<verb>(`/`p.<verb>(`;
+        and renamed/destructured delete-verb bindings (`const {rmSync: del} =
+        require("fs")`, `import {rm as nuke} from "fs"`, destructuring from a
+        namespace alias) → bare `del(`/`nuke(`.
+
+        Deliberately heuristic: deeper indirection (computed property access like
+        `fs["rm"+"Sync"]`, passing the function as a value) is not tracked and
+        falls back to the code-mode ExecuteCommand floor. Renames of NON-delete
+        verbs are not flagged.
+        """
+        ns_aliases: set[str] = set()
+        for m in _FS_NS_BINDING_RE.finditer(command):
+            ns_aliases.add(m.group(1) or m.group(2))
+
+        verb_aliases: set[str] = set()
+
+        def _collect(block: str) -> None:
+            for entry in block.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                halves = _DESTRUCT_RENAME_RE.split(entry, maxsplit=1)
+                orig = halves[0].strip()
+                local = halves[-1].strip() if len(halves) > 1 else orig
+                if not re.fullmatch(_ID, local):
+                    continue
+                if orig in _FS_VERB_SET:
+                    verb_aliases.add(local)
+                elif orig == "promises":
+                    # The destructured fs.promises API is itself a namespace whose
+                    # members include the delete verbs (#322 follow-up).
+                    ns_aliases.add(local)
+
+        for m in _FS_DESTRUCT_FROM_MODULE_RE.finditer(command):
+            _collect(m.group(1) or m.group(2) or "")
+
+        # Propagate to a fixpoint so chains work: assignment aliases
+        # (`const p = fs` or `const p = fs.promises`, where fs is a known alias)
+        # become namespace aliases, and destructures from a known alias
+        # (`const {rm} = fs`) are collected. Aliases only grow (bounded by the
+        # identifiers in the command), so this terminates.
+        changed = True
+        while changed:
+            before = (len(ns_aliases), len(verb_aliases))
+            for alias in tuple(ns_aliases):
+                # `const X = <alias>` / `const X = <alias>.promises` — the negative
+                # lookahead rejects function-value aliases like `= fs.promises.rm`.
+                for am in re.finditer(
+                    rf"(?:const|let|var)\s+({_ID})\s*=\s*{re.escape(alias)}(?:\.promises)?(?![\w$.])",
+                    command,
+                ):
+                    ns_aliases.add(am.group(1))
+                # `const {rmSync} = <alias>`
+                for dm in re.finditer(
+                    rf"(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*{re.escape(alias)}\b", command
+                ):
+                    _collect(dm.group(1))
+            changed = (len(ns_aliases), len(verb_aliases)) != before
+
+        verbs = "|".join(_FS_VERB_SET)
+        extra: list[tuple] = []
+        for alias in ns_aliases:
+            # Allow an optional `.promises` hop so `<fsAlias>.promises.<verb>(` is
+            # caught alongside `<fsAlias>.<verb>(` and `<promisesAlias>.<verb>(`.
+            extra.append(
+                (
+                    rf"\b{re.escape(alias)}(?:\.promises)?\.(?:{verbs})\s*\(",
+                    "DeleteFile",
+                    "CriticalRisk",
+                    False,
+                    "LocalOnly",
+                )
+            )
+        if verb_aliases:
+            alt = "|".join(re.escape(a) for a in verb_aliases)
+            extra.append((rf"\b(?:{alt})\s*\(", "DeleteFile", "CriticalRisk", False, "LocalOnly"))
+        return extra
+
+    def _classify_shell(
+        self, params: dict, tool_name: str = "exec", code_mode: bool = False
+    ) -> ClassifiedAction:
         command = params.get("command") or ""
 
         # Split on command chaining operators, respecting quoted strings
@@ -191,24 +455,38 @@ class ActionClassifier:
         highest_risk = None
         chain_classes: list[str] = []
 
+        # Code-mode bodies are source, not a shell line: scan them RAW (so an
+        # embedded command string like execSync("git push --force") is visible)
+        # and also apply JS/TS dangerous-op patterns. Plain shell strips quoted
+        # data first to avoid false positives from quoted arguments. (#322)
+        if code_mode:
+            # Add patterns derived from fs bindings in this body (namespace and
+            # renamed/destructured aliases), so deletes via aliased names are
+            # caught — checked over the WHOLE command since `;` may split a
+            # binding from its later use. (#322 follow-up)
+            patterns = SHELL_PATTERNS + JS_PATTERNS + self._fs_alias_delete_patterns(command)
+        else:
+            patterns = SHELL_PATTERNS
+
         for sub_cmd in sub_commands:
-            # Strip quoted strings from each sub-command before pattern matching
-            # so that content inside quotes does not trigger false positives
-            unquoted = re.sub(r"""(["'])(?:\\.|(?!\1).)*\1""", "", sub_cmd)
-            # Expand subshell / process substitutions so their contents are
-            # also visible to pattern matching  (#23)
-            unquoted = re.sub(r"\$\(([^)]*)\)", r" \1 ", unquoted)
-            unquoted = re.sub(r"`([^`]*)`", r" \1 ", unquoted)
+            if code_mode:
+                scan = sub_cmd
+            else:
+                # Strip quoted strings, then expand subshell/process substitutions
+                # so their contents are also visible to pattern matching (#23).
+                scan = re.sub(r"""(["'])(?:\\.|(?!\1).)*\1""", "", sub_cmd)
+                scan = re.sub(r"\$\(([^)]*)\)", r" \1 ", scan)
+                scan = re.sub(r"`([^`]*)`", r" \1 ", scan)
             matched_cls: str | None = None
-            for pattern, cls, risk, reversible, scope in SHELL_PATTERNS:
-                if re.search(pattern, unquoted, re.IGNORECASE):
+            for pattern, cls, risk, reversible, scope in patterns:
+                if re.search(pattern, scan, re.IGNORECASE):
                     matched_cls = cls
                     candidate = ClassifiedAction(
                         ontology_class=cls,
                         risk_level=risk,
                         is_reversible=reversible,
                         affects_scope=scope,
-                        tool_name="exec",
+                        tool_name=tool_name,
                         params=params,
                     )
                     if highest_risk is None or RISK_ORDER.get(risk, 0) > RISK_ORDER.get(
@@ -225,13 +503,13 @@ class ActionClassifier:
             highest_risk.chain_classes = chain_classes
             return highest_risk
 
-        # Default shell command classification
+        # Default shell/code-mode command classification
         return ClassifiedAction(
             ontology_class="ExecuteCommand",
             risk_level="HighRisk",
             is_reversible=False,
             affects_scope="LocalOnly",
-            tool_name="exec",
+            tool_name=tool_name,
             params=params,
             chain_classes=chain_classes,
         )
