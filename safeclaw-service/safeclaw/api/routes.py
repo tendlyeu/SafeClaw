@@ -121,6 +121,7 @@ def _resolve_channel_trust(channel: str, provider: str, channel_type: str) -> st
     key = channel.lower().replace("-", "_").replace(" ", "_")
     return _CHANNEL_TRUST.get(key, "low")
 
+
 # Prompt-injection patterns live in safeclaw.constraints.injection so the
 # inbound-message gate and the tool-result path score with the same set (#326).
 _INJECTION_PATTERNS = INJECTION_PATTERNS
@@ -602,43 +603,91 @@ async def evaluate_subagent_spawn(
 ) -> SubagentSpawnResponse:
     """Evaluate whether a subagent spawn should be allowed.
 
-    Checks for delegation bypass: if the parent agent has recent blocks and the
-    child's proposed tools overlap with those blocked actions, this is flagged as
-    a delegation bypass attempt.
+    Enforces (#321):
+    - spawn DEPTH limit (a child N levels deep cannot exceed the cap),
+    - per-parent FAN-OUT limit (a parent cannot spawn more than the cap),
+    - killed-ANCESTOR check (not just the immediate parent),
+    - delegation bypass against any ANCESTOR's recent blocks,
+    using a session-key hierarchy persisted at spawn time.
     """
     engine = _get_engine()
     _verify_agent_token(engine, request.agentId, request.agentToken)
+    hierarchy = engine.subagent_hierarchy
+    registry = engine.agent_registry
 
-    parent_id = request.parentAgentId
-    if not parent_id:
+    # The deprecated OpenClaw hook gives session keys, not agent ids. Resolve the
+    # parent/child identities, falling back to legacy agentId fields.
+    parent_key = request.parentSessionKey or request.sessionId or request.parentAgentId
+    child_key = request.childSessionKey or request.childAgentId
+    parent_agent_id = request.parentAgentId or (
+        hierarchy.agent_id_for(parent_key) if parent_key else None
+    )
+    if request.parentAgentId and parent_key:
+        hierarchy.set_agent_id(parent_key, request.parentAgentId)
+
+    if not parent_key:
         return SubagentSpawnResponse(allowed=True)
 
-    # Check if parent agent is killed
-    parent_record = engine.agent_registry.get_agent(parent_id)
-    if parent_record is not None and parent_record.killed:
+    # 1. Killed-ancestor check (immediate parent + the whole ancestry chain).
+    ancestor_keys = [parent_key, *hierarchy.ancestors(parent_key)]
+    for anc_key in ancestor_keys:
+        anc_agent = (
+            request.parentAgentId if anc_key == parent_key else None
+        ) or hierarchy.agent_id_for(anc_key)
+        if anc_agent and registry.is_killed(anc_agent):
+            return SubagentSpawnResponse(
+                allowed=False,
+                block=True,
+                reason=f"Ancestor agent {anc_agent} is killed; cannot spawn subagents",
+            )
+
+    # 2. Spawn depth limit. Derive from the stored hierarchy; honor a larger
+    # client-supplied depth if present (defence in depth).
+    derived_depth = hierarchy.depth(parent_key) + 1
+    depth = max(derived_depth, request.spawnDepth or 0)
+    max_depth = engine.config.max_subagent_spawn_depth
+    if depth > max_depth:
         return SubagentSpawnResponse(
             allowed=False,
             block=True,
-            reason=f"Parent agent {parent_id} is killed; cannot spawn subagents",
+            reason=(
+                f"Subagent spawn depth {depth} exceeds limit {max_depth} "
+                f"(parent session {parent_key})"
+            ),
+            spawnDepth=depth,
         )
 
-    # Check delegation bypass: if child's proposed tools overlap with parent's
-    # recently blocked actions, flag it as a potential delegation bypass.
-    # We check the detector's block records directly rather than using
-    # check_delegation(), because at spawn time we only know the tool names
-    # the child will have access to -- not the specific params it will use.
+    # 3. Fan-out limit (children already spawned by this parent).
+    max_fanout = engine.config.max_subagent_fanout
+    if hierarchy.child_count(parent_key) >= max_fanout:
+        return SubagentSpawnResponse(
+            allowed=False,
+            block=True,
+            reason=(f"Subagent fan-out limit {max_fanout} reached for parent {parent_key}"),
+            spawnDepth=depth,
+        )
+
+    # 4. Delegation bypass: child's proposed tools overlapping ANY ancestor's
+    # recent blocks (not just the immediate parent). Best-effort — childConfig
+    # tools are only present on legacy callers.
     child_tools = request.childConfig.get("tools", [])
     if child_tools and isinstance(child_tools, list):
-        from safeclaw.engine.delegation_detector import _normalize_tool_name
         from time import monotonic
+
+        from safeclaw.engine.delegation_detector import _normalize_tool_name
 
         detector = engine.delegation_detector
         if detector.mode != "disabled":
             now = monotonic()
             child_tool_set = {_normalize_tool_name(t) for t in child_tools if isinstance(t, str)}
+            ancestor_agents = {
+                a
+                for a in ([parent_agent_id] + [hierarchy.agent_id_for(k) for k in ancestor_keys])
+                if a
+            }
             for record in detector._blocks:
                 if (
-                    record.agent_id == parent_id
+                    record.agent_id in ancestor_agents
                     and record.tool_name in child_tool_set
                     and (now - record.timestamp) <= 300  # DETECTION_WINDOW
                 ):
@@ -646,19 +695,23 @@ async def evaluate_subagent_spawn(
                         allowed=False,
                         block=True,
                         reason=(
-                            f"Delegation bypass detected: parent {parent_id} was "
-                            f"blocked from '{record.tool_name}' and is attempting "
-                            f"to spawn a child with access to the same tool"
+                            f"Delegation bypass detected: ancestor {record.agent_id} was "
+                            f"blocked from '{record.tool_name}' and a descendant is being "
+                            f"spawned with access to the same tool"
                         ),
+                        spawnDepth=depth,
                     )
 
+    # Allowed — persist the parentage so deeper spawns and siblings are counted.
+    hierarchy.register_spawn(parent_key, child_key, request.childAgentId)
     logger.info(
-        "Subagent spawn allowed: parent=%s session=%s reason=%s",
-        parent_id,
+        "Subagent spawn allowed: parent=%s child=%s depth=%s session=%s",
+        parent_key,
+        child_key,
+        depth,
         request.sessionId,
-        request.reason,
     )
-    return SubagentSpawnResponse(allowed=True)
+    return SubagentSpawnResponse(allowed=True, spawnDepth=depth)
 
 
 @router.post("/record/subagent-ended", response_model=SubagentEndedResponse)

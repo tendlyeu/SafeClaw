@@ -152,6 +152,89 @@ class TestChannelTrustResolution:
         from safeclaw.api.routes import _resolve_channel_trust
 
         req = InboundMessageRequest(
-            sessionId="s", channel="telegram:bot:1", channelProvider="telegram", channelType="webhook"
+            sessionId="s",
+            channel="telegram:bot:1",
+            channelProvider="telegram",
+            channelType="webhook",
         )
-        assert _resolve_channel_trust(req.channel, req.channelProvider, req.channelType) == "untrusted"
+        assert (
+            _resolve_channel_trust(req.channel, req.channelProvider, req.channelType) == "untrusted"
+        )
+
+
+# --- #321: subagent spawn depth / fan-out / ancestry ---
+
+
+@pytest.fixture
+def client(tmp_path):
+    import safeclaw.main as main_module
+
+    main_module.engine = FullEngine(
+        SafeClawConfig(
+            data_dir=tmp_path,
+            ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+            audit_dir=tmp_path / "audit",
+            dev_mode=True,
+        )
+    )
+    from starlette.testclient import TestClient
+
+    yield TestClient(main_module.app), main_module.engine
+    main_module.engine = None
+
+
+def _spawn(c, parent_key, child_key, **extra):
+    body = {"parentSessionKey": parent_key, "childSessionKey": child_key}
+    body.update(extra)
+    return c.post("/api/v1/evaluate/subagent-spawn", json=body)
+
+
+class TestSubagentDepthFanout:
+    def test_depth_limit_enforced(self, client):
+        c, eng = client
+        max_depth = eng.config.max_subagent_spawn_depth
+        prev = "root"
+        # Spawn a chain right up to the limit — all allowed.
+        for i in range(1, max_depth + 1):
+            r = _spawn(c, prev, f"c{i}")
+            assert r.status_code == 200
+            assert r.json()["allowed"] is True, i
+            prev = f"c{i}"
+        # One level past the limit -> blocked.
+        r = _spawn(c, prev, "too-deep")
+        assert r.json()["block"] is True
+        assert "depth" in r.json()["reason"].lower()
+
+    def test_fanout_limit_enforced(self, client):
+        c, eng = client
+        max_fanout = eng.config.max_subagent_fanout
+        for i in range(max_fanout):
+            assert _spawn(c, "busyparent", f"kid{i}").json()["allowed"] is True
+        # The (max+1)th child of the same parent is blocked.
+        r = _spawn(c, "busyparent", "one-too-many")
+        assert r.json()["block"] is True
+        assert "fan-out" in r.json()["reason"].lower()
+
+    def test_killed_ancestor_blocks_grandchild(self, client):
+        c, eng = client
+        # root -> c1 (agent-c1) -> c2; kill agent-c1; spawning under c2 is blocked
+        # because an ANCESTOR is killed (not just the immediate parent).
+        assert _spawn(c, "root", "c1", childAgentId="agent-c1").json()["allowed"]
+        assert _spawn(c, "c1", "c2", childAgentId="agent-c2").json()["allowed"]
+        eng.agent_registry.register_agent("agent-c1", "developer", "sess")
+        eng.agent_registry.kill_agent("agent-c1")
+        r = _spawn(c, "c2", "c3")
+        assert r.json()["block"] is True
+        assert "killed" in r.json()["reason"].lower()
+
+    def test_allowed_spawn_reports_depth(self, client):
+        c, _ = client
+        r = _spawn(c, "root", "child")
+        body = r.json()
+        assert body["allowed"] is True
+        assert body["spawnDepth"] == 1
+
+    def test_no_parent_key_allows(self, client):
+        c, _ = client
+        r = c.post("/api/v1/evaluate/subagent-spawn", json={})
+        assert r.json()["allowed"] is True

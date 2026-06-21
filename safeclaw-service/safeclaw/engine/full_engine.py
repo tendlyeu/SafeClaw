@@ -40,6 +40,7 @@ from safeclaw.engine.core import (
 from safeclaw.engine.agent_registry import AgentRegistry
 from safeclaw.engine.event_bus import EventBus, SafeClawEvent
 from safeclaw.engine.delegation_detector import DelegationDetector
+from safeclaw.engine.subagent_hierarchy import SubagentHierarchy
 from safeclaw.engine.class_hierarchy import ClassHierarchy
 from safeclaw.engine.knowledge_graph import KnowledgeGraph
 from safeclaw.engine.ontology_validator import OntologyValidator
@@ -194,6 +195,7 @@ class FullEngine(SafeClawEngine):
 
         # Multi-agent governance (Phase: multi-agent)
         self.agent_registry = AgentRegistry(state_store=self._state_store)
+        self.subagent_hierarchy = SubagentHierarchy()
         try:
             raw = config.raw
         except (json.JSONDecodeError, AttributeError, OSError, UnicodeDecodeError):
