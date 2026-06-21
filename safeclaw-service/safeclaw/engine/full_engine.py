@@ -1240,13 +1240,18 @@ class FullEngine(SafeClawEngine):
     # External-content tool classes whose RESULT text is untrusted data that
     # re-enters the agent context and must be injection-scored (#326).
     _EXTERNAL_CONTENT_CLASSES = {"WebFetch", "WebSearch", "BrowserAction"}
+    # Cap the scanned prefix so a multi-MB fetched body can't burn CPU per result.
+    _MAX_INJECTION_SCAN = 262_144
 
     def _score_tool_result_injection(self, event: ToolResultEvent, action) -> None:
         """Flag prompt-injection patterns in external tool output and warn."""
         if action.ontology_class not in self._EXTERNAL_CONTENT_CLASSES:
             return
         result_text = event.result if isinstance(event.result, str) else str(event.result or "")
-        flags = score_injection(result_text)
+        # Bound the work: inbound injection payloads sit near the top of fetched
+        # content, so scoring a prefix is sufficient and avoids scanning multi-MB
+        # bodies on every tool result.
+        flags = score_injection(result_text[: self._MAX_INJECTION_SCAN])
         if not flags:
             return
         reason = (

@@ -238,3 +238,51 @@ class TestSubagentDepthFanout:
         c, _ = client
         r = c.post("/api/v1/evaluate/subagent-spawn", json={})
         assert r.json()["allowed"] is True
+
+    def test_realistic_plugin_payload_enforces_depth_and_kill(self, client):
+        # Mirrors the exact field set the v2026.6.8 plugin sends (session keys +
+        # childAgentId, NO legacy parentAgentId/childConfig). Proves the depth
+        # and killed-ancestor checks are live on the real payload, not just the
+        # legacy path.
+        c, eng = client
+
+        def spawn(parent, child, agent):
+            return c.post(
+                "/api/v1/evaluate/subagent-spawn",
+                json={
+                    "sessionId": parent,
+                    "parentSessionKey": parent,
+                    "childSessionKey": child,
+                    "childAgentId": agent,
+                    "mode": "session",
+                    "reason": "work",
+                },
+            )
+
+        # Build a chain via the session-key fields only.
+        assert spawn("root", "c1", "agent-c1").json()["allowed"]
+        assert spawn("c1", "c2", "agent-c2").json()["allowed"]
+        # Kill an ancestor agent (resolved from the stored childAgentId).
+        eng.agent_registry.register_agent("agent-c1", "developer", "sess")
+        eng.agent_registry.kill_agent("agent-c1")
+        blocked = spawn("c2", "c3", "agent-c3")
+        assert blocked.json()["block"] is True
+        assert "killed" in blocked.json()["reason"].lower()
+
+    def test_reparent_does_not_reset_depth(self, client):
+        # A node cannot be "moved" under a shallower parent to reset the depth its
+        # OWN children inherit (first-writer-wins parentage).
+        c, eng = client
+
+        def spawn(parent, child):
+            return c.post(
+                "/api/v1/evaluate/subagent-spawn",
+                json={"parentSessionKey": parent, "childSessionKey": child},
+            )
+
+        spawn("root", "a")
+        spawn("a", "deep")  # deep's parent is "a" -> depth(deep) == 2
+        assert eng.subagent_hierarchy.depth("deep") == 2
+        # Anomalous re-parent of "deep" directly under root is ignored.
+        spawn("root", "deep")
+        assert eng.subagent_hierarchy.depth("deep") == 2

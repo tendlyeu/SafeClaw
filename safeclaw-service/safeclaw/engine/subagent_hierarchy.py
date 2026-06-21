@@ -28,16 +28,26 @@ class SubagentHierarchy:
         self._agent_id: dict[str, str] = {}
 
     def register_spawn(self, parent_key: str, child_key: str, child_agent_id: str = "") -> None:
-        """Record an allowed spawn: child_key's parent is parent_key."""
+        """Record an allowed spawn: child_key's parent is parent_key.
+
+        Parentage is first-writer-wins: an already-tracked child is NOT
+        re-parented to a different parent, so a node cannot be silently "moved"
+        under a shallower parent to reset its computed depth/ancestry.
+        """
         if not child_key:
             return
         if parent_key:
-            self._parent[child_key] = parent_key
-            self._parent.move_to_end(child_key)
-            kids = self._children.setdefault(parent_key, [])
-            self._children.move_to_end(parent_key)
-            if child_key not in kids:
-                kids.append(child_key)
+            existing = self._parent.get(child_key)
+            if existing is not None and existing != parent_key:
+                # Anomalous re-parent attempt — keep the original edge.
+                pass
+            else:
+                self._parent[child_key] = parent_key
+                self._parent.move_to_end(child_key)
+                kids = self._children.setdefault(parent_key, [])
+                self._children.move_to_end(parent_key)
+                if child_key not in kids:
+                    kids.append(child_key)
         if child_agent_id:
             self._agent_id[child_key] = child_agent_id
         self._evict()
