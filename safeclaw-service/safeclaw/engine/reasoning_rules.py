@@ -68,6 +68,15 @@ class DerivedConstraintChecker:
                 "explicitly classified"
             )
 
+        # Rule 5: Unclassified code-mode / sandbox source execution → confirm.
+        # Code-mode runs arbitrary JS/TS source; when SafeClaw cannot pin it to a
+        # known-safe (e.g. RunTests) or known-dangerous (e.g. DeleteFile) class it
+        # falls here. Confirming by default is the durable backstop behind the
+        # best-effort source pattern/alias detection (#322).
+        if action.ontology_class == "CodeModeExec":
+            triggered_rules.append("CodeModeExecConfirmRule")
+            reasons.append("Unclassified code-mode/sandbox source execution requires confirmation")
+
         if triggered_rules:
             return DerivedCheckResult(
                 requires_confirmation=True,

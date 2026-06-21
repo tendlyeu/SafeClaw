@@ -79,6 +79,13 @@ sc:ExecuteCommand a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Execute Command" .
 
+# Unclassified code-mode / sandbox source execution — arbitrary source that
+# could not be pinned to a known-safe or known-dangerous class. Confirmed by
+# default via the derived checker (durable backstop for code-mode detection).
+sc:CodeModeExec a owl:Class, owl:NamedIndividual ;
+    rdfs:subClassOf sc:ShellAction ;
+    rdfs:label "Code-Mode Exec" .
+
 sc:GitPush a owl:Class, owl:NamedIndividual ;
     rdfs:subClassOf sc:ShellAction ;
     rdfs:label "Git Push" .
@@ -269,6 +276,10 @@ sc:SearchFiles sc:hasRiskLevel sc:LowRisk ;
     sc:affectsScope sc:LocalOnly .
 
 sc:ExecuteCommand sc:hasRiskLevel sc:HighRisk ;
+    sc:isReversible false ;
+    sc:affectsScope sc:LocalOnly .
+
+sc:CodeModeExec sc:hasRiskLevel sc:HighRisk ;
     sc:isReversible false ;
     sc:affectsScope sc:LocalOnly .
 

