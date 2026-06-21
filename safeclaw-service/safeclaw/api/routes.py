@@ -66,6 +66,61 @@ _CHANNEL_TRUST: dict[str, str] = {
     "api": "untrusted",
 }
 
+# Per-platform baseline trust (#320). The delivery surface (DM vs public vs
+# webhook) is the primary signal; provider is only a CONSERVATIVE fallback when
+# the surface is unknown, and NEVER grants "high" — a Discord/Telegram bot can be
+# messaged by anyone, and even a native DM is still an external party. Bot/
+# webhook-delivered platforms baseline to "low"; native person-to-person
+# messengers to "medium".
+_PROVIDER_TRUST: dict[str, str] = {
+    "telegram": "low",
+    "discord": "low",
+    "slack": "low",
+    "line": "low",
+    "whatsapp": "low",
+    "feishu": "low",
+    "matrix": "low",
+    "teams": "low",
+    "msteams": "low",
+    "google_chat": "low",
+    "googlechat": "low",
+    "gchat": "low",
+    "qq": "low",
+    "qqbot": "low",
+    "nostr": "low",
+    "zalo": "low",
+    "mattermost": "low",
+    "nextcloud": "low",
+    "webchat": "low",
+    "irc": "low",
+    "imessage": "medium",
+    "signal": "medium",
+}
+
+
+def _resolve_channel_trust(channel: str, provider: str, channel_type: str) -> str:
+    """Resolve a trust tier from compound channel context (#320).
+
+    Precedence: an explicit message SURFACE (dm/group/public/webhook) is the
+    strongest signal and wins; otherwise a recognized PROVIDER gives a
+    conservative baseline (never "high"); otherwise the legacy abstract-name
+    lookup, defaulting to "low".
+    """
+    if channel_type:
+        surface = channel_type.lower().replace("-", "_").replace(" ", "_")
+        if surface in _CHANNEL_TRUST:
+            return _CHANNEL_TRUST[surface]
+
+    prov = (provider or "").strip().lower()
+    if not prov and channel and ":" in channel:
+        # OpenClaw channel ids/session keys are often `<provider>:<...>`.
+        prov = channel.split(":", 1)[0].strip().lower()
+    if prov in _PROVIDER_TRUST:
+        return _PROVIDER_TRUST[prov]
+
+    key = channel.lower().replace("-", "_").replace(" ", "_")
+    return _CHANNEL_TRUST.get(key, "low")
+
 # Prompt-injection patterns live in safeclaw.constraints.injection so the
 # inbound-message gate and the tool-result path score with the same set (#326).
 _INJECTION_PATTERNS = INJECTION_PATTERNS
@@ -259,8 +314,9 @@ async def evaluate_inbound_message(
     flags: list[str] = []
     warnings: list[str] = []
 
-    channel_key = request.channel.lower().replace("-", "_").replace(" ", "_")
-    trust_level = _CHANNEL_TRUST.get(channel_key, "low")
+    trust_level = _resolve_channel_trust(
+        request.channel, request.channelProvider, request.channelType
+    )
 
     # Start with risk based on channel trust
     risk_level = "low"

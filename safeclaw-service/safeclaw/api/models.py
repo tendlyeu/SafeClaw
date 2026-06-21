@@ -299,6 +299,10 @@ class InboundMessageRequest(BaseModel):
     sessionId: str = ""
     userId: str | None = None
     channel: str = ""
+    # Delivery platform (e.g. "discord", "telegram", "line") and message surface
+    # (dm/group/public/webhook) for compound channel-trust resolution (#320).
+    channelProvider: str = ""
+    channelType: str = ""
     sender: str = ""
     content: str = Field("", max_length=1_000_000)
     metadata: dict = {}

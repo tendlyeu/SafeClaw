@@ -99,3 +99,59 @@ class TestToolResultInjectionScoring:
 
         assert asyncio.run(run()) is True
         assert not self._injection_flagged(engine, "s2")
+
+
+# --- #320: compound channel trust resolution ---
+
+
+class TestChannelTrustResolution:
+    def test_surface_dominates_provider(self):
+        from safeclaw.api.routes import _resolve_channel_trust
+
+        # Explicit DM surface wins regardless of platform.
+        assert _resolve_channel_trust("discord:123", "discord", "dm") == "high"
+        assert _resolve_channel_trust("x", "discord", "webhook") == "untrusted"
+        assert _resolve_channel_trust("x", "slack", "public") == "low"
+
+    def test_provider_baseline_never_high(self):
+        from safeclaw.api.routes import _PROVIDER_TRUST, _resolve_channel_trust
+
+        # No surface signal -> conservative provider baseline, never "high".
+        for provider, expected in _PROVIDER_TRUST.items():
+            got = _resolve_channel_trust("", provider, "")
+            assert got == expected
+            assert got != "high", provider
+
+    def test_provider_derived_from_channel_prefix(self):
+        from safeclaw.api.routes import _resolve_channel_trust
+
+        # `<provider>:<...>` channel ids resolve the provider when none is given.
+        assert _resolve_channel_trust("telegram:botchat:42", "", "") == "low"
+        assert _resolve_channel_trust("signal:+1555", "", "") == "medium"
+
+    def test_named_platform_not_blind_low_via_explicit_provider(self):
+        from safeclaw.api.routes import _resolve_channel_trust
+
+        # iMessage/Signal DMs get medium (not the blind "low" default).
+        assert _resolve_channel_trust("opaque-id", "imessage", "") == "medium"
+
+    def test_unknown_channel_defaults_low(self):
+        from safeclaw.api.routes import _resolve_channel_trust
+
+        assert _resolve_channel_trust("some-unknown-thing", "", "") == "low"
+
+    def test_legacy_abstract_names_still_work(self):
+        from safeclaw.api.routes import _resolve_channel_trust
+
+        assert _resolve_channel_trust("direct_message", "", "") == "high"
+        assert _resolve_channel_trust("webhook", "", "") == "untrusted"
+
+    def test_inbound_endpoint_uses_compound_trust(self, engine):
+        # A Telegram webhook surface message is scored untrusted, not low.
+        from safeclaw.api.models import InboundMessageRequest
+        from safeclaw.api.routes import _resolve_channel_trust
+
+        req = InboundMessageRequest(
+            sessionId="s", channel="telegram:bot:1", channelProvider="telegram", channelType="webhook"
+        )
+        assert _resolve_channel_trust(req.channel, req.channelProvider, req.channelType) == "untrusted"
