@@ -497,39 +497,41 @@ class ActionClassifier:
             if matched_cls:
                 chain_classes.append(matched_cls)
             elif code_mode:
-                # An unclassified segment in a code-mode body cannot be proven
-                # safe, so it contributes a CodeModeExec/HighRisk CANDIDATE (not a
-                # passive chain entry) — otherwise an earlier known-safe statement
-                # (e.g. `runTests("npm test"); console.log("x")`) would launder the
-                # whole body past the confirmation floor.
                 chain_classes.append("CodeModeExec")
-                if highest_risk is None or RISK_ORDER.get("HighRisk", 0) > RISK_ORDER.get(
-                    highest_risk.risk_level, 0
-                ):
-                    highest_risk = ClassifiedAction(
-                        ontology_class="CodeModeExec",
-                        risk_level="HighRisk",
-                        is_reversible=False,
-                        affects_scope="LocalOnly",
-                        tool_name=tool_name,
-                        params=params,
-                    )
             else:
                 chain_classes.append("ExecuteCommand")
+
+        # Code-mode governance floor (#322/#337). Pattern matching over arbitrary
+        # JS/TS source is fundamentally unreliable for proving SAFETY — a string
+        # literal (`console.log("npm test")`), concatenation, or computed property
+        # access can spuriously match a "safe" pattern while real unclassified code
+        # runs in the same segment. So in code-mode a non-Critical match does NOT
+        # suppress the confirmation floor: ONLY a CriticalRisk detection (a
+        # destructive op like a delete / force-push) overrides it, and a Critical
+        # false-positive merely over-blocks (the safe direction). Everything else
+        # — Low/Medium/High matches, or nothing — becomes CodeModeExec, which the
+        # derived checker confirms by default. Plain interactive shell is
+        # unaffected (keeps ExecuteCommand and its matched classes).
+        if code_mode:
+            if highest_risk is not None and highest_risk.risk_level == "CriticalRisk":
+                highest_risk.chain_classes = chain_classes
+                return highest_risk
+            return ClassifiedAction(
+                ontology_class="CodeModeExec",
+                risk_level="HighRisk",
+                is_reversible=False,
+                affects_scope="LocalOnly",
+                tool_name=tool_name,
+                params=params,
+                chain_classes=chain_classes,
+            )
 
         if highest_risk:
             highest_risk.chain_classes = chain_classes
             return highest_risk
 
-        # Default classification for an UNMATCHED command. Code/sandbox source
-        # execution (code_mode) runs arbitrary source SafeClaw could not pin to a
-        # known-safe or known-dangerous class, so it gets a distinct CodeModeExec
-        # class that the derived checker confirms by default (the durable backstop
-        # behind the best-effort JS pattern/alias detection). Plain shell stays
-        # ExecuteCommand so interactive `exec`/`bash` is unaffected.
-        default_class = "CodeModeExec" if code_mode else "ExecuteCommand"
         return ClassifiedAction(
-            ontology_class=default_class,
+            ontology_class="ExecuteCommand",
             risk_level="HighRisk",
             is_reversible=False,
             affects_scope="LocalOnly",
