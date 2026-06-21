@@ -48,13 +48,19 @@ class SubagentHierarchy:
                 self._children.move_to_end(parent_key)
                 if child_key not in kids:
                     kids.append(child_key)
+        # First-writer-wins agent identity: a session key maps to ONE agent and
+        # the mapping is never overwritten. Otherwise a caller could re-spawn an
+        # existing child key with a benign childAgentId to launder away a killed
+        # agent and let descendants escape the killed-ancestor check.
         if child_agent_id:
-            self._agent_id[child_key] = child_agent_id
+            self._agent_id.setdefault(child_key, child_agent_id)
         self._evict()
 
     def set_agent_id(self, session_key: str, agent_id: str) -> None:
+        # First-writer-wins (see register_spawn) — never overwrite an established
+        # session->agent mapping.
         if session_key and agent_id:
-            self._agent_id[session_key] = agent_id
+            self._agent_id.setdefault(session_key, agent_id)
 
     def agent_id_for(self, session_key: str) -> str | None:
         return self._agent_id.get(session_key)

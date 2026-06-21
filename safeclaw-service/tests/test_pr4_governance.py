@@ -286,3 +286,25 @@ class TestSubagentDepthFanout:
         # Anomalous re-parent of "deep" directly under root is ignored.
         spawn("root", "deep")
         assert eng.subagent_hierarchy.depth("deep") == 2
+
+    def test_respawn_cannot_relaunder_killed_ancestor_agent(self, client):
+        # Bypass repro: an attacker re-spawns an existing child session key with a
+        # BENIGN childAgentId to overwrite the stored (killed) agent id, then
+        # spawns descendants. First-writer-wins agent identity must prevent this.
+        c, eng = client
+
+        def spawn(parent, child, agent):
+            return c.post(
+                "/api/v1/evaluate/subagent-spawn",
+                json={"parentSessionKey": parent, "childSessionKey": child, "childAgentId": agent},
+            )
+
+        assert spawn("root", "c1", "agent-c1").json()["allowed"]
+        eng.agent_registry.register_agent("agent-c1", "developer", "sess")
+        eng.agent_registry.kill_agent("agent-c1")
+        # Attempt to launder c1's identity to a benign, non-killed agent.
+        spawn("root", "c1", "benign-agent")
+        # Descendants of c1 must STILL be blocked — c1's agent is the killed one.
+        blocked = spawn("c1", "c2", "agent-c2")
+        assert blocked.json()["block"] is True
+        assert "killed" in blocked.json()["reason"].lower()
