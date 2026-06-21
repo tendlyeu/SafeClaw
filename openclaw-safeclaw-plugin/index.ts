@@ -316,6 +316,13 @@ export default {
         }
         // audit-only: logged server-side, no action here
       }
+
+      // Param rewrite (#316): the service only returns `params` for an allowed
+      // call when it sanitized the input (e.g. stripped control characters), so
+      // the tool executes the governed params rather than the raw ones.
+      if (r?.params && typeof r.params === 'object') {
+        return { params: r.params as Record<string, unknown> };
+      }
     }, { priority: 100 });
 
     // Context injection — prepend governance context to agent system prompt

@@ -263,6 +263,16 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         )
 
     decision = await engine.evaluate_tool_call(event)
+    # Param rewrite (#316): if sanitization changed the params and the call is not
+    # blocked, return the sanitized version so the tool executes what the service
+    # governed (control chars stripped) rather than the raw input.
+    rewritten = None
+    if (
+        engine.config.tool_param_rewrite_enabled
+        and not decision.block
+        and sanitized_params != request.params
+    ):
+        rewritten = sanitized_params
     return DecisionResponse(
         block=decision.block,
         reason=decision.reason,
@@ -270,6 +280,7 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         confirmationRequired=decision.requires_confirmation,
         constraintStep=decision.constraint_step,
         riskLevel=getattr(decision, "_risk_level", ""),
+        params=rewritten,
     )
 
 
