@@ -45,6 +45,10 @@ class SafeClawConfig(BaseSettings):
     # read-write rule when a policy sets ``filesystem_policy.include_workdir``.
     nemoclaw_workdir: str = ""
 
+    # Subagent spawn governance (#321)
+    max_subagent_spawn_depth: int = 5
+    max_subagent_fanout: int = 10
+
     # LLM layer (passive observer — all features gated on API key)
     # New multi-provider fields
     llm_provider: str = ""  # Provider ID from PROVIDERS registry

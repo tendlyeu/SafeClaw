@@ -20,6 +20,7 @@ from safeclaw.audit.models import (
 from safeclaw.config import SafeClawConfig
 from safeclaw.constraints.action_classifier import ActionClassifier, ClassifiedAction
 from safeclaw.constraints.dependency_checker import DependencyChecker
+from safeclaw.constraints.injection import score_injection
 from safeclaw.constraints.message_gate import MessageGate
 from safeclaw.constraints.policy_checker import PolicyChecker
 from safeclaw.constraints.preference_checker import PreferenceChecker
@@ -39,6 +40,7 @@ from safeclaw.engine.core import (
 from safeclaw.engine.agent_registry import AgentRegistry
 from safeclaw.engine.event_bus import EventBus, SafeClawEvent
 from safeclaw.engine.delegation_detector import DelegationDetector
+from safeclaw.engine.subagent_hierarchy import SubagentHierarchy
 from safeclaw.engine.class_hierarchy import ClassHierarchy
 from safeclaw.engine.knowledge_graph import KnowledgeGraph
 from safeclaw.engine.ontology_validator import OntologyValidator
@@ -193,6 +195,7 @@ class FullEngine(SafeClawEngine):
 
         # Multi-agent governance (Phase: multi-agent)
         self.agent_registry = AgentRegistry(state_store=self._state_store)
+        self.subagent_hierarchy = SubagentHierarchy()
         try:
             raw = config.raw
         except (json.JSONDecodeError, AttributeError, OSError, UnicodeDecodeError):
@@ -1227,7 +1230,53 @@ class FullEngine(SafeClawEngine):
                 self.dependency_checker.record_action(event.session_id, action.ontology_class)
                 self.rate_limiter.record(action, event.session_id, agent_id=event.agent_id)
 
+            # Injection-score external content re-entering the agent context
+            # (fetched pages, browser snapshots). The inbound-message gate scores
+            # channel messages; this closes the same gap for tool output (#326).
+            self._score_tool_result_injection(event, action)
+
             return True
+
+    # External-content tool classes whose RESULT text is untrusted data that
+    # re-enters the agent context and must be injection-scored (#326).
+    _EXTERNAL_CONTENT_CLASSES = {"WebFetch", "WebSearch", "BrowserAction"}
+    # Cap the scanned prefix so a multi-MB fetched body can't burn CPU per result.
+    _MAX_INJECTION_SCAN = 262_144
+
+    def _score_tool_result_injection(self, event: ToolResultEvent, action) -> None:
+        """Flag prompt-injection patterns in external tool output and warn."""
+        if action.ontology_class not in self._EXTERNAL_CONTENT_CLASSES:
+            return
+        result_text = event.result if isinstance(event.result, str) else str(event.result or "")
+        # Bound the work: inbound injection payloads sit near the top of fetched
+        # content, so scoring a prefix is sufficient and avoids scanning multi-MB
+        # bodies on every tool result.
+        flags = score_injection(result_text[: self._MAX_INJECTION_SCAN])
+        if not flags:
+            return
+        reason = (
+            f"[SafeClaw] Prompt-injection patterns in {action.ontology_class} output "
+            f"({event.tool_name}): {', '.join(flags)}"
+        )
+        # Warn the agent's injected context and the session tracker so downstream
+        # actions in this session see the elevated risk; also audit the finding.
+        self.context_builder.record_violation(event.session_id, reason)
+        self.session_tracker.record_violation(event.session_id, reason)
+        logger.warning(reason)
+        self.event_bus.publish(
+            SafeClawEvent(
+                event_type="warning",
+                severity="warning",
+                title=f"Untrusted content flagged: {event.tool_name}",
+                detail=reason,
+                metadata={
+                    "session_id": event.session_id,
+                    "tool_name": event.tool_name,
+                    "ontology_class": action.ontology_class,
+                    "injection_flags": flags,
+                },
+            )
+        )
 
     async def clear_session(self, session_id: str) -> None:
         """Clean up all per-session state when a session ends.

@@ -26,6 +26,35 @@ sc:WebhookMessage a sc:InboundChannel ;
     sc:trustLevel "untrusted" ;
     rdfs:label "Webhook Message" .
 
+# === Named delivery platforms (#320) ===
+# Per-platform BASELINE trust used only when the message surface (dm/group/
+# public/webhook) is unknown. Surface always wins; a platform baseline never
+# grants "high" — a bot can be messaged by anyone and even a native DM is an
+# external party. Bot/webhook-delivered platforms baseline to "low"; native
+# person-to-person messengers to "medium".
+sc:DeliveryPlatform a owl:Class ;
+    rdfs:subClassOf sc:InboundChannel ;
+    rdfs:label "Delivery Platform" .
+
+sc:TelegramChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Telegram" .
+sc:DiscordChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Discord" .
+sc:SlackChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Slack" .
+sc:LineChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "LINE" .
+sc:WhatsappChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "WhatsApp" .
+sc:FeishuChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Feishu" .
+sc:MatrixChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Matrix" .
+sc:TeamsChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Microsoft Teams" .
+sc:GoogleChatChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Google Chat" .
+sc:QqBotChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "QQ Bot" .
+sc:NostrChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Nostr" .
+sc:ZaloChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Zalo" .
+sc:MattermostChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Mattermost" .
+sc:NextcloudChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "Nextcloud Talk" .
+sc:WebChatChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "WebChat" .
+sc:IrcChannel a sc:DeliveryPlatform ; sc:trustLevel "low" ; rdfs:label "IRC" .
+sc:IMessageChannel a sc:DeliveryPlatform ; sc:trustLevel "medium" ; rdfs:label "iMessage" .
+sc:SignalChannel a sc:DeliveryPlatform ; sc:trustLevel "medium" ; rdfs:label "Signal" .
+
 sc:trustLevel a owl:DatatypeProperty ;
     rdfs:domain sc:InboundChannel ;
     rdfs:range xsd:string .

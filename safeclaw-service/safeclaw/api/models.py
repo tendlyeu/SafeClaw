@@ -244,6 +244,13 @@ class SubagentSpawnRequest(BaseModel):
     reason: str = ""
     agentId: str | None = None
     agentToken: str = ""
+    # Session-key hierarchy (OpenClaw v2026.6.8 subagent hook, #321). The parent
+    # is a session key (the deprecated hook exposes no parent agent id); depth is
+    # derived server-side from the stored hierarchy when not supplied.
+    parentSessionKey: str = ""
+    childSessionKey: str = ""
+    childAgentId: str = ""
+    spawnDepth: int | None = None
 
     @field_validator("childConfig")
     @classmethod
@@ -255,6 +262,7 @@ class SubagentSpawnResponse(BaseModel):
     allowed: bool = True
     block: bool = False
     reason: str = ""
+    spawnDepth: int | None = None
 
 
 class SubagentEndedRequest(BaseModel):
@@ -299,6 +307,10 @@ class InboundMessageRequest(BaseModel):
     sessionId: str = ""
     userId: str | None = None
     channel: str = ""
+    # Delivery platform (e.g. "discord", "telegram", "line") and message surface
+    # (dm/group/public/webhook) for compound channel-trust resolution (#320).
+    channelProvider: str = ""
+    channelType: str = ""
     sender: str = ""
     content: str = Field("", max_length=1_000_000)
     metadata: dict = {}
