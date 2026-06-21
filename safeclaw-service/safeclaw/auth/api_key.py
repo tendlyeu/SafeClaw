@@ -1,8 +1,10 @@
 """API key authentication for the remote SafeClaw service."""
 
+import copy
 import hashlib
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -101,11 +103,21 @@ class SQLiteAPIKeyManager:
     Used in SaaS mode when db_path is configured.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, llm_config_cache_ttl: int = 60):
         import sqlite3
 
         self._db_path = db_path
         self._write_lock = threading.Lock()
+        # TTL cache for user LLM configs to avoid a DB round-trip + JSON parse
+        # on every governed tool call. Guarded by its own lock (kept separate
+        # from _write_lock, which is held across audit-log commits, so config
+        # reads never block on audit writes). Bounded in size so that seeing
+        # many distinct users cannot grow it without limit — entries otherwise
+        # expire lazily, only when that same user is looked up again.
+        self._llm_config_cache: dict[str, tuple[dict | None, float]] = {}
+        self._llm_config_cache_ttl = llm_config_cache_ttl
+        self._llm_config_cache_lock = threading.Lock()
+        self._llm_config_cache_max = 10_000
         # Keep a connection for writes (audit logging) but read operations
         # open fresh connections to always see the latest data from the
         # landing site's WAL writes.
@@ -263,6 +275,56 @@ class SQLiteAPIKeyManager:
 
         Tries llm_config JSON first, falls back to mistral_api_key for compat.
         Returns parsed dict or None.
+
+        Results are cached for the configured TTL (default 60s) to avoid a DB
+        round-trip and JSON parse on every governed tool call. Cache access is
+        guarded by ``_llm_config_cache_lock``; the DB fetch itself runs outside
+        the lock so concurrent lookups for *different* users are not serialized.
+        ``time.monotonic()`` is read inside the lock, so a TTL of ``0`` reliably
+        re-reads even under concurrency (a clock value captured before acquiring
+        the lock could otherwise predate another thread's store and make a stale
+        entry look fresh). A fresh deep copy is returned on every call, so
+        callers may mutate the result without poisoning the cache.
+
+        Note: the cache introduces a staleness window of up to the TTL — a config
+        change made on the landing site (e.g. a rotated key) is only picked up
+        after the cached entry expires. The TTL is deliberately short, and the
+        cached value is never used for an authorization decision, only to select
+        which LLM client to call.
+        """
+        ttl = self._llm_config_cache_ttl
+        with self._llm_config_cache_lock:
+            cached = self._llm_config_cache.get(user_id)
+            if cached is not None:
+                value, cached_at = cached
+                if time.monotonic() - cached_at < ttl:
+                    return copy.deepcopy(value)
+                # Expired — drop the stale entry. Safe here: we hold the lock and
+                # just read it, so no other thread can have removed it meanwhile.
+                del self._llm_config_cache[user_id]
+
+        # Cache miss. Fetch outside the lock so a slow DB round-trip for one user
+        # does not block cache hits for others; a rare duplicate fetch for the
+        # same user under concurrency is harmless.
+        result, ok = self._fetch_user_llm_config(user_id)
+        if not ok:
+            # Transient DB error (table/columns missing, read-only). Return the
+            # miss but do not cache it, so the next call retries instead of
+            # pinning the failure for the whole TTL.
+            return None
+
+        with self._llm_config_cache_lock:
+            now = time.monotonic()
+            self._prune_llm_config_cache_locked(now)
+            self._llm_config_cache[user_id] = (result, now)
+        # Return a copy so the cached object is never handed out to a caller.
+        return copy.deepcopy(result)
+
+    def _fetch_user_llm_config(self, user_id: str) -> tuple[dict | None, bool]:
+        """Read and parse a user's LLM config from the DB (uncached).
+
+        Returns ``(config_or_None, ok)``. ``ok`` is False only on a transient
+        DB error, so the caller can avoid caching a failure as a real result.
         """
         import sqlite3
 
@@ -276,10 +338,10 @@ class SQLiteAPIKeyManager:
             finally:
                 conn.close()
         except sqlite3.OperationalError:
-            return None  # Table doesn't exist or columns missing
+            return None, False  # Table doesn't exist or columns missing
 
         if row is None:
-            return None
+            return None, True  # Unknown user — a real, cacheable negative result
 
         llm_config_str, mistral_key = row[0], row[1]
 
@@ -297,7 +359,7 @@ class SQLiteAPIKeyManager:
                         data["keys"] = decrypt_keys_dict(data["keys"])
                     except ImportError:
                         pass  # No encryption module — keys are plaintext
-                return data
+                return data, True
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -306,6 +368,26 @@ class SQLiteAPIKeyManager:
             return {
                 "active_provider": "mistral",
                 "keys": {"mistral": mistral_key},
-            }
+            }, True
 
-        return None
+        return None, True
+
+    def _prune_llm_config_cache_locked(self, now: float) -> None:
+        """Bound the LLM-config cache's memory use.
+
+        The caller must hold ``_llm_config_cache_lock``. Cheap no-op until the
+        cache reaches ``_llm_config_cache_max`` entries; at that point it drops
+        all expired entries, and if the cache is still full (every entry fresh)
+        evicts the oldest one. This keeps the cache from growing without bound
+        as new users are seen, since entries otherwise only expire lazily when
+        the same user is looked up again.
+        """
+        cache = self._llm_config_cache
+        if len(cache) < self._llm_config_cache_max:
+            return
+        ttl = self._llm_config_cache_ttl
+        for key in [k for k, (_, ts) in cache.items() if now - ts >= ttl]:
+            del cache[key]
+        if len(cache) >= self._llm_config_cache_max:
+            oldest = min(cache, key=lambda k: cache[k][1])
+            del cache[oldest]

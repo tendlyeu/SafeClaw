@@ -21,6 +21,7 @@ SafeClaw uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pyda
 | `ontology_dir`  | `SAFECLAW_ONTOLOGY_DIR`     | `Path | None` | `None` (bundled)     | Custom ontology directory. When `None`, uses bundled ontologies from `safeclaw/ontologies/` |
 | `audit_dir`     | `SAFECLAW_AUDIT_DIR`        | `Path | None` | `None` (data_dir/audit) | Custom audit log directory. When `None`, uses `data_dir/audit` |
 | `db_path`       | `SAFECLAW_DB_PATH`          | `str`         | `""`                 | Path to shared SQLite DB (SaaS mode)                         |
+| `llm_config_cache_ttl` | `SAFECLAW_LLM_CONFIG_CACHE_TTL` | `int` | `60` | TTL in seconds for the per-user LLM-config cache (SaaS mode; requires `db_path`). `0` disables caching (always re-read from DB). |
 
 ### Authentication
 

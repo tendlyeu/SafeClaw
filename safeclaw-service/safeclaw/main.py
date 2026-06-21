@@ -67,7 +67,9 @@ _api_key_manager = None
 if _config.require_auth and _config.db_path:
     from safeclaw.auth.api_key import SQLiteAPIKeyManager
 
-    _api_key_manager = SQLiteAPIKeyManager(_config.db_path)
+    _api_key_manager = SQLiteAPIKeyManager(
+        _config.db_path, llm_config_cache_ttl=_config.llm_config_cache_ttl
+    )
 app.add_middleware(
     APIKeyAuthMiddleware,
     api_key_manager=_api_key_manager,
