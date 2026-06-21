@@ -304,6 +304,32 @@ class TestCodeModeClassification:
         )
         assert a.ontology_class != "DeleteFile"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # destructured fs.promises namespace -> <alias>.<deleteverb>(
+            'const { promises } = require("fs"); await promises.rm("/tmp/x")',
+            'import { promises as p } from "node:fs"; await p.rmdir("/tmp/x")',
+            'const { promises: pfs } = require("fs"); pfs.unlink("/tmp/x")',
+            # namespace alias then .promises.<verb>(
+            'const m = require("fs"); await m.promises.rm("/tmp/x")',
+        ],
+    )
+    def test_fs_promises_namespace_destructure_deletes(self, clf, command):
+        a = _c(clf, "exec", {"command": command}, tool_kind="code_mode_exec")
+        assert a.ontology_class == "DeleteFile", command
+        assert a.risk_level == "CriticalRisk", command
+
+    def test_fs_promises_non_delete_not_escalated(self, clf):
+        # Destructured promises calling a non-delete verb must not be a delete.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'const { promises } = require("fs"); await promises.readFile("/tmp/x")'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class != "DeleteFile"
+
 
 # --- B1: code-mode classification survives the result-binding round-trip ---
 

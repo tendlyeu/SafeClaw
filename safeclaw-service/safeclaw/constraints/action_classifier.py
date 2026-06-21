@@ -365,9 +365,12 @@ class ActionClassifier:
         """Build DeleteFile patterns for fs removal calls reached via aliases.
 
         Covers: namespace bindings (`const m = require("fs")` / `await import`,
-        `import * as m`/default) → `m.<verb>(`; and renamed/destructured bindings
-        (`const {rmSync: del} = require("fs")`, `import {rm as nuke} from "fs"`,
-        and destructuring from a namespace alias) → bare `del(`/`nuke(`.
+        `import * as m`/default) → `m.<verb>(` and `m.promises.<verb>(`; a
+        destructured `promises` namespace (`const {promises} = require("fs")`,
+        `import {promises as p} from "node:fs"`) → `promises.<verb>(`/`p.<verb>(`;
+        and renamed/destructured delete-verb bindings (`const {rmSync: del} =
+        require("fs")`, `import {rm as nuke} from "fs"`, destructuring from a
+        namespace alias) → bare `del(`/`nuke(`.
 
         Deliberately heuristic: deeper indirection (computed property access like
         `fs["rm"+"Sync"]`, passing the function as a value) is not tracked and
@@ -388,13 +391,20 @@ class ActionClassifier:
                 halves = _DESTRUCT_RENAME_RE.split(entry, maxsplit=1)
                 orig = halves[0].strip()
                 local = halves[-1].strip() if len(halves) > 1 else orig
-                if orig in _FS_VERB_SET and re.fullmatch(_ID, local):
+                if not re.fullmatch(_ID, local):
+                    continue
+                if orig in _FS_VERB_SET:
                     verb_aliases.add(local)
+                elif orig == "promises":
+                    # The destructured fs.promises API is itself a namespace whose
+                    # members include the delete verbs (#322 follow-up).
+                    ns_aliases.add(local)
 
         for m in _FS_DESTRUCT_FROM_MODULE_RE.finditer(command):
             _collect(m.group(1) or m.group(2) or "")
-        # Destructure from a known namespace alias: `const {rmSync} = m`.
-        for alias in ns_aliases:
+        # Destructure from a known namespace alias: `const {rmSync} = m`. Snapshot
+        # the set since _collect may add promises aliases to it during iteration.
+        for alias in tuple(ns_aliases):
             for m in re.finditer(
                 rf"(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*{re.escape(alias)}\b", command
             ):
@@ -403,9 +413,11 @@ class ActionClassifier:
         verbs = "|".join(_FS_VERB_SET)
         extra: list[tuple] = []
         for alias in ns_aliases:
+            # Allow an optional `.promises` hop so `<fsAlias>.promises.<verb>(` is
+            # caught alongside `<fsAlias>.<verb>(` and `<promisesAlias>.<verb>(`.
             extra.append(
                 (
-                    rf"\b{re.escape(alias)}\.(?:{verbs})\s*\(",
+                    rf"\b{re.escape(alias)}(?:\.promises)?\.(?:{verbs})\s*\(",
                     "DeleteFile",
                     "CriticalRisk",
                     False,
