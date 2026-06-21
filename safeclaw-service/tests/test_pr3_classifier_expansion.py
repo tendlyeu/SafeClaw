@@ -330,6 +330,32 @@ class TestCodeModeClassification:
         )
         assert a.ontology_class != "DeleteFile"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # assignment alias of the promises namespace from a known fs alias
+            'const fs = require("fs"); const p = fs.promises; await p.rm("/tmp/x")',
+            'const m = require("node:fs"); const q = m.promises; await q.rmdir("/tmp/x")',
+            # plain module reassignment then .promises
+            'const fs = require("fs"); const a = fs; const p = a.promises; p.unlink("/tmp/x")',
+            # reassigned module alias used directly
+            'const fs = require("fs"); const a = fs; a.rmSync("/tmp/x")',
+        ],
+    )
+    def test_fs_assignment_alias_deletes(self, clf, command):
+        a = _c(clf, "exec", {"command": command}, tool_kind="code_mode_exec")
+        assert a.ontology_class == "DeleteFile", command
+        assert a.risk_level == "CriticalRisk", command
+
+    def test_fs_assignment_alias_non_delete_not_escalated(self, clf):
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'const fs = require("fs"); const p = fs.promises; await p.readFile("/x")'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class != "DeleteFile"
+
 
 # --- B1: code-mode classification survives the result-binding round-trip ---
 

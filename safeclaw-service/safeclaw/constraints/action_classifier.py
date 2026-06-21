@@ -402,13 +402,29 @@ class ActionClassifier:
 
         for m in _FS_DESTRUCT_FROM_MODULE_RE.finditer(command):
             _collect(m.group(1) or m.group(2) or "")
-        # Destructure from a known namespace alias: `const {rmSync} = m`. Snapshot
-        # the set since _collect may add promises aliases to it during iteration.
-        for alias in tuple(ns_aliases):
-            for m in re.finditer(
-                rf"(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*{re.escape(alias)}\b", command
-            ):
-                _collect(m.group(1))
+
+        # Propagate to a fixpoint so chains work: assignment aliases
+        # (`const p = fs` or `const p = fs.promises`, where fs is a known alias)
+        # become namespace aliases, and destructures from a known alias
+        # (`const {rm} = fs`) are collected. Aliases only grow (bounded by the
+        # identifiers in the command), so this terminates.
+        changed = True
+        while changed:
+            before = (len(ns_aliases), len(verb_aliases))
+            for alias in tuple(ns_aliases):
+                # `const X = <alias>` / `const X = <alias>.promises` — the negative
+                # lookahead rejects function-value aliases like `= fs.promises.rm`.
+                for am in re.finditer(
+                    rf"(?:const|let|var)\s+({_ID})\s*=\s*{re.escape(alias)}(?:\.promises)?(?![\w$.])",
+                    command,
+                ):
+                    ns_aliases.add(am.group(1))
+                # `const {rmSync} = <alias>`
+                for dm in re.finditer(
+                    rf"(?:const|let|var)\s*\{{([^}}]*)\}}\s*=\s*{re.escape(alias)}\b", command
+                ):
+                    _collect(dm.group(1))
+            changed = (len(ns_aliases), len(verb_aliases)) != before
 
         verbs = "|".join(_FS_VERB_SET)
         extra: list[tuple] = []
