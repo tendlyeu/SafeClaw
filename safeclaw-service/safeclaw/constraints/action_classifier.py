@@ -496,6 +496,24 @@ class ActionClassifier:
                     break
             if matched_cls:
                 chain_classes.append(matched_cls)
+            elif code_mode:
+                # An unclassified segment in a code-mode body cannot be proven
+                # safe, so it contributes a CodeModeExec/HighRisk CANDIDATE (not a
+                # passive chain entry) — otherwise an earlier known-safe statement
+                # (e.g. `runTests("npm test"); console.log("x")`) would launder the
+                # whole body past the confirmation floor.
+                chain_classes.append("CodeModeExec")
+                if highest_risk is None or RISK_ORDER.get("HighRisk", 0) > RISK_ORDER.get(
+                    highest_risk.risk_level, 0
+                ):
+                    highest_risk = ClassifiedAction(
+                        ontology_class="CodeModeExec",
+                        risk_level="HighRisk",
+                        is_reversible=False,
+                        affects_scope="LocalOnly",
+                        tool_name=tool_name,
+                        params=params,
+                    )
             else:
                 chain_classes.append("ExecuteCommand")
 

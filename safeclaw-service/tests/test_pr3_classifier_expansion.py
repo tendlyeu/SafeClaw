@@ -523,3 +523,75 @@ class TestCodeModeConfirmFloor:
         result = eng.derived_checker.check(action, UserPreferences(), [])
         assert result.requires_confirmation is True
         assert "CodeModeExecConfirmRule" in result.derived_rules
+
+
+class TestCodeModeMixedBody:
+    def _engine(self, tmp_path):
+        return FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+
+    def test_mixed_known_safe_plus_unclassified_is_codemode(self, clf):
+        # An earlier known-safe statement must not launder a later unclassified
+        # one out of the confirmation floor.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'runTests("npm test"); console.log("hi")'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class == "CodeModeExec"
+        assert a.risk_level == "HighRisk"
+
+    def test_mixed_body_requires_confirmation(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test"); console.log("hi")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.requires_confirmation is True
+
+    def test_dangerous_segment_still_dominates(self, clf):
+        # A Critical delete still wins over the HighRisk CodeModeExec floor.
+        a = _c(
+            clf,
+            "exec",
+            {"command": 'console.log("x"); fs.rmSync("/data", {recursive: true})'},
+            tool_kind="code_mode_exec",
+        )
+        assert a.ontology_class == "DeleteFile"
+        assert a.risk_level == "CriticalRisk"
+
+    def test_single_known_safe_still_allowed(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s2",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.block is False and dec.requires_confirmation is False
