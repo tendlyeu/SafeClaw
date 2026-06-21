@@ -2,7 +2,7 @@
   "id": "safeclaw",
   "name": "SafeClaw Neurosymbolic Governance",
   "description": "Validates AI agent actions against OWL ontologies and SHACL constraints before execution",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "Tendly EU",
   "license": "MIT",
   "homepage": "https://safeclaw.eu",
@@ -23,13 +23,21 @@
       },
       "enforcement": {
         "type": "string",
-        "enum": ["enforce", "warn-only", "audit-only", "disabled"],
+        "enum": [
+          "enforce",
+          "warn-only",
+          "audit-only",
+          "disabled"
+        ],
         "default": "enforce",
         "description": "Enforcement mode: enforce blocks violations, warn-only logs, audit-only records silently"
       },
       "failMode": {
         "type": "string",
-        "enum": ["open", "closed"],
+        "enum": [
+          "open",
+          "closed"
+        ],
         "default": "open",
         "description": "Behavior when service is unreachable: open allows actions, closed blocks them"
       },
