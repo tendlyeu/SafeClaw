@@ -71,14 +71,31 @@ def test_rewrite_disabled_by_config(tmp_path):
         main_module.engine = None
 
 
-def test_blocked_call_has_no_rewrite(client):
-    c, eng = client
-    # A delete is CriticalRisk and blocked for the default developer role; even
-    # with control chars in the path, a blocked call returns no rewrite.
+def test_confirmation_required_call_gets_rewrite(client):
+    # SafeClaw models confirmation as block=True + confirmationRequired=True. The
+    # call MAY still execute after approval, so the sanitized params must be
+    # returned (the plugin carries them onto the approval result, which OpenClaw
+    # applies post-approval). A `delete` requires confirmation.
+    c, _ = client
     r = c.post(
         "/api/v1/evaluate/tool-call",
-        json={"sessionId": "s", "toolName": "delete", "params": {"file_path": "/x\x00y"}},
+        json={"sessionId": "s", "toolName": "delete", "params": {"file_path": "/tmp/a\x00b.txt"}},
     )
     body = r.json()
-    if body["block"]:
-        assert body["params"] is None
+    assert body["confirmationRequired"] is True
+    assert body["params"] == {"file_path": "/tmp/ab.txt"}
+
+
+def test_hard_blocked_call_has_no_rewrite(client):
+    # A genuine hard block (block=True, confirmationRequired=False) never
+    # executes, so no rewrite even with control chars. `git push --force` is a
+    # policy hard-block.
+    c, _ = client
+    r = c.post(
+        "/api/v1/evaluate/tool-call",
+        json={"sessionId": "s", "toolName": "exec", "params": {"command": "git push --force\x00"}},
+    )
+    body = r.json()
+    assert body["block"] is True
+    assert body["confirmationRequired"] is False
+    assert body["params"] is None

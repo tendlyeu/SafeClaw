@@ -291,10 +291,13 @@ export default {
         log.warn(`[SafeClaw] Service unavailable at ${cfg.serviceUrl} (fail-closed mode, audit-only)`);
       }
 
-      // If service says confirmation required, use OpenClaw's native approval flow
+      // If service says confirmation required, use OpenClaw's native approval flow.
+      // Carry any param rewrite (#316) on the same result — OpenClaw applies it as
+      // the approval's overrideParams once the user approves, so the post-approval
+      // execution still runs the governed (sanitized) params.
       if (r?.confirmationRequired) {
         const riskLevel = (r.riskLevel as string) || '';
-        return {
+        const result: BeforeToolCallResult = {
           requireApproval: {
             title: 'SafeClaw Governance Check',
             description: (r.reason as string) || 'This action requires confirmation',
@@ -303,7 +306,11 @@ export default {
             timeoutBehavior: approvalTimeoutBehaviorForRisk(riskLevel),
             allowedDecisions: approvalAllowedDecisionsForRisk(riskLevel),
           },
-        } satisfies BeforeToolCallResult;
+        };
+        if (r.params && typeof r.params === 'object') {
+          result.params = r.params as Record<string, unknown>;
+        }
+        return result satisfies BeforeToolCallResult;
       }
 
       if (r?.block) {

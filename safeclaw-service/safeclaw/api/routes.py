@@ -263,13 +263,18 @@ async def evaluate_tool_call(request: ToolCallRequest, req: Request) -> Decision
         )
 
     decision = await engine.evaluate_tool_call(event)
-    # Param rewrite (#316): if sanitization changed the params and the call is not
-    # blocked, return the sanitized version so the tool executes what the service
-    # governed (control chars stripped) rather than the raw input.
+    # Param rewrite (#316): if sanitization changed the params and the call MAY
+    # still execute, return the sanitized version so the tool runs what the
+    # service governed (control chars stripped). "May execute" = allowed OR
+    # confirmation-required (SafeClaw models confirmation as block=True +
+    # confirmationRequired=True). A HARD block (block, not confirmation) never
+    # executes, so no rewrite. On the confirmation path the plugin carries this
+    # `params` onto the approval result, which OpenClaw applies after approval.
+    hard_blocked = decision.block and not decision.requires_confirmation
     rewritten = None
     if (
         engine.config.tool_param_rewrite_enabled
-        and not decision.block
+        and not hard_blocked
         and sanitized_params != request.params
     ):
         rewritten = sanitized_params
