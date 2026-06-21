@@ -189,10 +189,17 @@ class TestCodeModeClassification:
         assert a.risk_level == "CriticalRisk"
         assert a.tool_name == "sandbox_exec"
 
-    def test_sandbox_process_default_is_execute_command(self, clf):
+    def test_sandbox_process_default_is_code_mode_exec(self, clf):
+        # Unclassified sandbox/code-mode source execution gets the distinct
+        # CodeModeExec class (confirmed by default) rather than ExecuteCommand.
         a = _c(clf, "sandbox_process", {"command": "node server.js"})
-        assert a.ontology_class == "ExecuteCommand"
+        assert a.ontology_class == "CodeModeExec"
         assert a.risk_level == "HighRisk"
+
+    def test_plain_shell_default_stays_execute_command(self, clf):
+        # Interactive shell exec is NOT code-mode and must keep ExecuteCommand.
+        a = _c(clf, "exec", {"command": "./run-something --flag"})
+        assert a.ontology_class == "ExecuteCommand"
 
     def test_js_fs_delete_is_critical(self, clf):
         a = _c(
@@ -434,3 +441,85 @@ class TestMessageSendConfirmation:
             action = ClassifiedAction(cls, "HighRisk", False, "ExternalWorld", "message", {})
             result = eng.preference_checker.check(action, prefs)
             assert result.requires_confirmation, cls
+
+
+# --- Code-mode confirmation floor: the durable backstop ---
+
+
+class TestCodeModeConfirmFloor:
+    def _engine(self, tmp_path):
+        return FullEngine(
+            SafeClawConfig(
+                data_dir=tmp_path,
+                ontology_dir=Path(__file__).parent.parent / "safeclaw" / "ontologies",
+                audit_dir=tmp_path / "audit",
+            )
+        )
+
+    def test_unclassified_code_mode_requires_confirmation(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        # Arbitrary JS that matches no known-safe/known-dangerous pattern: even an
+        # obfuscated delete (computed property) the classifier can't read still
+        # cannot execute silently — it requires confirmation.
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'const fs = require("fs"); fs["rm"+"Sync"]("/tmp/x")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.requires_confirmation is True
+
+    def test_known_safe_code_mode_not_confirmed(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s2",
+                    user_id="u",
+                    tool_name="exec",
+                    params={"command": 'runTests("npm test")'},
+                    tool_kind="code_mode_exec",
+                )
+            )
+        )
+        assert dec.block is False
+        assert dec.requires_confirmation is False
+
+    def test_plain_shell_not_confirmed_by_floor(self, tmp_path):
+        import asyncio
+
+        from safeclaw.engine.core import ToolCallEvent
+
+        eng = self._engine(tmp_path)
+        dec = asyncio.run(
+            eng.evaluate_tool_call(
+                ToolCallEvent(
+                    session_id="s3", user_id="u", tool_name="exec", params={"command": "ls -la"}
+                )
+            )
+        )
+        assert dec.block is False
+        assert dec.requires_confirmation is False
+
+    def test_derived_rule_fires_for_codemodeexec(self, tmp_path):
+        from safeclaw.constraints.action_classifier import ClassifiedAction
+        from safeclaw.constraints.preference_checker import UserPreferences
+
+        eng = self._engine(tmp_path)
+        action = ClassifiedAction("CodeModeExec", "HighRisk", False, "LocalOnly", "exec", {})
+        result = eng.derived_checker.check(action, UserPreferences(), [])
+        assert result.requires_confirmation is True
+        assert "CodeModeExecConfirmRule" in result.derived_rules

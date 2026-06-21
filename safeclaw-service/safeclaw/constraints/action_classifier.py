@@ -503,9 +503,15 @@ class ActionClassifier:
             highest_risk.chain_classes = chain_classes
             return highest_risk
 
-        # Default shell/code-mode command classification
+        # Default classification for an UNMATCHED command. Code/sandbox source
+        # execution (code_mode) runs arbitrary source SafeClaw could not pin to a
+        # known-safe or known-dangerous class, so it gets a distinct CodeModeExec
+        # class that the derived checker confirms by default (the durable backstop
+        # behind the best-effort JS pattern/alias detection). Plain shell stays
+        # ExecuteCommand so interactive `exec`/`bash` is unaffected.
+        default_class = "CodeModeExec" if code_mode else "ExecuteCommand"
         return ClassifiedAction(
-            ontology_class="ExecuteCommand",
+            ontology_class=default_class,
             risk_level="HighRisk",
             is_reversible=False,
             affects_scope="LocalOnly",
