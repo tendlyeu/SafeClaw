@@ -4,13 +4,7 @@ Neurosymbolic governance plugin for OpenClaw AI agents. Validates every tool cal
 
 ## Installation
 
-### Via ClawHub (recommended)
-
-```bash
-openclaw plugins install safeclaw
-```
-
-### Manual install
+### Via npm (recommended)
 
 ```bash
 npm install -g openclaw-safeclaw-plugin
@@ -19,6 +13,8 @@ safeclaw-plugin restart-openclaw
 ```
 
 The `setup` command copies the plugin manifest to `~/.openclaw/extensions/safeclaw/` and enables it in `~/.openclaw/openclaw.json`. After install, restart OpenClaw to activate the plugin.
+
+> Install from npm (above) or from source (`git clone` + `npm install && npm run build` in `openclaw-safeclaw-plugin/`). This plugin is **not** on ClawHub — the `safeclaw` id there belongs to an unrelated third-party plugin, not this project.
 
 ## Quick Start
 
